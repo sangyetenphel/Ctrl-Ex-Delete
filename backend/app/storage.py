@@ -1,36 +1,73 @@
 """
-Temporary in-memory storage.
-When Neon is ready, only THIS file changes. The routes stay the same.
-Note: everything here is wiped whenever the server restarts.
+Neon (PostgreSQL) storage.
+This is the ONLY file that talks to the database. The routes call these
+functions and don't care how the data is stored.
 """
-from datetime import datetime, timezone
 from uuid import UUID
 
+import psycopg
+from psycopg.rows import dict_row
+
+from app.config import settings
 from app.schemas import CheckIn, CheckInCreate
 
-_installations: set[UUID] = set()
-_check_ins: list[CheckIn] = []
-_next_id = 1
+# Columns returned to the app, in one place so every query stays consistent.
+CHECK_IN_COLUMNS = """
+    id, installation_id, feeling, contact_urge, energy_level,
+    hardest_areas, local_date, created_at
+"""
 
 
-def ensure_installation(installation_id: UUID) -> None:
-    _installations.add(installation_id)
+def _connect() -> psycopg.Connection:
+    # dict_row makes each row a dict, so it can be passed straight into CheckIn(**row).
+    # Using "with _connect() as conn" commits automatically when the block ends
+    # (or rolls back if something fails).
+    return psycopg.connect(settings.database_url, row_factory=dict_row)
+
+
+def _ensure_installation(conn: psycopg.Connection, installation_id: UUID) -> None:
+    # First time we see this ID: add it. Every time after: update last_seen_at.
+    conn.execute(
+        """
+        INSERT INTO installations (id) VALUES (%s)
+        ON CONFLICT (id) DO UPDATE SET last_seen_at = now()
+        """,
+        (installation_id,),
+    )
 
 
 def create_check_in(installation_id: UUID, data: CheckInCreate) -> CheckIn:
-    global _next_id
-    ensure_installation(installation_id)
-    check_in = CheckIn(
-        id=_next_id,
-        installation_id=installation_id,
-        created_at=datetime.now(timezone.utc),
-        **data.model_dump(),
-    )
-    _next_id += 1
-    _check_ins.append(check_in)
-    return check_in
+    with _connect() as conn:
+        _ensure_installation(conn, installation_id)
+        row = conn.execute(
+            f"""
+            INSERT INTO check_ins
+                (installation_id, feeling, contact_urge, energy_level,
+                 hardest_areas, local_date)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING {CHECK_IN_COLUMNS}
+            """,
+            (
+                installation_id,
+                data.feeling,
+                data.contact_urge,
+                data.energy_level,
+                data.hardest_areas,
+                data.local_date,
+            ),
+        ).fetchone()
+    return CheckIn(**row)
 
 
 def list_check_ins(installation_id: UUID) -> list[CheckIn]:
-    mine = [c for c in _check_ins if c.installation_id == installation_id]
-    return sorted(mine, key=lambda c: c.created_at, reverse=True)
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT {CHECK_IN_COLUMNS}
+            FROM check_ins
+            WHERE installation_id = %s
+            ORDER BY created_at DESC
+            """,
+            (installation_id,),
+        ).fetchall()
+    return [CheckIn(**row) for row in rows]
