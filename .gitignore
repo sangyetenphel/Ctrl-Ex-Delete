@@ -1,3 +1,6 @@
 # Xcode personal settings
 **/xcuserdata/
 *.xcuserstate
+
+/CtrlExDelete/CED-Figma-Reference/
+.DS_Store

@@ -1,70 +1,46 @@
 import SwiftUI
 
+/// The root of the app. It shows whichever screen the router says is current,
+/// plus the bottom tab bar on screens that use it.
 struct ContentView: View {
-    @State private var selectedMood: String?
-    @AppStorage("savedMood") private var savedMood = ""
-    @AppStorage("savedAt") private var savedAt = 0.0
-
-    private let moods = ["Happy", "Neutral", "Sad"]
-    private let blue = Color(red: 0.35, green: 0.49, blue: 0.67)
+    #if DEBUG
+    @State private var router = AppRouter(start: AppRouter.debugStartScreen())
+    #else
+    @State private var router = AppRouter()
+    #endif
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            Text("Daily Check-In")
-                .font(.largeTitle.bold())
+        VStack(spacing: 0) {
+            currentScreen
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
+                .id(router.current)
 
-            Text("How are you feeling today?")
-                .font(.title2)
-
-            ForEach(moods, id: \.self) { mood in
-                Button {
-                    selectedMood = mood
-                } label: {
-                    HStack {
-                        Text(mood)
-                        Spacer()
-                        if selectedMood == mood {
-                            Image(systemName: "checkmark.circle.fill")
-                        }
-                    }
-                    .font(.headline)
-                    .padding()
-                    .background(
-                        selectedMood == mood
-                            ? blue.opacity(0.2)
-                            : Color.white
-                    )
-                    .foregroundStyle(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
+            if router.current.showsBottomNav {
+                BottomNavBar()
             }
-
-            Button {
-                guard let selectedMood else { return }
-                savedMood = selectedMood
-                savedAt = Date().timeIntervalSince1970
-            } label: {
-                Text("Save Check-In")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(blue)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .disabled(selectedMood == nil)
-            .opacity(selectedMood == nil ? 0.5 : 1)
-
-            if !savedMood.isEmpty {
-                Text("Saved! Your last check-in was \(savedMood.lowercased()).")
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
         }
-        .padding(24)
-        .frame(maxWidth: 500)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(red: 0.96, green: 0.95, blue: 0.92))
+        .environment(router)
+        // The prototype is designed for light mode only.
+        .preferredColorScheme(.light)
     }
+
+    @ViewBuilder
+    private var currentScreen: some View {
+        switch router.current {
+        case .welcome:
+            WelcomeView()
+        case .checkIn:
+            CheckInView()
+        case .activities:
+            ActivitiesView()
+        default:
+            UpcomingScreen(screen: router.current)
+        }
+    }
+}
+
+#Preview {
+    let _ = FontRegistrar.registerBundledFonts()
+    ContentView()
 }
