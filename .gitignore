@@ -1,5 +1,6 @@
 # Python
 venv/
+.venv/
 __pycache__/
 *.pyc
 
@@ -10,6 +11,9 @@ __pycache__/
 .DS_Store
 
 # Xcode
-xcuserdata/
+**/xcuserdata/
 DerivedData/
 *.xcuserstate
+
+# Local Figma reference exports (not committed)
+/CtrlExDelete/CED-Figma-Reference/
