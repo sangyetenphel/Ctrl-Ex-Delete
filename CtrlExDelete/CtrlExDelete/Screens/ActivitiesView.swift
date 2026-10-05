@@ -2,38 +2,54 @@ import SwiftUI
 
 /// Activity recommendations: one card at a time with arrows and dots to page
 /// through, plus Skip, "I'll try this" and Save buttons.
+/// The cards come from the backend, for the user's most recent check-in.
 struct ActivitiesView: View {
     @Environment(AppRouter.self) private var router
-    @State private var deck = ActivityDeck()
+    @State private var loadState = LoadState.loading
+    @State private var deck = ActivityDeck(activities: [])
+    @State private var isSelecting = false
+    @State private var selectionError: String?
     @State private var isToastVisible = false
     @State private var toastTask: Task<Void, Never>?
+
+    private enum LoadState: Equatable {
+        case loading
+        case loaded
+        case noCheckIn          // nothing to base recommendations on yet
+        case noRecommendations  // checked in, but the server returned no cards
+        case failed(String)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    ActivityCard(
-                        activity: deck.current,
-                        canGoBack: deck.canGoBack,
-                        canGoForward: deck.canGoForward,
-                        onBack: { deck.goBack() },
-                        onForward: { deck.goForward() }
-                    )
-                    .padding(.bottom, 20)
-
-                    pageDots
-                        .padding(.bottom, 20)
-
-                    actionButtons
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+            switch loadState {
+            case .loading:
+                messageView(title: nil, message: "Finding activities for today\u{2026}", showsSpinner: true)
+            case .loaded:
+                deckView
+            case .noCheckIn:
+                messageView(
+                    title: "Check in first",
+                    message: "Your activities are picked from today\u{2019}s check-in.",
+                    buttonTitle: "Begin today\u{2019}s check-in"
+                ) { router.go(to: .checkIn) }
+            case .noRecommendations:
+                messageView(
+                    title: "No activities yet",
+                    message: "There aren\u{2019}t any activities for your latest check-in right now.",
+                    buttonTitle: "Try again"
+                ) { Task { await loadRecommendations() } }
+            case .failed(let message):
+                messageView(
+                    title: "Couldn\u{2019}t load activities",
+                    message: message,
+                    buttonTitle: "Try again"
+                ) { Task { await loadRecommendations() } }
             }
-            .scrollIndicators(.hidden)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(CEDColor.background)
         .overlay(alignment: .bottom) {
             if isToastVisible {
@@ -42,7 +58,110 @@ struct ActivitiesView: View {
                     .transition(.opacity)
             }
         }
+        .task { await loadRecommendations() }
         .onDisappear { toastTask?.cancel() }
+    }
+
+    private var deckView: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ActivityCard(
+                    activity: deck.current,
+                    canGoBack: deck.canGoBack,
+                    canGoForward: deck.canGoForward,
+                    onBack: { deck.goBack() },
+                    onForward: { deck.goForward() }
+                )
+                .padding(.bottom, 20)
+
+                pageDots
+                    .padding(.bottom, 20)
+
+                actionButtons
+
+                if let selectionError {
+                    Text(selectionError)
+                        .cedTextStyle(.body)
+                        .foregroundStyle(CEDColor.rose)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 12)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    // MARK: Loading from the backend
+
+    private func loadRecommendations() async {
+        loadState = .loading
+        do {
+            let response = try await APIClient.shared.latestRecommendations()
+            if response.checkInId == nil {
+                loadState = .noCheckIn
+            } else if response.recommendations.isEmpty {
+                loadState = .noRecommendations
+            } else {
+                deck = ActivityDeck(activities: response.recommendations.map(Activity.init))
+                loadState = .loaded
+            }
+        } catch {
+            loadState = .failed(error.localizedDescription)
+        }
+    }
+
+    /// "I'll try this": saves the choice, then opens the reflection screen
+    /// only after the server confirms it.
+    private func selectCurrentActivity() {
+        guard !isSelecting else { return }
+        isSelecting = true
+        selectionError = nil
+        let recommendationId = deck.current.recommendationId
+
+        Task {
+            defer { isSelecting = false }
+            do {
+                _ = try await APIClient.shared.selectRecommendation(id: recommendationId)
+                router.go(to: .reflection)
+            } catch {
+                selectionError = "Your choice wasn\u{2019}t saved. \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: Loading, empty and error messages
+
+    private func messageView(
+        title: String?,
+        message: String,
+        showsSpinner: Bool = false,
+        buttonTitle: String? = nil,
+        action: @escaping () -> Void = {}
+    ) -> some View {
+        VStack(spacing: 12) {
+            if showsSpinner {
+                ProgressView()
+                    .tint(CEDColor.primary)
+            }
+            if let title {
+                Text(title)
+                    .cedTextStyle(.cardTitle)
+                    .foregroundStyle(CEDColor.foreground)
+            }
+            Text(message)
+                .cedTextStyle(.body)
+                .foregroundStyle(CEDColor.mutedForeground)
+                .multilineTextAlignment(.center)
+            if let buttonTitle {
+                PrimaryButton(title: buttonTitle, action: action)
+                    .padding(.top, 8)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .padding(.top, 40)
     }
 
     // MARK: Header
@@ -109,10 +228,8 @@ struct ActivitiesView: View {
             }
             .buttonStyle(.plain)
 
-            Button {
-                router.go(to: .reflection)
-            } label: {
-                Text("I\u{2019}ll try this")
+            Button(action: selectCurrentActivity) {
+                Text(isSelecting ? "Saving\u{2026}" : "I\u{2019}ll try this")
                     .cedTextStyle(.bodyBold)
                     .foregroundStyle(CEDColor.cream)
                     .multilineTextAlignment(.center)
@@ -121,6 +238,7 @@ struct ActivitiesView: View {
                     .background(CEDColor.primary, in: RoundedRectangle(cornerRadius: CEDRadius.xl))
             }
             .buttonStyle(PressScaleButtonStyle())
+            .disabled(isSelecting)
 
             Button(action: saveCurrentActivity) {
                 HStack(spacing: 4) {
