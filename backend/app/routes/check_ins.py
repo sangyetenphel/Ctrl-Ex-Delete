@@ -1,20 +1,15 @@
-from typing import Annotated
-from uuid import UUID
-
-from fastapi import APIRouter, Header, status
+from fastapi import APIRouter, status
 
 from app import storage
+from app.dependencies import InstallationId
 from app.schemas import CheckIn, CheckInCreate
 
 router = APIRouter(prefix="/check-ins", tags=["check-ins"])
 
-# FastAPI turns x_installation_id into the "X-Installation-ID" header.
-# Typing it as UUID means anything that isn't a valid UUID gets rejected.
-InstallationId = Annotated[UUID, Header()]
-
 
 @router.post("", response_model=CheckIn, status_code=status.HTTP_201_CREATED)
 def create_check_in(payload: CheckInCreate, x_installation_id: InstallationId):
+    """Saves a check-in and prepares its activity recommendations."""
     return storage.create_check_in(x_installation_id, payload)
 
 

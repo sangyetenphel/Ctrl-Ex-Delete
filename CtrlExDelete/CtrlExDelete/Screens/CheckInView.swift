@@ -2,9 +2,21 @@ import SwiftUI
 
 /// Daily check-in: four questions, a progress bar that fills as each one is
 /// answered, and a button into the healing room once everything is answered.
+/// The button saves the check-in to the backend and only moves on once the
+/// server confirms it was saved.
 struct CheckInView: View {
     @Environment(AppRouter.self) private var router
     @State private var answers = CheckInAnswers()
+    @State private var submission = Submission.idle
+
+    private enum Submission: Equatable {
+        case idle
+        case saving
+        case failed(String)
+        case saved
+    }
+
+    private var isBusy: Bool { submission == .saving || submission == .saved }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,13 +24,21 @@ struct CheckInView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    emotionSection
-                    urgeSection
-                    energySection
-                    hardestSection
+                    Group {
+                        emotionSection
+                        urgeSection
+                        energySection
+                        hardestSection
+                    }
+                    // Answers can't change while they're being saved.
+                    .disabled(isBusy)
 
-                    PrimaryButton(title: "Enter my room \u{2192}", isEnabled: answers.isComplete) {
-                        router.go(to: .room)
+                    if case .failed(let message) = submission {
+                        errorBanner(message)
+                    }
+
+                    PrimaryButton(title: buttonTitle, isEnabled: answers.isComplete && !isBusy) {
+                        submit()
                     }
                     .padding(.bottom, 8)
                 }
@@ -27,6 +47,65 @@ struct CheckInView: View {
             .scrollIndicators(.hidden)
         }
         .background(CEDColor.checkInBackground)
+        .overlay(alignment: .bottom) {
+            if submission == .saved {
+                ToastView(message: "Check-in saved")
+                    .padding(.bottom, 16)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    // MARK: Saving
+
+    private var buttonTitle: String {
+        switch submission {
+        case .saving: "Saving your check-in\u{2026}"
+        case .saved: "Saved"
+        case .idle, .failed: "Enter my room \u{2192}"
+        }
+    }
+
+    private func submit() {
+        // isBusy also blocks a second tap while the first save is in flight.
+        guard !isBusy, let request = answers.makeRequest() else { return }
+        withAnimation(.easeOut(duration: 0.2)) { submission = .saving }
+
+        Task {
+            do {
+                _ = try await APIClient.shared.submitCheckIn(request)
+                withAnimation(.easeOut(duration: 0.2)) { submission = .saved }
+                AccessibilityNotification.Announcement("Check-in saved").post()
+                // Let the confirmation show briefly before moving on.
+                try? await Task.sleep(for: .seconds(1))
+                router.go(to: .room)
+            } catch {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    submission = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Your check-in wasn\u{2019}t saved")
+                .cedTextStyle(.bodyBold)
+                .foregroundStyle(CEDColor.foreground)
+            Text(message)
+                .cedTextStyle(.body)
+                .foregroundStyle(CEDColor.mutedForeground)
+            Button("Try again", action: submit)
+                .cedTextStyle(.bodyBold)
+                .foregroundStyle(CEDColor.primary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(CEDColor.card, in: RoundedRectangle(cornerRadius: CEDRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: CEDRadius.lg)
+                .strokeBorder(CEDColor.rose, lineWidth: 2)
+        )
     }
 
     // MARK: Header
@@ -172,12 +251,12 @@ struct CheckInView: View {
             sectionTitle("What feels hardest right now?")
 
             FlowLayout(spacing: 8) {
-                ForEach(SampleData.hardestThings, id: \.self) { item in
+                ForEach(HardestArea.allCases) { item in
                     let isSelected = answers.hardestThings.contains(item)
                     Button {
                         answers.toggleHardestThing(item)
                     } label: {
-                        Text(item)
+                        Text(item.label)
                             .cedTextStyle(.bodySemibold)
                             .foregroundStyle(isSelected ? CEDColor.primary : CEDColor.mutedForeground)
                             .padding(.horizontal, 12)

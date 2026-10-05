@@ -1,13 +1,15 @@
 import SwiftUI
 
-// Local sample data for the prototype. Nothing here is saved or sent anywhere.
+// Check-in options, activity cards, and the screen state that goes with them.
+// The raw values of Emotion, EnergyLevel and HardestArea are the exact values
+// the API expects (see docs/api.md), so don't change them without the backend.
 
 // MARK: - Check-in options
 
-enum Emotion: String, CaseIterable, Identifiable {
+enum Emotion: String, CaseIterable, Identifiable, Codable {
     case heavy
-    case gettingThrough
-    case missingThem
+    case gettingThrough = "getting_through"
+    case missingThem = "missing_them"
     case hopeful
 
     var id: String { rawValue }
@@ -49,29 +51,44 @@ enum Emotion: String, CaseIterable, Identifiable {
     }
 }
 
-enum EnergyLevel: String, CaseIterable, Identifiable {
+enum EnergyLevel: String, CaseIterable, Identifiable, Codable {
     case low, medium, high
 
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
 }
 
-enum SampleData {
-    static let hardestThings = [
-        "Feeling lonely",
-        "Missing the relationship",
-        "Wanting answers",
-        "Resisting contact",
-        "Rebuilding confidence",
-    ]
+/// The "What feels hardest right now?" chips, in the order they appear.
+enum HardestArea: String, CaseIterable, Identifiable, Codable {
+    case feelingLonely = "feeling_lonely"
+    case missingRelationship = "missing_relationship"
+    case wantingAnswers = "wanting_answers"
+    case resistingContact = "resisting_contact"
+    case rebuildingConfidence = "rebuilding_confidence"
 
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .feelingLonely: "Feeling lonely"
+        case .missingRelationship: "Missing the relationship"
+        case .wantingAnswers: "Wanting answers"
+        case .resistingContact: "Resisting contact"
+        case .rebuildingConfidence: "Rebuilding confidence"
+        }
+    }
+}
+
+enum SampleData {
     static let urgeRange = 1...10
 }
 
 // MARK: - Activity recommendations
 
+/// One activity card, built from a recommendation sent by the backend.
 struct Activity: Identifiable {
-    let category: String
+    let recommendationId: Int   // used to record "I'll try this"
+    let category: String        // e.g. "Gentle Reset · 10 min"
     let title: String
     let instructions: String
     let whyItFits: String
@@ -79,41 +96,38 @@ struct Activity: Identifiable {
     let background: Color   // soft tint behind the card art
     let accent: Color       // icon and category pill
 
-    var id: String { title }
-}
+    var id: Int { recommendationId }
 
-extension SampleData {
-    /// The three recommendations from the prototype. Like the prototype,
-    /// they are the same every day and don't depend on check-in answers.
-    static let activities = [
-        Activity(
-            category: "Gentle Reset · 10 min",
-            title: "Sit somewhere with sunlight.",
-            instructions: "No productivity needed. Notice three things you can see and take five slow breaths.",
-            whyItFits: "Your energy is low and the urge to reach out is moderate. This activity gives your nervous system a soft reset.",
-            icon: .sun,
-            background: Color(hex: 0xFDE8D8),
-            accent: Color(hex: 0xC4633B)
-        ),
-        Activity(
-            category: "Fresh Air · 20 min",
-            title: "Take a 20-minute walk without checking their social media.",
-            instructions: "Leave your phone in your pocket. Pay attention to sounds around you — birds, wind, footsteps.",
-            whyItFits: "Movement helps interrupt rumination loops. Walking without scrolling gives your mind space to settle.",
-            icon: .zap,
-            background: Color(hex: 0xE8F0E0),
-            accent: Color(hex: 0x6BA84A)
-        ),
-        Activity(
-            category: "Solo Adventure · 2 hrs",
-            title: "Visit a café, movie, or event by yourself.",
-            instructions: "Choose somewhere you\u{2019}ve been curious about. You don\u{2019}t need company to enjoy something new.",
-            whyItFits: "Building comfort with your own company is one of the most powerful steps in healing.",
-            icon: .users,
-            background: Color(hex: 0xEAE0F0),
-            accent: Color(hex: 0x7B5E7B)
-        ),
-    ]
+    init(recommendation: RecommendationDTO) {
+        let activity = recommendation.activity
+        recommendationId = recommendation.id
+        category = "\(activity.categoryLabel) · \(Self.durationText(minutes: activity.durationMinutes))"
+        title = activity.title
+        instructions = activity.instructions
+        whyItFits = activity.whyItFits
+
+        // Card colors and icon come from the activity's category,
+        // matching the prototype's three cards.
+        switch activity.category {
+        case "mindfulness_rest":
+            (icon, background, accent) = (.sun, Color(hex: 0xFDE8D8), Color(hex: 0xC4633B))
+        case "outdoor_movement":
+            (icon, background, accent) = (.zap, Color(hex: 0xE8F0E0), Color(hex: 0x6BA84A))
+        case "solo_exploration":
+            (icon, background, accent) = (.users, Color(hex: 0xEAE0F0), Color(hex: 0x7B5E7B))
+        default: // social_connection or anything new
+            (icon, background, accent) = (.users, CEDColor.secondary, CEDColor.primary)
+        }
+    }
+
+    /// 10 -> "10 min", 120 -> "2 hrs", 90 -> "1 hr 30 min"
+    static func durationText(minutes: Int) -> String {
+        guard minutes >= 60 else { return "\(minutes) min" }
+        let hours = minutes / 60
+        let hourText = hours == 1 ? "1 hr" : "\(hours) hrs"
+        let rest = minutes % 60
+        return rest == 0 ? hourText : "\(hourText) \(rest) min"
+    }
 }
 
 /// Which activity card is showing and which ones were saved.
@@ -123,7 +137,8 @@ struct ActivityDeck {
     private(set) var index = 0
     private(set) var savedIndices: Set<Int> = []
 
-    init(activities: [Activity] = SampleData.activities) {
+    /// `activities` must not be empty.
+    init(activities: [Activity]) {
         self.activities = activities
     }
 
@@ -155,13 +170,13 @@ struct ActivityDeck {
 
 // MARK: - Check-in answers
 
-/// Temporary answers for today's check-in. They live only while the app is open.
+/// Answers for today's check-in, kept on screen until they're sent to the backend.
 struct CheckInAnswers {
     var emotion: Emotion?
     var urge = 4
     var hasAnsweredUrge = false
     var energy: EnergyLevel?
-    var hardestThings: Set<String> = []
+    var hardestThings: Set<HardestArea> = []
 
     /// One flag per question, used by the four-part progress bar.
     var answeredSteps: [Bool] {
@@ -170,11 +185,34 @@ struct CheckInAnswers {
 
     var isComplete: Bool { answeredSteps.allSatisfy { $0 } }
 
-    mutating func toggleHardestThing(_ item: String) {
+    mutating func toggleHardestThing(_ item: HardestArea) {
         if hardestThings.contains(item) {
             hardestThings.remove(item)
         } else {
             hardestThings.insert(item)
         }
+    }
+
+    /// The body for `POST /check-ins`, or nil if a question is unanswered.
+    func makeRequest(on date: Date = .now) -> CheckInRequest? {
+        guard isComplete, let emotion, let energy else { return nil }
+        return CheckInRequest(
+            feeling: emotion,
+            contactUrge: urge,
+            energyLevel: energy,
+            // Same order as the chips on screen, so the saved list is predictable.
+            hardestAreas: HardestArea.allCases.filter(hardestThings.contains),
+            localDate: Self.localDateText(for: date)
+        )
+    }
+
+    /// The user's own calendar day as "YYYY-MM-DD", in their time zone.
+    static func localDateText(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 }

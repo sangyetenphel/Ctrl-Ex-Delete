@@ -1,6 +1,25 @@
-from fastapi import FastAPI
-from app.routes import health, check_ins
+import logging
+
+import psycopg
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+from app.routes import check_ins, health, recommendations
+
+logger = logging.getLogger("ced")
 
 app = FastAPI(title="Ctrl+Ex+Delete API")
 app.include_router(health.router)
 app.include_router(check_ins.router)
+app.include_router(recommendations.router)
+
+
+@app.exception_handler(psycopg.OperationalError)
+def database_unavailable(request: Request, exc: psycopg.OperationalError):
+    # Can't reach Neon (offline, wrong DATABASE_URL, database asleep, ...).
+    # Log the type only: the full message can include the database host.
+    logger.error("Database connection failed: %s", type(exc).__name__)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The database is unavailable. Please try again shortly."},
+    )

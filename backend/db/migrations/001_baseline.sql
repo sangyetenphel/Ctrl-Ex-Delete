@@ -1,21 +1,18 @@
--- Ctrl+Ex+Delete: Neon PostgreSQL schema
--- Week 1: installations + check_ins
--- Week 2 (preview): activities + activity_logs (feeds the Insights charts)
-
--- ─────────────────────────────────────────────
--- WEEK 1
--- ─────────────────────────────────────────────
+-- 001: Baseline schema (Alexa's original Week 1 schema.sql + Week 2 preview).
+--
+-- Uses IF NOT EXISTS so it is safe to run on a database where these tables
+-- were already created by hand from the old backend/db/schema.sql.
 
 -- One row per app install. The iOS app generates the UUID on first launch,
 -- stores it in the Keychain, and sends it in the X-Installation-ID header.
-CREATE TABLE installations (
+CREATE TABLE IF NOT EXISTS installations (
     id            UUID PRIMARY KEY,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- "Where are you right now?" screen
-CREATE TABLE check_ins (
+CREATE TABLE IF NOT EXISTS check_ins (
     id               BIGSERIAL PRIMARY KEY,
     installation_id  UUID NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
 
@@ -47,16 +44,11 @@ CREATE TABLE check_ins (
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_check_ins_install_date
+CREATE INDEX IF NOT EXISTS idx_check_ins_install_date
     ON check_ins (installation_id, local_date);
 
-
--- ─────────────────────────────────────────────
--- WEEK 2 PREVIEW (activity recommendations + Insights)
--- ─────────────────────────────────────────────
-
 -- Catalog of activities the app can suggest
-CREATE TABLE activities (
+CREATE TABLE IF NOT EXISTS activities (
     id          SERIAL PRIMARY KEY,
     title       TEXT NOT NULL,
     category    TEXT NOT NULL
@@ -65,17 +57,17 @@ CREATE TABLE activities (
     is_active   BOOLEAN NOT NULL DEFAULT TRUE
 );
 
--- One row each time a user completes an activity
--- Feeds "Mood after activities" and "What you made time for"
-CREATE TABLE activity_logs (
+-- One row each time a user completes an activity (not used yet; kept for
+-- the future "Mood after activities" and "What you made time for" insights)
+CREATE TABLE IF NOT EXISTS activity_logs (
     id               BIGSERIAL PRIMARY KEY,
     installation_id  UUID NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
     activity_id      INT NOT NULL REFERENCES activities(id),
     mood_after       SMALLINT
-        CHECK (mood_after BETWEEN 1 AND 10),   -- "Rated 1-10 after each activity"
+        CHECK (mood_after BETWEEN 1 AND 10),
     local_date       DATE NOT NULL,
     completed_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_activity_logs_install_date
+CREATE INDEX IF NOT EXISTS idx_activity_logs_install_date
     ON activity_logs (installation_id, local_date);

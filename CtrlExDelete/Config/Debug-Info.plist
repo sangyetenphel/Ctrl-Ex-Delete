@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  DEBUG BUILDS ONLY (set as INFOPLIST_FILE for the Debug configuration).
+  Lets a physical iPhone reach the FastAPI server on your Mac over plain
+  http://Your-Mac-Name.local:8000 while developing. The Simulator doesn't
+  need this. Release builds don't use this file, so they require HTTPS.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connects to the Ctrl+Ex+Delete development server on your local network.</string>
+</dict>
+</plist>

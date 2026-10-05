@@ -3,7 +3,7 @@
 This is the contract between the iOS app and the FastAPI backend.
 **Field names and allowed values must match exactly.** If something here needs to change, update this doc in the same pull request as the code.
 
-- **Status:** Week 1, check-ins only
+- **Status:** Week 2: check-ins, activity recommendations, activity selection
 - **Local base URL:** `http://127.0.0.1:8000` (works from the iOS Simulator on the same Mac)
 - **Interactive docs:** `http://127.0.0.1:8000/docs` (while the backend is running)
 
@@ -90,6 +90,8 @@ Saves a check-in. Called when the user taps **Enter my room**.
 
 The UI text can change freely. Only the values sent to the API need to stay the same.
 
+Saving a check-in also creates its activity recommendations (same database transaction), so they're ready for `GET /recommendations/latest`.
+
 **Response `201 Created`**: the saved check-in, with three server-generated fields added:
 ```json
 {
@@ -116,11 +118,75 @@ Returns all check-ins for this installation, **newest first**.
 
 ---
 
+## `GET /recommendations/latest`
+
+Activity cards for this installation's **most recent** check-in. Called when the Activities screen opens.
+
+**Headers:** `X-Installation-ID` (required)
+
+**Response `200`**
+```json
+{
+  "check_in_id": 12,
+  "check_in_local_date": "2026-10-04",
+  "recommendations": [
+    {
+      "id": 31,
+      "position": 1,
+      "selected_at": null,
+      "activity": {
+        "id": 1,
+        "slug": "sit_in_sunlight",
+        "title": "Sit somewhere with sunlight.",
+        "category": "mindfulness_rest",
+        "category_label": "Gentle Reset",
+        "duration_minutes": 10,
+        "instructions": "No productivity needed. ...",
+        "why_it_fits": "Your energy is low and ..."
+      }
+    }
+  ]
+}
+```
+
+- `recommendations` is in card order (`position` 1, 2, 3...).
+- `id` is the **recommendation** id. Use it to record a selection.
+- `selected_at` is set once the user has tapped "I'll try this" on that card.
+- `category` is one of `outdoor_movement`, `mindfulness_rest`, `solo_exploration`, `social_connection`. The app picks the card's icon and colors from it.
+- **No check-ins yet:** `200` with `"check_in_id": null`, `"check_in_local_date": null`, `"recommendations": []`. The app shows "Check in first".
+
+**Current recommendation rule:** every active activity, in catalog order, up to 3, which is the same as the prototype. The check-in answers don't change the result yet. The rule lives in `backend/app/recommendation_rules.py`.
+
+---
+
+## `POST /recommendations/{id}/selection`
+
+Records that the user tapped **I'll try this** on a recommendation. No request body.
+
+**Headers:** `X-Installation-ID` (required)
+
+**Response `201 Created`** (first time) or **`200 OK`** (already selected; returns the existing row, so tapping twice never creates two rows):
+```json
+{
+  "id": 7,
+  "recommendation_id": 31,
+  "activity_id": 1,
+  "check_in_id": 12,
+  "selected_at": "2026-10-04T22:21:32.136186Z"
+}
+```
+
+**`404`** if the recommendation doesn't exist **or belongs to a different installation**.
+
+---
+
 ## Errors
 
 | Code | Meaning | Common cause |
 |---|---|---|
+| `404` | Not found | Selecting a recommendation id that isn't yours |
 | `422` | Validation error | Missing or invalid `X-Installation-ID`, a misspelled value (e.g. `"missing"` instead of `"missing_them"`), `contact_urge` outside 1–10, wrong date format |
+| `503` | Database unavailable | The backend can't reach Neon. Body: `{"detail": "The database is unavailable. Please try again shortly."}` |
 
 Example `422` body:
 ```json
@@ -142,16 +208,20 @@ Example `422` body:
 
 ## Notes for the Swift side
 
-- **Key names:** use `encoder.keyEncodingStrategy = .convertToSnakeCase` and `decoder.keyDecodingStrategy = .convertFromSnakeCase` so Swift's `contactUrge` maps to `contact_urge` automatically.
-- **Enums:** a Swift `enum Feeling: String, Codable` with raw values matching the table above works well (e.g. `case gettingThrough = "getting_through"`). Set the raw values explicitly; don't rely on the key strategy for enum values.
-- **Dates:** Swift's built-in `.iso8601` date decoding **fails on fractional seconds** like `.053814Z`. For Week 1, the simplest fix is to decode `created_at` and `local_date` as `String`. Proper date parsing can come later.
-- **Plain HTTP:** iOS blocks `http://` by default (App Transport Security). For local testing, add an ATS exception for local networking in the app's Info settings. This goes away once the backend is deployed with HTTPS.
-- **Real iPhone:** `127.0.0.1` only works in the Simulator. A physical phone needs the Mac's local IP address or a deployed backend.
+These are already implemented in `CtrlExDelete/CtrlExDelete/Networking/`:
+
+- **Base URL:** `APIConfig.swift` is the only place it's set. Debug uses `http://127.0.0.1:8000` (Simulator); override it with the launch argument `-CEDAPIBaseURL http://Your-Mac-Name.local:8000` for a physical iPhone. Release must be an `https://` URL.
+- **Installation ID:** `InstallationID.swift` creates the UUID once, stores it in the Keychain, and `APIClient` sends it on every request.
+- **Key names:** `APIClient` uses `.convertToSnakeCase` / `.convertFromSnakeCase`, so Swift's `contactUrge` maps to `contact_urge` automatically.
+- **Enums:** `Emotion`, `EnergyLevel` and `HardestArea` (in `Models/SampleData.swift`) have raw values matching the tables above. The UI labels can change freely; the raw values can't.
+- **Dates:** `created_at`, `selected_at` and `local_date` are decoded as `String` (Swift's `.iso8601` fails on fractional seconds).
+- **Plain HTTP:** the Simulator reaches `127.0.0.1` without any exception. Debug builds add `NSAllowsLocalNetworking` (in `CtrlExDelete/Config/Debug-Info.plist`) so a physical phone can reach `http://*.local`. Release builds have no exception.
+- **Neon's `DATABASE_URL` is not the API URL** and must never be in the app.
 
 ---
 
 ## Coming later
 
-- Neon database storage (currently data is kept in memory and resets when the server restarts)
-- Activity endpoints (Week 2)
-- Insights endpoints: urge trend, mood after activities, activity categories
+- Real recommendation rules based on the check-in answers
+- Saving activities for later (the Save button is local-only for now)
+- Activity completion and Insights endpoints: urge trend, mood after activities, activity categories
