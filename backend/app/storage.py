@@ -17,6 +17,7 @@ from app.schemas import (
     CheckInCreate,
     Recommendation,
     RecommendationsResponse,
+    ScrapbookPhotoCreate
 )
 
 # Columns returned to the app, in one place so every query stays consistent.
@@ -207,3 +208,72 @@ def select_recommendation(
 
         row = conn.execute(SELECTION_QUERY, (recommendation_id,)).fetchone()
     return ActivitySelection(**row), inserted is not None
+
+
+# ─────────────────────────────────────────────
+# Scrapbook photos
+# ─────────────────────────────────────────────
+
+SCRAPBOOK_COLUMNS = "id, object_key, caption, local_date, created_at"
+
+
+def create_scrapbook_photo(
+    installation_id: UUID, object_key: str, data: ScrapbookPhotoCreate
+) -> int:
+    """Adds a not-yet-uploaded photo row and returns its id."""
+    with _connect() as conn:
+        _ensure_installation(conn, installation_id)
+        row = conn.execute(
+            """
+            INSERT INTO scrapbook_photos (installation_id, object_key, caption, local_date)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+            """,
+            (installation_id, object_key, data.caption, data.local_date),
+        ).fetchone()
+    return row["id"]
+
+
+def get_scrapbook_key(installation_id: UUID, photo_id: int) -> str | None:
+    """The photo's S3 key, or None if it doesn't exist for this installation."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT object_key FROM scrapbook_photos WHERE id = %s AND installation_id = %s",
+            (photo_id, installation_id),
+        ).fetchone()
+    return row["object_key"] if row else None
+
+
+def mark_scrapbook_uploaded(installation_id: UUID, photo_id: int, byte_size: int) -> dict:
+    with _connect() as conn:
+        return conn.execute(
+            f"""
+            UPDATE scrapbook_photos
+            SET uploaded_at = COALESCE(uploaded_at, now()), byte_size = %s
+            WHERE id = %s AND installation_id = %s
+            RETURNING {SCRAPBOOK_COLUMNS}
+            """,
+            (byte_size, photo_id, installation_id),
+        ).fetchone()
+
+
+def list_scrapbook_photos(installation_id: UUID) -> list[dict]:
+    """Uploaded photos only, newest first."""
+    with _connect() as conn:
+        return conn.execute(
+            f"""
+            SELECT {SCRAPBOOK_COLUMNS}
+            FROM scrapbook_photos
+            WHERE installation_id = %s AND uploaded_at IS NOT NULL
+            ORDER BY created_at DESC
+            """,
+            (installation_id,),
+        ).fetchall()
+
+
+def delete_scrapbook_photo(installation_id: UUID, photo_id: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM scrapbook_photos WHERE id = %s AND installation_id = %s",
+            (photo_id, installation_id),
+        )

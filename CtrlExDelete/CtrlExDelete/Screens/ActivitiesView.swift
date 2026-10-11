@@ -1,3 +1,5 @@
+// xcode: set sdk=iOS
+
 import SwiftUI
 
 /// Activity recommendations: one card at a time with arrows and dots to page

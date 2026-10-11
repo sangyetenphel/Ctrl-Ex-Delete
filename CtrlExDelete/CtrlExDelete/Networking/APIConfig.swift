@@ -1,3 +1,5 @@
+// xcode: set sdk=iOS
+
 import Foundation
 
 /// The one place that decides which backend the app talks to.

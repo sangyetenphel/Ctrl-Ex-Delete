@@ -64,6 +64,28 @@ struct ActivitySelectionResponse: Decodable {
     let selectedAt: String
 }
 
+// MARK: - Scrapbook
+
+/// Body of `POST /scrapbook/photos`.
+struct NewScrapbookPhotoRequest: Encodable {
+    let caption: String?
+    let localDate: String
+}
+
+/// Response of `POST /scrapbook/photos`: where to PUT the JPEG.
+struct PhotoUploadTicket: Decodable {
+    let id: Int
+    let uploadUrl: URL
+}
+
+/// One uploaded photo. `imageUrl` is temporary, so don't store it.
+struct ScrapbookPhotoDTO: Decodable, Identifiable {
+    let id: Int
+    let caption: String?
+    let localDate: String
+    let imageUrl: URL
+}
+
 /// FastAPI error bodies look like `{"detail": "..."}` (422s use a list instead).
 struct APIErrorBody: Decodable {
     let detail: String
