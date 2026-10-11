@@ -88,12 +88,7 @@ struct UpcomingScreen: View {
                 summary: "Unsent message, sample chat with Ced and the human-support sheet.",
                 links: [.init(title: "Return to my room", destination: .room)]
             )
-        case .scrapbook:
-            PlaceholderScreen(
-                title: "Look how far you\u{2019}ve come.",
-                summary: "Recent memories, the add-memory button and your story so far.",
-                links: [.init(title: "View your insights \u{2192}", destination: .progress)]
-            )
+        
         case .progress:
             PlaceholderScreen(
                 title: "Your patterns.",
@@ -114,7 +109,7 @@ struct UpcomingScreen: View {
                 title: "This chapter belongs to you.",
                 summary: "Ced, the keepsake download and closing options."
             )
-        case .welcome, .checkIn, .activities:
+        case .welcome, .checkIn, .activities, .scrapbook:
             EmptyView() // These are real screens, shown by ContentView.
         }
     }

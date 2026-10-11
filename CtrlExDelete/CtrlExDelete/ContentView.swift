@@ -34,6 +34,8 @@ struct ContentView: View {
             CheckInView()
         case .activities:
             ActivitiesView()
+        case .scrapbook:
+            ScrapbookView()
         default:
             UpcomingScreen(screen: router.current)
         }
