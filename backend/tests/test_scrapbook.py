@@ -102,3 +102,53 @@ def test_cannot_touch_another_installations_photo(installation_id, fake_s3):
     assert client.post(f"/scrapbook/photos/{photo_id}/complete", headers=stranger).status_code == 404
     assert client.delete(f"/scrapbook/photos/{photo_id}", headers=stranger).status_code == 404
     assert deleted == []
+
+
+def _memory_with_photo(installation_id, uploaded):
+    photo_id, key = start_upload(installation_id)
+    uploaded[key] = 1000
+    client.post(f"/scrapbook/photos/{photo_id}/complete", headers=headers(installation_id))
+    check_in = {"feeling": "hopeful", "contact_urge": 2, "energy_level": "high",
+                "hardest_areas": [], "local_date": "2026-10-05"}
+    client.post("/check-ins", json=check_in, headers=headers(installation_id))
+    card = client.get("/recommendations/latest", headers=headers(installation_id)).json()["recommendations"][0]
+    selection = client.post(f"/recommendations/{card['id']}/selection", headers=headers(installation_id)).json()
+    memory = client.post("/reflections", headers=headers(installation_id), json={
+        "activity_selection_id": selection["id"], "photo_id": photo_id,
+        "thought_about_ex": "a_lot", "mood_change": "about_the_same", "local_date": "2026-10-05",
+    }).json()
+    return memory, photo_id, key
+
+
+def test_deleting_a_memory_deletes_its_photo_file(installation_id, fake_s3):
+    uploaded, deleted = fake_s3
+    memory, photo_id, key = _memory_with_photo(installation_id, uploaded)
+
+    assert client.delete(f"/reflections/{memory['id']}", headers=headers(installation_id)).status_code == 204
+    assert deleted == [key]
+    # The photo row went with it.
+    assert client.delete(f"/scrapbook/photos/{photo_id}", headers=headers(installation_id)).status_code == 404
+
+
+def test_old_unused_uploads_are_cleaned_up(installation_id, fake_s3):
+    import psycopg
+
+    from app.config import settings
+
+    uploaded, deleted = fake_s3
+    orphan_id, orphan_key = start_upload(installation_id)            # never used in a memory
+    memory, used_id, used_key = _memory_with_photo(installation_id, uploaded)
+    with psycopg.connect(settings.database_url) as conn:
+        conn.execute("UPDATE scrapbook_photos SET created_at = now() - interval '2 days' WHERE installation_id = %s",
+                     (installation_id,))
+        legacy = conn.execute(
+            "INSERT INTO scrapbook_photos (installation_id, object_key, created_at) "
+            "VALUES (%s, %s, now() - interval '2 days') RETURNING id",
+            (installation_id, f"installations/{installation_id}/legacy.jpg"),
+        ).fetchone()[0]
+
+    start_upload(installation_id)   # the next upload tidies up
+    assert deleted == [orphan_key]  # not the used photo, not the legacy key
+    with psycopg.connect(settings.database_url) as conn:
+        ids = {r[0] for r in conn.execute("SELECT id FROM scrapbook_photos WHERE installation_id = %s", (installation_id,))}
+    assert orphan_id not in ids and used_id in ids and legacy in ids

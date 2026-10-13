@@ -134,6 +134,13 @@ final class JourneyStore {
         try await APIClient.shared.setSaved(activityId: activityId, isSaved)
     }
 
+    /// Deletes a memory and its photo. The activity still counts as completed.
+    func deleteMemory(id: Int) async throws {
+        try await APIClient.shared.deleteReflection(id: id)
+        memories.removeAll { $0.id == id }
+        await refresh()
+    }
+
     /// Uploads one photo to S3 and returns its id for `saveReflection`.
     func uploadPhoto(jpeg: Data) async throws -> Int {
         try await APIClient.shared.uploadScrapbookPhoto(jpeg: jpeg).id

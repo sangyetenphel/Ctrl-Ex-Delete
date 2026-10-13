@@ -6,6 +6,9 @@ struct ScrapbookView: View {
     @Environment(AppRouter.self) private var router
     @Environment(JourneyStore.self) private var journey
 
+    @State private var memoryToDelete: ScrapbookMemory?
+    @State private var deleteError: String?
+
     private var completed: Int { journey.summary?.activitiesCompleted ?? 0 }
 
     var body: some View {
@@ -39,6 +42,17 @@ struct ScrapbookView: View {
         .background(CEDColor.background)
         // Photo links expire after an hour, so fetch fresh ones each visit.
         .task { await journey.refresh() }
+        .confirmationDialog(
+            "Delete this memory?",
+            isPresented: Binding(get: { memoryToDelete != nil }, set: { if !$0 { memoryToDelete = nil } }),
+            titleVisibility: .visible,
+            presenting: memoryToDelete
+        ) { memory in
+            Button("Delete memory", role: .destructive) { delete(memory) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Its photo and reflection will be removed. The activity still counts as completed.")
+        }
     }
 
     private var header: some View {
@@ -90,6 +104,12 @@ struct ScrapbookView: View {
                 .foregroundStyle(CEDColor.foreground)
                 .accessibilityAddTraits(.isHeader)
 
+            if let deleteError {
+                Text(deleteError)
+                    .cedTextStyle(.body)
+                    .foregroundStyle(CEDColor.rose)
+            }
+
             if journey.memories.isEmpty {
                 Text(memoriesPlaceholder)
                     .cedTextStyle(.body)
@@ -100,14 +120,36 @@ struct ScrapbookView: View {
             Grid(horizontalSpacing: 12, verticalSpacing: 12) {
                 ForEach(Array(stride(from: 0, to: journey.memories.count, by: 2)), id: \.self) { start in
                     GridRow {
-                        MemoryCard(memory: journey.memories[start])
+                        memoryCard(journey.memories[start])
                         if start + 1 < journey.memories.count {
-                            MemoryCard(memory: journey.memories[start + 1])
+                            memoryCard(journey.memories[start + 1])
                         } else {
                             Color.clear
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Long-press a memory for "Delete memory".
+    private func memoryCard(_ memory: ScrapbookMemory) -> some View {
+        MemoryCard(memory: memory)
+            .contextMenu {
+                Button("Delete memory", systemImage: "trash", role: .destructive) {
+                    memoryToDelete = memory
+                }
+            }
+            .accessibilityAction(named: "Delete memory") { memoryToDelete = memory }
+    }
+
+    private func delete(_ memory: ScrapbookMemory) {
+        deleteError = nil
+        Task {
+            do {
+                try await journey.deleteMemory(id: memory.id)
+            } catch {
+                deleteError = "That memory wasn\u{2019}t deleted. \(error.localizedDescription)"
             }
         }
     }
