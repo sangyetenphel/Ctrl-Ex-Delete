@@ -36,32 +36,33 @@ struct APIClient {
     func selectRecommendation(id: Int) async throws -> ActivitySelectionResponse {
         try await send("POST", "recommendations/\(id)/selection")
     }
+
     /// `GET /scrapbook/photos`: uploaded photos, newest first.
-func scrapbookPhotos() async throws -> [ScrapbookPhotoDTO] {
-    try await send("GET", "scrapbook/photos")
-}
-
-/// Uploads one photo: ask the backend for a URL, PUT the JPEG to S3, confirm.
-func uploadScrapbookPhoto(jpeg: Data, caption: String?, localDate: String) async throws -> ScrapbookPhotoDTO {
-    let body = try encoder.encode(NewScrapbookPhotoRequest(caption: caption, localDate: localDate))
-    let ticket: PhotoUploadTicket = try await send("POST", "scrapbook/photos", body: body)
-
-    // Straight to S3, not through send(): no X-Installation-ID header,
-    // and Content-Type must match what the backend signed.
-    var put = URLRequest(url: ticket.uploadUrl)
-    put.httpMethod = "PUT"
-    put.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
-    do {
-        let (_, response) = try await session.upload(for: put, from: jpeg)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw APIError.unexpectedResponse
-        }
-    } catch let error as URLError {
-        throw APIError(urlError: error)
+    func scrapbookPhotos() async throws -> [ScrapbookPhotoDTO] {
+        try await send("GET", "scrapbook/photos")
     }
 
-    return try await send("POST", "scrapbook/photos/\(ticket.id)/complete")
-}
+    /// Uploads one photo: ask the backend for a URL, PUT the JPEG to S3, confirm.
+    func uploadScrapbookPhoto(jpeg: Data, caption: String?, localDate: String) async throws -> ScrapbookPhotoDTO {
+        let body = try encoder.encode(NewScrapbookPhotoRequest(caption: caption, localDate: localDate))
+        let ticket: PhotoUploadTicket = try await send("POST", "scrapbook/photos", body: body)
+
+        // Straight to S3, not through send(): no X-Installation-ID header,
+        // and Content-Type must match what the backend signed.
+        var put = URLRequest(url: ticket.uploadUrl)
+        put.httpMethod = "PUT"
+        put.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        do {
+            let (_, response) = try await session.upload(for: put, from: jpeg)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                throw APIError.unexpectedResponse
+            }
+        } catch let error as URLError {
+            throw APIError(urlError: error)
+        }
+
+        return try await send("POST", "scrapbook/photos/\(ticket.id)/complete")
+    }
 
     // MARK: Shared request code
 

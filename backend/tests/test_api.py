@@ -8,11 +8,8 @@ recommendations and selections), so other data is never touched.
 """
 import uuid
 
-import psycopg
-import pytest
 from fastapi.testclient import TestClient
 
-from app.config import settings
 from app.main import app
 
 client = TestClient(app)
@@ -24,14 +21,6 @@ CHECK_IN = {
     "hardest_areas": ["feeling_lonely", "resisting_contact"],
     "local_date": "2026-10-04",
 }
-
-
-@pytest.fixture
-def installation_id():
-    test_id = str(uuid.uuid4())
-    yield test_id
-    with psycopg.connect(settings.database_url) as conn:
-        conn.execute("DELETE FROM installations WHERE id = %s", (test_id,))
 
 
 def headers(installation_id: str) -> dict:

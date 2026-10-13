@@ -1,12 +1,19 @@
-from uuid import uuid4
-
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app import media, storage
 from app.dependencies import InstallationId
 from app.schemas import PhotoUpload, ScrapbookPhoto, ScrapbookPhotoCreate
 
-router = APIRouter(prefix="/scrapbook", tags=["scrapbook"])
+
+def require_s3() -> None:
+    if not media.is_configured():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Photo storage isn't set up on the server yet.",
+        )
+
+
+router = APIRouter(prefix="/scrapbook", tags=["scrapbook"], dependencies=[Depends(require_s3)])
 
 MAX_BYTES = 5 * 1024 * 1024  # 5 MB; compressed photos are far smaller
 
@@ -14,7 +21,7 @@ MAX_BYTES = 5 * 1024 * 1024  # 5 MB; compressed photos are far smaller
 @router.post("/photos", response_model=PhotoUpload, status_code=status.HTTP_201_CREATED)
 def start_upload(payload: ScrapbookPhotoCreate, x_installation_id: InstallationId):
     """Step 1: reserves a photo and returns a URL to upload the JPEG to."""
-    key = f"installations/{x_installation_id}/{uuid4()}.jpg"
+    key = media.new_key()
     photo_id = storage.create_scrapbook_photo(x_installation_id, key, payload)
     return PhotoUpload(id=photo_id, upload_url=media.upload_url(key))
 
