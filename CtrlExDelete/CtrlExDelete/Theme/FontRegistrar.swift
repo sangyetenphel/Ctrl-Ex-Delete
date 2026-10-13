@@ -35,4 +35,9 @@ enum FontMetrics {
         guard let platformFont = PlatformFont(name: font.rawValue, size: size) else { return size * 1.2 }
         return platformFont.ascender - platformFont.descender + platformFont.leading
     }
+
+    /// Distance from the top of a line of text to its baseline.
+    static func ascender(of font: CEDFontName, size: CGFloat) -> CGFloat {
+        PlatformFont(name: font.rawValue, size: size)?.ascender ?? size * 0.9
+    }
 }
