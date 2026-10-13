@@ -20,7 +20,6 @@ from app.schemas import (
     Recommendation,
     RecommendationsResponse,
     ReflectionCreate,
-    ScrapbookPhotoCreate,
     SelectedActivity,
 )
 
@@ -153,11 +152,11 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
         rows = conn.execute(
             f"""
             SELECT r.id AS recommendation_id, r.position, s.selected_at,
-                   l.completed_at, {ACTIVITY_COLUMNS}
+                   rf.created_at AS completed_at, {ACTIVITY_COLUMNS}
             FROM recommendations r
             JOIN activities a ON a.id = r.activity_id
             LEFT JOIN activity_selections s ON s.recommendation_id = r.id
-            LEFT JOIN activity_logs l ON l.activity_selection_id = s.id
+            LEFT JOIN reflections rf ON rf.activity_selection_id = s.id
             WHERE r.check_in_id = %s AND r.installation_id = %s
             ORDER BY r.position
             """,
@@ -235,11 +234,11 @@ def get_current_selection(installation_id: UUID) -> SelectedActivity | None:
         row = conn.execute(
             f"""
             SELECT s.id AS selection_id, s.recommendation_id, r.check_in_id,
-                   s.selected_at, l.id AS reflection_id, {ACTIVITY_COLUMNS}
+                   s.selected_at, rf.id AS reflection_id, {ACTIVITY_COLUMNS}
             FROM activity_selections s
             JOIN recommendations r ON r.id = s.recommendation_id
             JOIN activities a ON a.id = r.activity_id
-            LEFT JOIN activity_logs l ON l.activity_selection_id = s.id
+            LEFT JOIN reflections rf ON rf.activity_selection_id = s.id
             WHERE s.installation_id = %s
             ORDER BY s.selected_at DESC, s.id DESC
             LIMIT 1
@@ -262,22 +261,20 @@ def get_current_selection(installation_id: UUID) -> SelectedActivity | None:
 # Scrapbook photos
 # ─────────────────────────────────────────────
 
-SCRAPBOOK_COLUMNS = "id, object_key, caption, local_date, created_at"
+SCRAPBOOK_COLUMNS = "id, object_key, created_at"
 
 
-def create_scrapbook_photo(
-    installation_id: UUID, object_key: str, data: ScrapbookPhotoCreate
-) -> int:
+def create_scrapbook_photo(installation_id: UUID, object_key: str) -> int:
     """Adds a not-yet-uploaded photo row and returns its id."""
     with _connect() as conn:
         _ensure_installation(conn, installation_id)
         row = conn.execute(
             """
-            INSERT INTO scrapbook_photos (installation_id, object_key, caption, local_date)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO scrapbook_photos (installation_id, object_key)
+            VALUES (%s, %s)
             RETURNING id
             """,
-            (installation_id, object_key, data.caption, data.local_date),
+            (installation_id, object_key),
         ).fetchone()
     return row["id"]
 
@@ -305,21 +302,8 @@ def mark_scrapbook_uploaded(installation_id: UUID, photo_id: int, byte_size: int
         ).fetchone()
 
 
-def list_scrapbook_photos(installation_id: UUID) -> list[dict]:
-    """Uploaded photos only, newest first."""
-    with _connect() as conn:
-        return conn.execute(
-            f"""
-            SELECT {SCRAPBOOK_COLUMNS}
-            FROM scrapbook_photos
-            WHERE installation_id = %s AND uploaded_at IS NOT NULL
-            ORDER BY created_at DESC
-            """,
-            (installation_id,),
-        ).fetchall()
-
-
 def delete_scrapbook_photo(installation_id: UUID, photo_id: int) -> None:
+    """Its memory (if any) is kept, without the photo (ON DELETE SET NULL)."""
     with _connect() as conn:
         conn.execute(
             "DELETE FROM scrapbook_photos WHERE id = %s AND installation_id = %s",
@@ -330,18 +314,20 @@ def delete_scrapbook_photo(installation_id: UUID, photo_id: int) -> None:
 # ─────────────────────────────────────────────
 # Reflections (scrapbook memories)
 #
-# Stored in activity_logs: one row = one completed activity (or a memory
-# captured without one). See db/migrations/005_reflections.sql.
+# One reflections row = one memory. Linked to a selection, it is also that
+# activity's completion. See db/migrations/005_reflections.sql.
 # ─────────────────────────────────────────────
 
 REFLECTION_QUERY = """
-    SELECT l.id, l.activity_selection_id, l.note, l.noticed,
-           l.thought_about_ex, l.mood_change, l.local_date, l.completed_at,
-           l.photo_id, p.object_key AS photo_key,
+    SELECT rf.id, rf.activity_selection_id, rf.note, rf.noticed,
+           rf.thought_about_ex, rf.mood_change, rf.local_date, rf.created_at,
+           rf.photo_id, p.object_key AS photo_key,
            CASE WHEN a.id IS NULL THEN NULL ELSE to_jsonb(a) END AS activity
-    FROM activity_logs l
-    LEFT JOIN activities a ON a.id = l.activity_id
-    LEFT JOIN scrapbook_photos p ON p.id = l.photo_id AND p.uploaded_at IS NOT NULL
+    FROM reflections rf
+    LEFT JOIN activity_selections s ON s.id = rf.activity_selection_id
+    LEFT JOIN recommendations r ON r.id = s.recommendation_id
+    LEFT JOIN activities a ON a.id = r.activity_id
+    LEFT JOIN scrapbook_photos p ON p.id = rf.photo_id AND p.uploaded_at IS NOT NULL
 """
 
 
@@ -353,14 +339,12 @@ def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[di
     Raises NotFound / Conflict for selections or photos that can't be used.
     """
     with _connect() as conn:
-        activity_id = None
         if data.activity_selection_id is not None:
             selection = conn.execute(
                 """
-                SELECT r.activity_id, l.id AS reflection_id
+                SELECT rf.id AS reflection_id
                 FROM activity_selections s
-                JOIN recommendations r ON r.id = s.recommendation_id
-                LEFT JOIN activity_logs l ON l.activity_selection_id = s.id
+                LEFT JOIN reflections rf ON rf.activity_selection_id = s.id
                 WHERE s.id = %s AND s.installation_id = %s
                 """,
                 (data.activity_selection_id, installation_id),
@@ -369,14 +353,13 @@ def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[di
                 raise NotFound("Activity selection not found.")
             if selection["reflection_id"] is not None:
                 return _get_reflection(conn, selection["reflection_id"]), False
-            activity_id = selection["activity_id"]
 
         if data.photo_id is not None:
             photo = conn.execute(
                 """
-                SELECT p.uploaded_at, l.id AS reflection_id
+                SELECT p.uploaded_at, rf.id AS reflection_id
                 FROM scrapbook_photos p
-                LEFT JOIN activity_logs l ON l.photo_id = p.id
+                LEFT JOIN reflections rf ON rf.photo_id = p.id
                 WHERE p.id = %s AND p.installation_id = %s
                 """,
                 (data.photo_id, installation_id),
@@ -392,17 +375,17 @@ def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[di
         try:
             inserted = conn.execute(
                 """
-                INSERT INTO activity_logs
-                    (installation_id, activity_id, activity_selection_id, photo_id,
-                     note, noticed, thought_about_ex, mood_change, local_date)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO reflections
+                    (installation_id, activity_selection_id, photo_id, note, noticed,
+                     thought_about_ex, mood_change, local_date)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (activity_selection_id) DO NOTHING
                 RETURNING id
                 """,
                 (
-                    installation_id, activity_id, data.activity_selection_id,
-                    data.photo_id, data.note, data.noticed,
-                    data.thought_about_ex, data.mood_change, data.local_date,
+                    installation_id, data.activity_selection_id, data.photo_id,
+                    data.note, data.noticed, data.thought_about_ex,
+                    data.mood_change, data.local_date,
                 ),
             ).fetchone()
         except psycopg.errors.UniqueViolation:
@@ -412,7 +395,7 @@ def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[di
         if inserted is None:
             # Two saves raced for the same selection: return the first one.
             existing = conn.execute(
-                "SELECT id FROM activity_logs WHERE activity_selection_id = %s",
+                "SELECT id FROM reflections WHERE activity_selection_id = %s",
                 (data.activity_selection_id,),
             ).fetchone()
             return _get_reflection(conn, existing["id"]), False
@@ -420,7 +403,7 @@ def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[di
 
 
 def _get_reflection(conn: psycopg.Connection, reflection_id: int) -> dict:
-    return conn.execute(f"{REFLECTION_QUERY} WHERE l.id = %s", (reflection_id,)).fetchone()
+    return conn.execute(f"{REFLECTION_QUERY} WHERE rf.id = %s", (reflection_id,)).fetchone()
 
 
 def list_reflections(installation_id: UUID) -> list[dict]:
@@ -429,8 +412,8 @@ def list_reflections(installation_id: UUID) -> list[dict]:
         return conn.execute(
             f"""
             {REFLECTION_QUERY}
-            WHERE l.installation_id = %s
-            ORDER BY l.completed_at DESC, l.id DESC
+            WHERE rf.installation_id = %s
+            ORDER BY rf.created_at DESC, rf.id DESC
             """,
             (installation_id,),
         ).fetchall()
@@ -447,26 +430,27 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
     with _connect() as conn:
         row = conn.execute(
             """
-            WITH logs AS (
-                SELECT * FROM activity_logs WHERE installation_id = %(id)s
-            ), done AS (
-                SELECT local_date, row_number() OVER (ORDER BY completed_at, id) AS n
-                FROM logs WHERE activity_id IS NOT NULL
+            WITH memories AS (
+                SELECT * FROM reflections WHERE installation_id = %(id)s
+            ), completed AS (
+                -- A reflection on a selection is a completed activity.
+                SELECT local_date, row_number() OVER (ORDER BY created_at, id) AS n
+                FROM memories WHERE activity_selection_id IS NOT NULL
             )
             SELECT
                 (SELECT min(local_date) FROM check_ins
-                 WHERE installation_id = %(id)s)                     AS journey_started_on,
+                 WHERE installation_id = %(id)s)                       AS journey_started_on,
                 (SELECT count(*) FROM check_ins
-                 WHERE installation_id = %(id)s)                     AS check_ins,
+                 WHERE installation_id = %(id)s)                       AS check_ins,
                 (SELECT count(*) FROM activity_selections
-                 WHERE installation_id = %(id)s)                     AS activities_selected,
-                (SELECT count(*) FROM done)                          AS activities_completed,
-                (SELECT count(*) FROM logs)                          AS memories,
-                (SELECT count(*) FROM logs WHERE photo_id IS NOT NULL) AS photos,
-                (SELECT local_date FROM done WHERE n = 1)            AS first_activity_on,
-                (SELECT local_date FROM done WHERE n = %(goal)s)     AS goal_reached_on,
-                (SELECT min(local_date) FROM logs
-                 WHERE photo_id IS NOT NULL)                         AS first_photo_on
+                 WHERE installation_id = %(id)s)                       AS activities_selected,
+                (SELECT count(*) FROM completed)                       AS activities_completed,
+                (SELECT count(*) FROM memories)                        AS memories,
+                (SELECT count(*) FROM memories WHERE photo_id IS NOT NULL) AS photos,
+                (SELECT local_date FROM completed WHERE n = 1)         AS first_activity_on,
+                (SELECT local_date FROM completed WHERE n = %(goal)s)  AS goal_reached_on,
+                (SELECT min(local_date) FROM memories
+                 WHERE photo_id IS NOT NULL)                           AS first_photo_on
             """,
             {"id": installation_id, "goal": MILESTONE_ACTIVITY_COUNT},
         ).fetchone()

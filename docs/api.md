@@ -207,11 +207,11 @@ The activity the user most recently chose with **I'll try this**, as long as no 
 
 Photos go straight from the app to a **private** S3 bucket through short-lived presigned URLs; the API never sees the image bytes and never exposes AWS credentials. Answers `503` until the server has AWS settings.
 
-1. `POST /scrapbook/photos` with `{"caption": null, "local_date": "2026-10-13"}` → `201` `{"id": 10, "upload_url": "https://…"}` (URL valid 5 minutes).
+1. `POST /scrapbook/photos` (no body) → `201` `{"id": 10, "upload_url": "https://…"}` (URL valid 5 minutes).
 2. `PUT` the JPEG to `upload_url` with `Content-Type: image/jpeg` (no `X-Installation-ID` header).
 3. `POST /scrapbook/photos/{id}/complete` → `200` with a temporary `image_url` (1 hour). `409` if the file isn't in S3 yet, `413` if it's over 5 MB.
 
-Also: `GET /scrapbook/photos` (uploaded photos) and `DELETE /scrapbook/photos/{id}` (`204`). S3 object keys are random (`scrapbook/<uuid>.jpg`) and never contain the installation ID.
+The photo becomes part of a memory through `POST /reflections`. `DELETE /scrapbook/photos/{id}` (`204`) removes the file; its memory is kept without the photo. S3 object keys are random (`scrapbook/<uuid>.jpg`) and never contain the installation ID.
 
 ---
 
@@ -250,12 +250,12 @@ Leave out `activity_selection_id` for a memory that isn't tied to an activity.
   "thought_about_ex": "a_little",
   "mood_change": "a_little_better",
   "local_date": "2026-10-13",
-  "completed_at": "2026-10-13T04:38:31.554Z",
+  "created_at": "2026-10-13T04:38:31.554Z",
   "photo_id": 10,
   "image_url": "https://…"
 }
 ```
-`image_url` is temporary (1 hour) and `null` without a photo. **`404`** for a selection or photo that isn't yours; **`409`** if the photo isn't uploaded yet or already belongs to another memory.
+`created_at` is when it was saved, which is also when the activity was completed. `image_url` is temporary (1 hour) and `null` without a photo. **`404`** for a selection or photo that isn't yours; **`409`** if the photo isn't uploaded yet or already belongs to another memory.
 
 ## `GET /reflections`
 

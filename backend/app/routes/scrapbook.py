@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app import media, storage
 from app.dependencies import InstallationId
-from app.schemas import PhotoUpload, ScrapbookPhoto, ScrapbookPhotoCreate
+from app.schemas import PhotoUpload, ScrapbookPhoto
 
 
 def require_s3() -> None:
@@ -19,10 +19,13 @@ MAX_BYTES = 5 * 1024 * 1024  # 5 MB; compressed photos are far smaller
 
 
 @router.post("/photos", response_model=PhotoUpload, status_code=status.HTTP_201_CREATED)
-def start_upload(payload: ScrapbookPhotoCreate, x_installation_id: InstallationId):
-    """Step 1: reserves a photo and returns a URL to upload the JPEG to."""
+def start_upload(x_installation_id: InstallationId):
+    """
+    Step 1: reserves a photo and returns a URL to upload the JPEG to.
+    The photo becomes part of a memory through POST /reflections.
+    """
     key = media.new_key()
-    photo_id = storage.create_scrapbook_photo(x_installation_id, key, payload)
+    photo_id = storage.create_scrapbook_photo(x_installation_id, key)
     return PhotoUpload(id=photo_id, upload_url=media.upload_url(key))
 
 
@@ -43,15 +46,6 @@ def complete_upload(photo_id: int, x_installation_id: InstallationId):
 
     row = storage.mark_scrapbook_uploaded(x_installation_id, photo_id, size)
     return ScrapbookPhoto(**row, image_url=media.download_url(key))
-
-
-@router.get("/photos", response_model=list[ScrapbookPhoto])
-def list_photos(x_installation_id: InstallationId):
-    rows = storage.list_scrapbook_photos(x_installation_id)
-    return [
-        ScrapbookPhoto(**row, image_url=media.download_url(row["object_key"]))
-        for row in rows
-    ]
 
 
 @router.delete("/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)

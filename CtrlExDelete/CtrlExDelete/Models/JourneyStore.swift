@@ -105,11 +105,7 @@ final class JourneyStore {
 
     /// Uploads one photo to S3 and returns its id for `saveReflection`.
     func uploadPhoto(jpeg: Data) async throws -> Int {
-        try await APIClient.shared.uploadScrapbookPhoto(
-            jpeg: jpeg,
-            caption: nil,
-            localDate: CheckInAnswers.localDateText(for: .now)
-        ).id
+        try await APIClient.shared.uploadScrapbookPhoto(jpeg: jpeg).id
     }
 
     /// "Add to my scrapbook": saves the memory, which completes the selected activity.

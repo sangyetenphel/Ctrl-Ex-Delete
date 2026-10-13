@@ -50,9 +50,7 @@ def reflect(installation_id: str, **fields) -> "httpx.Response":  # noqa: F821
 
 
 def upload_photo(installation_id: str, uploaded: dict) -> int:
-    ticket = client.post(
-        "/scrapbook/photos", json={"local_date": "2026-10-05"}, headers=headers(installation_id)
-    ).json()
+    ticket = client.post("/scrapbook/photos", headers=headers(installation_id)).json()
     uploaded[ticket["upload_url"].removeprefix("https://s3.example/put/")] = 1000
     done = client.post(f"/scrapbook/photos/{ticket['id']}/complete", headers=headers(installation_id))
     assert done.status_code == 200
@@ -168,9 +166,7 @@ def test_reflection_with_photo(installation_id, fake_s3):
 
 
 def test_photo_must_be_uploaded_and_owned(installation_id, fake_s3):
-    reserved = client.post(
-        "/scrapbook/photos", json={"local_date": "2026-10-05"}, headers=headers(installation_id)
-    ).json()
+    reserved = client.post("/scrapbook/photos", headers=headers(installation_id)).json()
     assert reflect(installation_id, photo_id=reserved["id"]).status_code == 409
 
     stranger = str(uuid.uuid4())
@@ -216,3 +212,36 @@ def test_progress_summary(installation_id, fake_s3):
     assert reached["Completed a first activity"] == "2026-10-05"
     assert reached["Added a first photo memory"] == "2026-10-05"
     assert reached["5 activities milestone"] is None
+
+
+def test_database_rejects_links_across_installations(installation_id):
+    """The composite foreign keys from migration 005, checked without the API."""
+    import psycopg
+    import pytest
+
+    from app.config import settings
+
+    cards = check_in_and_list(installation_id)
+    selection = select(installation_id, cards[0]["id"])
+    other = str(uuid.uuid4())
+    try:
+        with psycopg.connect(settings.database_url) as conn:
+            conn.execute("INSERT INTO installations (id) VALUES (%s)", (other,))
+            conn.commit()
+            # Another installation can't select this installation's card...
+            with pytest.raises(psycopg.errors.ForeignKeyViolation):
+                with conn.transaction():
+                    conn.execute(
+                        "INSERT INTO activity_selections (installation_id, recommendation_id) VALUES (%s, %s)",
+                        (other, cards[1]["id"]),
+                    )
+            # ...or complete this installation's selection.
+            with pytest.raises(psycopg.errors.ForeignKeyViolation):
+                with conn.transaction():
+                    conn.execute(
+                        "INSERT INTO reflections (installation_id, activity_selection_id, local_date) VALUES (%s, %s, '2026-10-05')",
+                        (other, selection["id"]),
+                    )
+    finally:
+        with psycopg.connect(settings.database_url) as conn:
+            conn.execute("DELETE FROM installations WHERE id = %s", (other,))
