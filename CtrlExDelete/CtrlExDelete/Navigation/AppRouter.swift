@@ -25,6 +25,10 @@ enum AppScreen: String, CaseIterable {
 final class AppRouter {
     private(set) var current: AppScreen
 
+    /// The "Connect with human support" sheet. It's shown by ContentView so
+    /// it can cover the whole screen, including the tab bar.
+    var isSupportSheetPresented = false
+
     init(start: AppScreen = .welcome) {
         current = start
     }

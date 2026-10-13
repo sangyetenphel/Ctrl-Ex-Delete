@@ -5,8 +5,10 @@ import SwiftUI
 struct ContentView: View {
     #if DEBUG
     @State private var router = AppRouter(start: AppRouter.debugStartScreen())
+    @State private var journey = JourneyStore.debugStore()
     #else
     @State private var router = AppRouter()
+    @State private var journey = JourneyStore()
     #endif
 
     var body: some View {
@@ -20,9 +22,19 @@ struct ContentView: View {
                 BottomNavBar()
             }
         }
+        .overlay {
+            if router.isSupportSheetPresented {
+                SupportSheet()
+                    .transition(.opacity)
+            }
+        }
+        // Fills the gaps between screens while they cross-fade.
+        .background(CEDColor.background.ignoresSafeArea())
         .environment(router)
-        // The prototype is designed for light mode only.
-        .preferredColorScheme(.light)
+        .environment(journey)
+        // The prototype is designed for light mode only. The healing room asks
+        // for dark so the status bar text turns white over its teal header.
+        .preferredColorScheme(router.current == .room ? .dark : .light)
     }
 
     @ViewBuilder
@@ -32,10 +44,22 @@ struct ContentView: View {
             WelcomeView()
         case .checkIn:
             CheckInView()
+        case .room:
+            HealingRoomView()
         case .activities:
             ActivitiesView()
-        default:
-            UpcomingScreen(screen: router.current)
+        case .reflection:
+            ReflectionView()
+        case .scrapbook:
+            ScrapbookView()
+        case .talk:
+            TalkView()
+        case .progress:
+            ProgressInsightsView()
+        case .movingForward:
+            MovingForwardView()
+        case .finalGift:
+            FinalGiftView()
         }
     }
 }
