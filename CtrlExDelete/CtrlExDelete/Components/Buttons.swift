@@ -14,15 +14,17 @@ struct PrimaryButton: View {
     let title: String
     var isEnabled = true
     var enabledTextColor = CEDColor.cream
+    /// Smaller 14pt version used on the Talk screen and in the support sheet.
+    var isCompact = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Text(title)
-                .cedTextStyle(.button)
+                .cedTextStyle(isCompact ? .bodyBold : .button)
                 .foregroundStyle(isEnabled ? enabledTextColor : CEDColor.mutedForeground)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
+                .padding(.vertical, isCompact ? 14 : 16)
                 .background(
                     isEnabled ? CEDColor.primary : CEDColor.border,
                     in: RoundedRectangle(cornerRadius: CEDRadius.xl)
@@ -31,6 +33,55 @@ struct PrimaryButton: View {
         }
         .buttonStyle(PressScaleButtonStyle())
         .disabled(!isEnabled)
+    }
+}
+
+/// A full-width button with a colored outline instead of a fill
+/// (e.g. "Moving-forward check-in →").
+struct OutlineButton: View {
+    let title: String
+    var color = CEDColor.accent
+    var borderColor: Color?
+    var textStyle = CEDTextStyle.button
+    var verticalPadding: CGFloat = 16
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .cedTextStyle(textStyle)
+                .foregroundStyle(color)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, verticalPadding)
+                .background(CEDColor.card, in: RoundedRectangle(cornerRadius: CEDRadius.xl))
+                .overlay(
+                    RoundedRectangle(cornerRadius: CEDRadius.xl)
+                        .strokeBorder(borderColor ?? color, lineWidth: 2)
+                )
+        }
+        .buttonStyle(PressScaleButtonStyle())
+    }
+}
+
+/// A 44pt round icon button (microphone, send, close).
+struct CircleIconButton: View {
+    let icon: CEDIcon
+    var iconSize: CGFloat = 16
+    var iconColor = CEDColor.primary
+    var background = CEDColor.secondary
+    let label: String
+    var hint: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            CEDIconView(icon: icon, size: iconSize, color: iconColor)
+                .frame(width: 44, height: 44)
+                .background(background, in: Circle())
+        }
+        .buttonStyle(PressScaleButtonStyle())
+        .accessibilityLabel(label)
+        .accessibilityHint(hint ?? "")
     }
 }
 

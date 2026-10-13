@@ -5,6 +5,7 @@ import SwiftUI
 /// The cards come from the backend, for the user's most recent check-in.
 struct ActivitiesView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(JourneyStore.self) private var journey
     @State private var loadState = LoadState.loading
     @State private var deck = ActivityDeck(activities: [])
     @State private var isSelecting = false
@@ -118,12 +119,14 @@ struct ActivitiesView: View {
         guard !isSelecting else { return }
         isSelecting = true
         selectionError = nil
-        let recommendationId = deck.current.recommendationId
+        let activity = deck.current
+        let recommendationId = activity.recommendationId
 
         Task {
             defer { isSelecting = false }
             do {
                 _ = try await APIClient.shared.selectRecommendation(id: recommendationId)
+                journey.selectedActivity = activity   // the reflection screen uses this
                 router.go(to: .reflection)
             } catch {
                 selectionError = "Your choice wasn\u{2019}t saved. \(error.localizedDescription)"
@@ -389,4 +392,5 @@ private extension View {
     let _ = FontRegistrar.registerBundledFonts()
     ActivitiesView()
         .environment(AppRouter())
+        .environment(JourneyStore())
 }
