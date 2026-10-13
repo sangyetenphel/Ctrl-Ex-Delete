@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.routes import (
     activity_selections,
+    bookmarks,
     check_ins,
     health,
     progress,
@@ -21,6 +22,7 @@ app.include_router(health.router)
 app.include_router(check_ins.router)
 app.include_router(recommendations.router)
 app.include_router(activity_selections.router)
+app.include_router(bookmarks.router)
 app.include_router(scrapbook.router)
 app.include_router(reflections.router)
 app.include_router(progress.router)

@@ -32,12 +32,29 @@ struct APIClient {
         try await send("GET", "recommendations/latest")
     }
 
-    /// `POST /recommendations/{id}/selection`: the user tapped "I'll try this".
+    /// `POST /recommendations/{id}/selection`: "I'll try this" starts the activity
+    /// (in progress). The server answers 409 while another one is in progress.
     func selectRecommendation(id: Int) async throws -> ActivitySelectionResponse {
         try await send("POST", "recommendations/\(id)/selection")
     }
 
-    /// `GET /activity-selections/current`: the choice still waiting for a reflection.
+    /// `POST /activity-selections/{id}/abandon`: "Change activity". It doesn't
+    /// count as completed, and saved memories are untouched.
+    func abandonSelection(id: Int) async throws -> ActivitySelectionResponse {
+        try await send("POST", "activity-selections/\(id)/abandon")
+    }
+
+    /// `PUT` / `DELETE /bookmarks/{activityId}`: "Save for later" on or off.
+    /// Never selects the activity. Repeating either call is harmless.
+    func setSaved(activityId: Int, _ isSaved: Bool) async throws {
+        if isSaved {
+            let _: BookmarkDTO = try await send("PUT", "bookmarks/\(activityId)")
+        } else {
+            let _: EmptyResponse = try await send("DELETE", "bookmarks/\(activityId)")
+        }
+    }
+
+    /// `GET /activity-selections/current`: the activity in progress.
     func currentSelection() async throws -> SelectedActivityDTO? {
         let response: CurrentSelectionResponse = try await send("GET", "activity-selections/current")
         return response.selection
@@ -114,7 +131,8 @@ struct APIClient {
         }
 
         do {
-            return try decoder.decode(Response.self, from: data)
+            // 204 No Content has an empty body.
+            return try decoder.decode(Response.self, from: data.isEmpty ? Data("{}".utf8) : data)
         } catch {
             throw APIError.unexpectedResponse
         }
@@ -155,6 +173,8 @@ enum APIError: LocalizedError {
         case .server(let status, let detail):
             if status == 503, let detail { return detail }
             if status >= 500 { return "Something went wrong on our side. Please try again." }
+            // 404/409 details are written for people, e.g. "You already have an activity in progress."
+            if status == 404 || status == 409, let detail { return detail }
             return "That request wasn\u{2019}t accepted (error \(status)). Please try again."
         case .unexpectedResponse:
             return "The server sent an unexpected response. Please try again."

@@ -1,8 +1,9 @@
 import PhotosUI
 import SwiftUI
 
-/// After doing the chosen activity: a short reflection, with an optional
-/// photo, that becomes a scrapbook memory. Saving it completes the activity.
+/// The reflection for the activity in progress: two questions, optional
+/// notes and an optional photo. Saving it completes the activity and adds
+/// the memory to the scrapbook. Opening this screen completes nothing.
 struct ReflectionView: View {
     @Environment(AppRouter.self) private var router
     @Environment(JourneyStore.self) private var journey
@@ -31,6 +32,44 @@ struct ReflectionView: View {
         VStack(spacing: 0) {
             header
 
+            if let current = journey.selectedActivity {
+                form(for: current)
+            } else if !journey.hasLoaded {
+                ProgressView()
+                    .tint(CEDColor.primary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                noActivityView
+            }
+        }
+        .background(CEDColor.background)
+        .onChange(of: pickedItem) { _, item in
+            guard let item else { return }  // cancelled: keep the current photo
+            Task { await loadPhoto(item) }
+        }
+    }
+
+    /// Reached with nothing in progress (e.g. from the scrapbook).
+    private var noActivityView: some View {
+        VStack(spacing: 12) {
+            Text("Choose an activity first")
+                .cedTextStyle(.cardTitle)
+                .foregroundStyle(CEDColor.foreground)
+            Text("Reflections belong to an activity. Pick one that feels doable, and come back here once you\u{2019}ve tried it.")
+                .cedTextStyle(.body)
+                .foregroundStyle(CEDColor.mutedForeground)
+                .multilineTextAlignment(.center)
+            PrimaryButton(title: "Choose an activity") {
+                router.go(to: .activities)
+            }
+            .padding(.top, 8)
+        }
+        .padding(24)
+        .padding(.top, 24)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func form(for current: SelectedActivity) -> some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     photoPicker
@@ -73,8 +112,9 @@ struct ReflectionView: View {
 
                     VStack(spacing: 12) {
                         PrimaryButton(title: isSaving ? "Saving\u{2026}" : "Add to my scrapbook",
-                                      isEnabled: !isSaving && !isLoadingPhoto,
-                                      action: save)
+                                      isEnabled: !isSaving && !isLoadingPhoto) {
+                            save(current)
+                        }
                         if let saveError {
                             Text(saveError)
                                 .cedTextStyle(.body)
@@ -88,12 +128,6 @@ struct ReflectionView: View {
             }
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
-        }
-        .background(CEDColor.background)
-        .onChange(of: pickedItem) { _, item in
-            guard let item else { return }  // cancelled: keep the current photo
-            Task { await loadPhoto(item) }
-        }
     }
 
     private var header: some View {
@@ -121,9 +155,9 @@ struct ReflectionView: View {
         .cardHeaderStyle()
     }
 
-    /// The activity chosen with "I'll try this", which this memory completes.
+    /// The activity in progress, which this reflection completes.
     private func selectedActivityRow(_ activity: Activity) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             CEDIconView(icon: activity.icon, size: 18, color: activity.accent)
                 .frame(width: 36, height: 36)
                 .background(activity.background, in: RoundedRectangle(cornerRadius: CEDRadius.lg))
@@ -135,6 +169,11 @@ struct ReflectionView: View {
                     .cedTextStyle(.bodySemibold)
                     .foregroundStyle(CEDColor.foreground)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(activity.instructions)
+                    .cedTextStyle(.caption)
+                    .foregroundStyle(CEDColor.mutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
             }
         }
         .accessibilityElement(children: .combine)
@@ -255,10 +294,14 @@ struct ReflectionView: View {
         }
     }
 
-    /// Uploads the photo (if any) only now, then saves the memory, which
-    /// completes the selected activity.
-    private func save() {
+    /// Checks the two questions, uploads the photo (if any) only now, then
+    /// saves the memory, which completes the activity.
+    private func save(_ current: SelectedActivity) {
         guard !isSaving else { return }
+        guard let thoughtAboutEx, let moodChange else {
+            saveError = "Please answer both questions above before saving."
+            return
+        }
         isSaving = true
         saveError = nil
 
@@ -277,12 +320,12 @@ struct ReflectionView: View {
 
             do {
                 try await journey.saveReflection(ReflectionRequest(
-                    activitySelectionId: journey.selectedActivity?.selectionId,
-                    photoId: photoId,
-                    note: note.trimmedOrNil,
-                    noticed: noticed.trimmedOrNil,
+                    activitySelectionId: current.selectionId,
                     thoughtAboutEx: thoughtAboutEx,
                     moodChange: moodChange,
+                    note: note.trimmedOrNil,
+                    noticed: noticed.trimmedOrNil,
+                    photoId: photoId,
                     localDate: CheckInAnswers.localDateText(for: .now)
                 ))
                 router.go(to: .scrapbook)

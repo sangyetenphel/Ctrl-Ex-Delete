@@ -4,14 +4,26 @@ import SwiftUI
 // reflection and scrapbook screens. Everything here comes from the backend,
 // so it is the same after the app restarts.
 
-/// The activity chosen with "I'll try this" that still needs a reflection.
+/// The activity in progress: chosen with "I'll try this", finished by its
+/// reflection or set aside with "Change activity". There is at most one.
 struct SelectedActivity {
-    let selectionId: Int
+    let selectionId: Int        // the activity_selections row, sent with the reflection
     let activity: Activity
+    let startedOn: String       // e.g. "Oct 13"
 
     init(_ dto: SelectedActivityDTO) {
         selectionId = dto.selectionId
         activity = Activity(activity: dto.activity, recommendationId: dto.recommendationId)
+        startedOn = Self.dayText(dto.selectedAt)
+    }
+
+    /// "2026-10-13T04:37:02.118204Z" -> "Oct 13" in the user's time zone.
+    /// The fractional seconds are dropped first: the API sends six digits,
+    /// which ISO8601DateFormatter doesn't accept.
+    private static func dayText(_ timestamp: String) -> String {
+        let trimmed = timestamp.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression)
+        let date = ISO8601DateFormatter().date(from: trimmed)
+        return date?.formatted(.dateTime.month(.abbreviated).day()) ?? ""
     }
 }
 
@@ -91,16 +103,35 @@ final class JourneyStore {
         hasLoaded = true
     }
 
-    // MARK: Choosing and completing an activity
+    // MARK: Choosing, changing and completing an activity
 
-    /// "I'll try this": records the choice. It is not a completion; that
-    /// happens when the reflection is saved.
+    /// "I'll try this": starts the activity (in progress). Choosing is not
+    /// completing; that happens when its reflection is saved.
     func select(_ activity: Activity) async throws {
-        _ = try await APIClient.shared.selectRecommendation(id: activity.recommendationId)
-        // Ask the server instead of assuming: re-selecting a card that was
-        // already completed must not make it the current choice again.
+        do {
+            _ = try await APIClient.shared.selectRecommendation(id: activity.recommendationId)
+        } catch APIError.server(status: 409, let detail) {
+            // Another activity is already in progress (maybe from a request
+            // this screen didn't know about): show it instead.
+            await refresh()
+            throw APIError.server(status: 409, detail: detail)
+        }
         selectedActivity = try await APIClient.shared.currentSelection().map(SelectedActivity.init)
         summary = try? await APIClient.shared.progressSummary()
+    }
+
+    /// "Change activity": sets the activity in progress aside. It doesn't
+    /// count as completed, and saved memories stay as they are.
+    func abandonCurrentActivity() async throws {
+        guard let current = selectedActivity else { return }
+        _ = try await APIClient.shared.abandonSelection(id: current.selectionId)
+        selectedActivity = nil
+        await refresh()
+    }
+
+    /// "Save for later" on or off. Never selects the activity.
+    func setSaved(_ isSaved: Bool, activityId: Int) async throws {
+        try await APIClient.shared.setSaved(activityId: activityId, isSaved)
     }
 
     /// Uploads one photo to S3 and returns its id for `saveReflection`.
@@ -108,7 +139,7 @@ final class JourneyStore {
         try await APIClient.shared.uploadScrapbookPhoto(jpeg: jpeg).id
     }
 
-    /// "Add to my scrapbook": saves the memory, which completes the selected activity.
+    /// "Add to my scrapbook": saves the memory, which completes the activity in progress.
     func saveReflection(_ request: ReflectionRequest) async throws {
         let saved = try await APIClient.shared.saveReflection(request)
         if !memories.contains(where: { $0.id == saved.id }) {

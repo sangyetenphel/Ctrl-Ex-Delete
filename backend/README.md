@@ -127,7 +127,7 @@ python -m scripts.reset_dev_db   # asks you to type RESET
 python -m scripts.migrate
 ```
 
-It only drops this project's tables: `reflections`, `scrapbook_photos`, `activity_selections`, `recommendations`, `check_ins`, `activities`, `installations`, `schema_migrations` (and the old `activity_logs`, if present).
+It only drops this project's tables: `activity_bookmarks`, `reflections`, `scrapbook_photos`, `activity_selections`, `recommendations`, `check_ins`, `activities`, `installations`, `schema_migrations` (and the old `activity_logs`, if present).
 
 ## Troubleshooting
 

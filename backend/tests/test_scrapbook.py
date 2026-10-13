@@ -55,9 +55,19 @@ def test_deleting_a_photo_keeps_its_memory(installation_id, fake_s3):
     photo_id, key = start_upload(installation_id)
     uploaded[key] = 1000
     client.post(f"/scrapbook/photos/{photo_id}/complete", headers=headers(installation_id))
+    check_in = {"feeling": "hopeful", "contact_urge": 2, "energy_level": "high",
+                "hardest_areas": [], "local_date": "2026-10-05"}
+    client.post("/check-ins", json=check_in, headers=headers(installation_id))
+    card = client.get("/recommendations/latest", headers=headers(installation_id)).json()[
+        "recommendations"][0]
+    selection = client.post(
+        f"/recommendations/{card['id']}/selection", headers=headers(installation_id)
+    ).json()
     memory = client.post(
         "/reflections",
-        json={"photo_id": photo_id, "note": "kept", "local_date": "2026-10-05"},
+        json={"activity_selection_id": selection["id"], "photo_id": photo_id, "note": "kept",
+              "thought_about_ex": "not_really", "mood_change": "much_better",
+              "local_date": "2026-10-05"},
         headers=headers(installation_id),
     ).json()
 

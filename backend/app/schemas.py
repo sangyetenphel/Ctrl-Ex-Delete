@@ -20,6 +20,9 @@ ActivityCategory = Literal[
 # Reflection answers, stored exactly as the user chose them.
 ThoughtAboutEx = Literal["not_really", "a_little", "a_lot"]
 MoodChange = Literal["worse", "about_the_same", "a_little_better", "much_better"]
+# An "I'll try this" choice: in progress until its reflection is saved
+# (completed) or the user picks "Change activity" (abandoned).
+SelectionStatus = Literal["in_progress", "completed", "abandoned"]
 
 
 # ─────────────────────────────────────────────
@@ -63,8 +66,10 @@ class Recommendation(BaseModel):
     id: int
     position: int
     activity: Activity
+    is_saved: bool = False                 # bookmarked with "Save for later"
+    status: SelectionStatus | None = None  # null = not chosen (or abandoned)
     selected_at: datetime | None = None
-    completed_at: datetime | None = None   # set once a reflection is saved for it
+    completed_at: datetime | None = None   # set once its reflection is saved
 
 
 class RecommendationsResponse(BaseModel):
@@ -83,11 +88,13 @@ class ActivitySelection(BaseModel):
     recommendation_id: int
     activity_id: int
     check_in_id: int
+    status: SelectionStatus
     selected_at: datetime
+    ended_at: datetime | None
 
 
 class SelectedActivity(BaseModel):
-    """An "I'll try this" choice that has no reflection yet."""
+    """The activity in progress: chosen with "I'll try this", not yet finished."""
     selection_id: int
     recommendation_id: int
     check_in_id: int
@@ -96,7 +103,7 @@ class SelectedActivity(BaseModel):
 
 
 class CurrentSelectionResponse(BaseModel):
-    """The most recent choice still waiting for a reflection, or null."""
+    """The activity in progress, or null."""
     selection: SelectedActivity | None
 
 
@@ -123,15 +130,16 @@ class ScrapbookPhoto(BaseModel):
 
 class ReflectionCreate(BaseModel):
     """
-    What the iOS app SENDS from "Add to my scrapbook". Saving it marks the
-    selected activity as completed. Every answer is optional.
+    What the iOS app SENDS from "Add to my scrapbook". Saving it completes the
+    activity in progress. The two questions are required; the notes and the
+    photo are optional.
     """
-    activity_selection_id: int | None = None
-    photo_id: int | None = None
+    activity_selection_id: int
+    thought_about_ex: ThoughtAboutEx
+    mood_change: MoodChange
     note: str | None = Field(default=None, max_length=1000)
     noticed: str | None = Field(default=None, max_length=1000)
-    thought_about_ex: ThoughtAboutEx | None = None
-    mood_change: MoodChange | None = None
+    photo_id: int | None = None
     local_date: date
 
 
@@ -148,6 +156,15 @@ class Reflection(BaseModel):
     created_at: datetime          # when it was saved (= completed, with a selection)
     photo_id: int | None
     image_url: str | None
+
+
+# ─────────────────────────────────────────────
+# Bookmarks ("Save for later")
+# ─────────────────────────────────────────────
+
+class Bookmark(BaseModel):
+    activity: Activity
+    saved_at: datetime
 
 
 # ─────────────────────────────────────────────

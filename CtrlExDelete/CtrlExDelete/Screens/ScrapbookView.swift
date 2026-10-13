@@ -120,10 +120,10 @@ struct ScrapbookView: View {
 
     private var captureButton: some View {
         VStack(spacing: 8) {
-            // Opens the reflection for the activity chosen with "I'll try this"
-            // (or a memory without one, if nothing is chosen).
+            // The reflection for the activity in progress, or the activities
+            // to choose one first.
             PrimaryButton(title: "+ Capture an activity") {
-                router.go(to: .reflection)
+                router.go(to: journey.selectedActivity == nil ? .activities : .reflection)
             }
             Text("Add a photo and reflection from an activity you completed.")
                 .cedTextStyle(.caption)

@@ -134,19 +134,22 @@ struct Activity: Identifiable {
     let icon: CEDIcon
     let background: Color   // soft tint behind the card art
     let accent: Color       // icon and category pill
-    let isCompleted: Bool   // a reflection was saved for this card
+    let isCompleted: Bool   // its reflection was saved
+    var isSaved: Bool       // bookmarked with "Save for later"
 
     var id: Int { recommendationId }
 
     init(recommendation: RecommendationDTO) {
         self.init(activity: recommendation.activity,
                   recommendationId: recommendation.id,
-                  isCompleted: recommendation.completedAt != nil)
+                  isCompleted: recommendation.status == .completed,
+                  isSaved: recommendation.isSaved)
     }
 
-    init(activity: ActivityDTO, recommendationId: Int, isCompleted: Bool = false) {
+    init(activity: ActivityDTO, recommendationId: Int, isCompleted: Bool = false, isSaved: Bool = false) {
         self.recommendationId = recommendationId
         self.isCompleted = isCompleted
+        self.isSaved = isSaved
         activityId = activity.id
         category = "\(activity.categoryLabel) · \(Self.durationText(minutes: activity.durationMinutes))"
         title = activity.title
@@ -180,12 +183,11 @@ struct Activity: Identifiable {
     }
 }
 
-/// Which activity card is showing and which ones were saved.
-/// The rules match the prototype's ActivitiesScreen.
+/// Which activity card is showing. The paging rules match the prototype's
+/// ActivitiesScreen; the saved state comes from the backend.
 struct ActivityDeck {
-    let activities: [Activity]
+    private(set) var activities: [Activity]
     private(set) var index = 0
-    private(set) var savedIndices: Set<Int> = []
 
     /// `activities` must not be empty.
     init(activities: [Activity]) {
@@ -195,13 +197,12 @@ struct ActivityDeck {
     var current: Activity { activities[index] }
     var canGoBack: Bool { index > 0 }
     var canGoForward: Bool { index < activities.count - 1 }
-    var isCurrentSaved: Bool { savedIndices.contains(index) }
 
     mutating func goBack() {
         index = max(0, index - 1)
     }
 
-    /// Skip uses this too: it moves to the next card and stays on the last one.
+    /// Moves to the next card and stays on the last one.
     mutating func goForward() {
         index = min(activities.count - 1, index + 1)
     }
@@ -211,10 +212,11 @@ struct ActivityDeck {
         index = newIndex
     }
 
-    /// Saves the current card. Returns `true` only the first time,
-    /// which is when the "Saved for another day" toast should appear.
-    mutating func saveCurrent() -> Bool {
-        savedIndices.insert(index).inserted
+    /// Shows the saved state for every card of this activity.
+    mutating func setSaved(_ isSaved: Bool, activityId: Int) {
+        for i in activities.indices where activities[i].activityId == activityId {
+            activities[i].isSaved = isSaved
+        }
     }
 }
 

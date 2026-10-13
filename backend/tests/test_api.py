@@ -86,6 +86,7 @@ def test_select_recommendation(installation_id):
     assert created.status_code == 201
     assert created.json()["activity_id"] == recommendation["activity"]["id"]
     assert created.json()["check_in_id"] == body["check_in_id"]
+    assert created.json()["status"] == "in_progress"
 
     # Tapping again doesn't create a second row.
     again = client.post(url, headers=headers(installation_id))
