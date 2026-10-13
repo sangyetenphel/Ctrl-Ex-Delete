@@ -37,9 +37,10 @@ struct APIClient {
         try await send("POST", "recommendations/\(id)/selection")
     }
 
-    /// `GET /scrapbook/photos`: uploaded photos, newest first.
-    func scrapbookPhotos() async throws -> [ScrapbookPhotoDTO] {
-        try await send("GET", "scrapbook/photos")
+    /// `GET /activity-selections/current`: the choice still waiting for a reflection.
+    func currentSelection() async throws -> SelectedActivityDTO? {
+        let response: CurrentSelectionResponse = try await send("GET", "activity-selections/current")
+        return response.selection
     }
 
     /// Uploads one photo: ask the backend for a URL, PUT the JPEG to S3, confirm.
@@ -62,6 +63,22 @@ struct APIClient {
         }
 
         return try await send("POST", "scrapbook/photos/\(ticket.id)/complete")
+    }
+
+    /// `POST /reflections`: saves a memory and completes its selected activity.
+    /// Saving the same selection twice returns the first memory.
+    func saveReflection(_ reflection: ReflectionRequest) async throws -> ReflectionDTO {
+        try await send("POST", "reflections", body: try encoder.encode(reflection))
+    }
+
+    /// `GET /reflections`: every scrapbook memory, newest first.
+    func reflections() async throws -> [ReflectionDTO] {
+        try await send("GET", "reflections")
+    }
+
+    /// `GET /progress/summary`: journey start, counts and milestones.
+    func progressSummary() async throws -> ProgressSummaryDTO {
+        try await send("GET", "progress/summary")
     }
 
     // MARK: Shared request code

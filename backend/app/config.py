@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     aws_secret_access_key: str | None = None
     aws_region: str | None = None
     s3_bucket: str | None = None
+    # Only for local testing against an S3-compatible server (e.g. MinIO).
+    s3_endpoint_url: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env")
 

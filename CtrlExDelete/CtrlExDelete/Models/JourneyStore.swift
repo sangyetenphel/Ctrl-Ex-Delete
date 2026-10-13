@@ -1,72 +1,144 @@
 import SwiftUI
 
-// Local, temporary data shared by the screens after the check-in.
-// Nothing here is sent to the backend; it resets when the app closes.
+// The user's journey after the check-in, shared by the room, activities,
+// reflection and scrapbook screens. Everything here comes from the backend,
+// so it is the same after the app restarts.
+
+/// The activity chosen with "I'll try this" that still needs a reflection.
+struct SelectedActivity {
+    let selectionId: Int
+    let activity: Activity
+
+    init(_ dto: SelectedActivityDTO) {
+        selectionId = dto.selectionId
+        activity = Activity(activity: dto.activity, recommendationId: dto.recommendationId)
+    }
+}
 
 /// One card in the scrapbook's "Recent Memories".
 struct ScrapbookMemory: Identifiable {
-    let id = UUID()
+    let id: Int
     let title: String
     let reflection: String?   // shown in quotes; nil if the user wrote nothing
     let date: String          // e.g. "September 4"
-    let tint: Color           // background behind the photo placeholder
+    let tint: Color           // background behind the photo
+    let imageURL: URL?        // temporary S3 link; nil without a photo
+
+    init(_ dto: ReflectionDTO) {
+        id = dto.id
+        title = dto.activity?.title ?? "Today\u{2019}s activity"
+        reflection = dto.note ?? dto.noticed
+        date = LocalDate.format(dto.localDate, .dateTime.month(.wide).day())
+        tint = dto.activity.map { Activity.palette(for: $0.category).background } ?? CEDColor.secondary
+        imageURL = dto.imageUrl
+    }
+}
+
+/// One step in the scrapbook's "Your story so far".
+struct JourneyMilestone: Identifiable {
+    let label: String
+    let date: String          // e.g. "Aug 18", or "Upcoming"
+    let isDone: Bool
+    var id: String { label }
 }
 
 @Observable
 final class JourneyStore {
-    /// The activity chosen with "I'll try this", kept for the reflection screen.
-    var selectedActivity: Activity?
+    private(set) var selectedActivity: SelectedActivity?
+    /// Newest first.
+    private(set) var memories: [ScrapbookMemory] = []
+    private(set) var summary: ProgressSummaryDTO?
+    private(set) var hasLoaded = false
+    private(set) var loadError: String?
 
-    /// Newest first. Starts with the two sample memories from the prototype.
-    private(set) var memories: [ScrapbookMemory] = [
-        ScrapbookMemory(title: "Evening Walk", reflection: "My mind felt calmer", date: "September 4", tint: Color(hex: 0xFDE8D8)),
-        ScrapbookMemory(title: "Solo Coffee Date", reflection: "I enjoyed time alone", date: "August 26", tint: Color(hex: 0xE8F0E0)),
-    ]
-
-    /// Adds a memory from the reflection screen for the selected activity.
-    func addMemory(note: String, on date: Date = .now) {
-        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let memory = ScrapbookMemory(
-            title: selectedActivity?.title ?? "Today\u{2019}s activity",
-            reflection: trimmed.isEmpty ? nil : trimmed,
-            date: date.formatted(.dateTime.month(.wide).day()),
-            tint: selectedActivity?.background ?? CEDColor.secondary
-        )
-        memories.insert(memory, at: 0)
+    /// "Day N" in the headers: day 1 is the day of the first check-in.
+    var dayNumber: Int {
+        guard let start = summary?.journeyStartedOn.flatMap({ LocalDate.date(from: $0) }) else { return 1 }
+        let calendar = Calendar.current
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: start),
+                                           to: calendar.startOfDay(for: .now)).day ?? 0
+        return max(1, days + 1)
     }
-}
 
-#if DEBUG
-// MARK: - Testing without the backend
-
-extension JourneyStore {
-    /// Launch argument `-CEDSampleActivity YES` pretends the first prototype
-    /// activity was chosen, so reflection and scrapbook can be tested offline.
-    static func debugStore() -> JourneyStore {
-        let store = JourneyStore()
-        if UserDefaults.standard.bool(forKey: "CEDSampleActivity") {
-            store.selectedActivity = .debugSample
+    var milestones: [JourneyMilestone] {
+        (summary?.milestones ?? []).map { milestone in
+            JourneyMilestone(
+                label: milestone.label,
+                date: milestone.reachedOn.map { LocalDate.format($0, .dateTime.month(.abbreviated).day()) } ?? "Upcoming",
+                isDone: milestone.reachedOn != nil
+            )
         }
-        return store
+    }
+
+    // MARK: Loading
+
+    /// Reloads the current choice, the memories and the progress counts.
+    func refresh() async {
+        do {
+            // One after another: `async let` crashes the Swift runtime here
+            // (swift_task_dealloc) with the project's MainActor default isolation.
+            let currentSelection = try await APIClient.shared.currentSelection()
+            let savedReflections = try await APIClient.shared.reflections()
+            let progress = try await APIClient.shared.progressSummary()
+
+            selectedActivity = currentSelection.map(SelectedActivity.init)
+            memories = savedReflections.map(ScrapbookMemory.init)
+            self.summary = progress
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
+        hasLoaded = true
+    }
+
+    // MARK: Choosing and completing an activity
+
+    /// "I'll try this": records the choice. It is not a completion; that
+    /// happens when the reflection is saved.
+    func select(_ activity: Activity) async throws {
+        _ = try await APIClient.shared.selectRecommendation(id: activity.recommendationId)
+        // Ask the server instead of assuming: re-selecting a card that was
+        // already completed must not make it the current choice again.
+        selectedActivity = try await APIClient.shared.currentSelection().map(SelectedActivity.init)
+        summary = try? await APIClient.shared.progressSummary()
+    }
+
+    /// Uploads one photo to S3 and returns its id for `saveReflection`.
+    func uploadPhoto(jpeg: Data) async throws -> Int {
+        try await APIClient.shared.uploadScrapbookPhoto(
+            jpeg: jpeg,
+            caption: nil,
+            localDate: CheckInAnswers.localDateText(for: .now)
+        ).id
+    }
+
+    /// "Add to my scrapbook": saves the memory, which completes the selected activity.
+    func saveReflection(_ request: ReflectionRequest) async throws {
+        let saved = try await APIClient.shared.saveReflection(request)
+        if !memories.contains(where: { $0.id == saved.id }) {
+            memories.insert(ScrapbookMemory(saved), at: 0)
+        }
+        if selectedActivity?.selectionId == saved.activitySelectionId {
+            selectedActivity = nil
+        }
+        await refresh()
     }
 }
 
-extension Activity {
-    /// The prototype's first card, shaped like a backend recommendation.
-    static let debugSample = Activity(recommendation: RecommendationDTO(
-        id: 0,
-        position: 1,
-        activity: ActivityDTO(
-            id: 0,
-            slug: "sit-in-sunlight",
-            title: "Sit somewhere with sunlight.",
-            category: "mindfulness_rest",
-            categoryLabel: "Gentle Reset",
-            durationMinutes: 10,
-            instructions: "No productivity needed. Notice three things you can see and take five slow breaths.",
-            whyItFits: "Your energy is low and the urge to reach out is moderate. This activity gives your nervous system a soft reset."
-        ),
-        selectedAt: nil
-    ))
+// MARK: - Dates from the API
+
+/// The API sends calendar days as "YYYY-MM-DD" in the user's own time zone.
+enum LocalDate {
+    static func date(from text: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: text)
+    }
+
+    static func format(_ text: String, _ style: Date.FormatStyle) -> String {
+        date(from: text)?.formatted(style) ?? text
+    }
 }
-#endif

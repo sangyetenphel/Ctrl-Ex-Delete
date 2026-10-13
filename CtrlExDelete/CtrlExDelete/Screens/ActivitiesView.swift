@@ -113,21 +113,48 @@ struct ActivitiesView: View {
         }
     }
 
-    /// "I'll try this": saves the choice, then opens the reflection screen
-    /// only after the server confirms it.
+    /// The primary button for the card on screen.
+    private enum PrimaryAction {
+        case choose      // "I'll try this"
+        case reflect     // this card is the current choice: write its reflection
+        case completed   // a reflection was already saved for this card
+    }
+
+    private var primaryAction: PrimaryAction {
+        if deck.current.isCompleted { return .completed }
+        if journey.selectedActivity?.activity.recommendationId == deck.current.recommendationId { return .reflect }
+        return .choose
+    }
+
+    private var primaryTitle: String {
+        switch primaryAction {
+        case .choose: isSelecting ? "Saving\u{2026}" : "I\u{2019}ll try this"
+        case .reflect: "I did it \u{2192}"
+        case .completed: "Completed \u{2713}"
+        }
+    }
+
+    private func primaryTapped() {
+        switch primaryAction {
+        case .choose: selectCurrentActivity()
+        case .reflect: router.go(to: .reflection)
+        case .completed: break
+        }
+    }
+
+    /// "I'll try this": saves the choice (not a completion), then returns to
+    /// the room. The reflection comes later, once the activity is done.
     private func selectCurrentActivity() {
         guard !isSelecting else { return }
         isSelecting = true
         selectionError = nil
         let activity = deck.current
-        let recommendationId = activity.recommendationId
 
         Task {
             defer { isSelecting = false }
             do {
-                _ = try await APIClient.shared.selectRecommendation(id: recommendationId)
-                journey.selectedActivity = activity   // the reflection screen uses this
-                router.go(to: .reflection)
+                try await journey.select(activity)
+                router.go(to: .room)
             } catch {
                 selectionError = "Your choice wasn\u{2019}t saved. \(error.localizedDescription)"
             }
@@ -171,7 +198,7 @@ struct ActivitiesView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Day 1")
+            Text("Day \(journey.dayNumber)")
                 .textCase(.uppercase)
                 .cedTextStyle(.eyebrow)
                 .foregroundStyle(CEDColor.primary)
@@ -231,8 +258,8 @@ struct ActivitiesView: View {
             }
             .buttonStyle(.plain)
 
-            Button(action: selectCurrentActivity) {
-                Text(isSelecting ? "Saving\u{2026}" : "I\u{2019}ll try this")
+            Button(action: primaryTapped) {
+                Text(primaryTitle)
                     .cedTextStyle(.bodyBold)
                     .foregroundStyle(CEDColor.cream)
                     .multilineTextAlignment(.center)
@@ -241,7 +268,7 @@ struct ActivitiesView: View {
                     .background(CEDColor.primary, in: RoundedRectangle(cornerRadius: CEDRadius.xl))
             }
             .buttonStyle(PressScaleButtonStyle())
-            .disabled(isSelecting)
+            .disabled(isSelecting || primaryAction == .completed)
 
             Button(action: saveCurrentActivity) {
                 HStack(spacing: 4) {

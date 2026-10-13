@@ -4,7 +4,15 @@ import psycopg
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.routes import check_ins, health, recommendations, scrapbook
+from app.routes import (
+    activity_selections,
+    check_ins,
+    health,
+    progress,
+    recommendations,
+    reflections,
+    scrapbook,
+)
 
 logger = logging.getLogger("ced")
 
@@ -12,7 +20,10 @@ app = FastAPI(title="Ctrl+Ex+Delete API")
 app.include_router(health.router)
 app.include_router(check_ins.router)
 app.include_router(recommendations.router)
+app.include_router(activity_selections.router)
 app.include_router(scrapbook.router)
+app.include_router(reflections.router)
+app.include_router(progress.router)
 
 
 @app.exception_handler(psycopg.OperationalError)

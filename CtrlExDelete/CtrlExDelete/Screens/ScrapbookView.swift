@@ -6,14 +6,7 @@ struct ScrapbookView: View {
     @Environment(AppRouter.self) private var router
     @Environment(JourneyStore.self) private var journey
 
-    /// Milestones from the prototype's timeline.
-    private let milestones: [(label: String, date: String, isDone: Bool)] = [
-        ("Started the journey", "Aug 18", true),
-        ("First solo walk", "Aug 22", true),
-        ("Visited a new caf\u{E9} alone", "Aug 26", true),
-        ("5 activities milestone", "Sep 4", true),
-        ("Moving forward check-in", "Upcoming", false),
-    ]
+    private var completed: Int { journey.summary?.activitiesCompleted ?? 0 }
 
     var body: some View {
         ScrollView {
@@ -21,7 +14,9 @@ struct ScrapbookView: View {
                 header
 
                 VStack(alignment: .leading, spacing: 20) {
-                    celebrationCard
+                    if completed > 0 {
+                        celebrationCard
+                    }
                     recentMemories
                     captureButton
                     timeline
@@ -42,6 +37,8 @@ struct ScrapbookView: View {
         .scrollIndicators(.hidden)
         .statusBarBackground(CEDColor.card)
         .background(CEDColor.background)
+        // Photo links expire after an hour, so fetch fresh ones each visit.
+        .task { await journey.refresh() }
     }
 
     private var header: some View {
@@ -57,7 +54,7 @@ struct ScrapbookView: View {
                 .foregroundStyle(CEDColor.foreground)
                 .accessibilityAddTraits(.isHeader)
 
-            Text("5 activities explored \u{B7} \(journey.memories.count) \(journey.memories.count == 1 ? "memory" : "memories") collected")
+            Text("\(completed) \(completed == 1 ? "activity" : "activities") explored \u{B7} \(journey.memories.count) \(journey.memories.count == 1 ? "memory" : "memories") collected")
                 .cedTextStyle(.body)
                 .foregroundStyle(CEDColor.mutedForeground)
                 .padding(.top, 8)
@@ -75,7 +72,7 @@ struct ScrapbookView: View {
                     .textCase(.uppercase)
                     .cedTextStyle(.captionBold.tracking(0.6))
                     .foregroundStyle(CEDColor.mutedForeground)
-                Text("You\u{2019}ve made time for yourself 5 times.")
+                Text("You\u{2019}ve made time for yourself \(completed == 1 ? "once" : "\(completed) times").")
                     .cedTextStyle(.bodySemibold)
                     .foregroundStyle(CEDColor.foreground)
             }
@@ -93,6 +90,12 @@ struct ScrapbookView: View {
                 .foregroundStyle(CEDColor.foreground)
                 .accessibilityAddTraits(.isHeader)
 
+            if journey.memories.isEmpty {
+                Text(memoriesPlaceholder)
+                    .cedTextStyle(.body)
+                    .foregroundStyle(CEDColor.mutedForeground)
+            }
+
             // Two cards per row; cards in the same row share the same height.
             Grid(horizontalSpacing: 12, verticalSpacing: 12) {
                 ForEach(Array(stride(from: 0, to: journey.memories.count, by: 2)), id: \.self) { start in
@@ -109,10 +112,16 @@ struct ScrapbookView: View {
         }
     }
 
+    private var memoriesPlaceholder: String {
+        if !journey.hasLoaded { return "Loading your memories\u{2026}" }
+        if let error = journey.loadError { return "Your memories couldn\u{2019}t be loaded. \(error)" }
+        return "Your memories will show up here after your first reflection."
+    }
+
     private var captureButton: some View {
         VStack(spacing: 8) {
-            // The prototype's button has no action yet. It opens the reflection
-            // screen, which is where a photo and reflection are added.
+            // Opens the reflection for the activity chosen with "I'll try this"
+            // (or a memory without one, if nothing is chosen).
             PrimaryButton(title: "+ Capture an activity") {
                 router.go(to: .reflection)
             }
@@ -131,6 +140,7 @@ struct ScrapbookView: View {
                 .accessibilityAddTraits(.isHeader)
 
             VStack(alignment: .leading, spacing: 0) {
+                let milestones = journey.milestones
                 ForEach(milestones.indices, id: \.self) { index in
                     let item = milestones[index]
                     HStack(alignment: .top, spacing: 12) {
@@ -168,10 +178,24 @@ private struct MemoryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CEDIconView(icon: .image, size: 32, color: CEDColor.mutedForeground)
-                .frame(maxWidth: .infinity)
+            memory.tint
                 .frame(height: 96)
-                .background(memory.tint)
+                .overlay {
+                    if let imageURL = memory.imageURL {
+                        AsyncImage(url: imageURL) { phase in
+                            if let image = phase.image {
+                                image.resizable().scaledToFill()
+                            } else if phase.error != nil {
+                                CEDIconView(icon: .image, size: 32, color: CEDColor.mutedForeground)
+                            } else {
+                                ProgressView().tint(CEDColor.primary)
+                            }
+                        }
+                    } else {
+                        CEDIconView(icon: .image, size: 32, color: CEDColor.mutedForeground)
+                    }
+                }
+                .clipped()
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(memory.title)
