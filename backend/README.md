@@ -142,3 +142,14 @@ It only drops this project's tables: `activity_bookmarks`, `reflections`, `scrap
 | `422` response | The request doesn't match `docs/api.md`. The `loc` field in the error shows which field is wrong. |
 | App says "Couldn't reach the server" | The backend isn't running, or (on a phone) the base URL / `--host 0.0.0.0` step was missed. |
 | New packages were added by a teammate | Pull, activate the venv, then run `pip install -r requirements-dev.txt` again. |
+
+
+## Checking AWS S3
+
+After adding `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` and `S3_BUCKET` to `.env`:
+
+```
+python -m scripts.check_s3
+```
+
+It uploads one test object under `scrapbook/_check-s3-…`, reads it back through a presigned URL, confirms an unsigned request is refused (the object is private), checks the bucket's public-access block, and deletes that one object. No secrets are printed.
