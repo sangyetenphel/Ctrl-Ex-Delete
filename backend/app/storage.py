@@ -17,7 +17,7 @@ from app.schemas import (
     CheckInCreate,
     Recommendation,
     RecommendationsResponse,
-    ScrapbookPhotoCreate
+    ScrapbookPhotoCreate,
 )
 
 # Columns returned to the app, in one place so every query stays consistent.
