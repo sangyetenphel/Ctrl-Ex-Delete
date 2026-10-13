@@ -104,12 +104,6 @@ class CurrentSelectionResponse(BaseModel):
 # Scrapbook
 # ─────────────────────────────────────────────
 
-class ScrapbookPhotoCreate(BaseModel):
-    """What the iOS app SENDS to start a photo upload."""
-    caption: str | None = Field(default=None, max_length=500)
-    local_date: date
-
-
 class PhotoUpload(BaseModel):
     """What the API SENDS BACK: where to PUT the JPEG."""
     id: int
@@ -119,8 +113,6 @@ class PhotoUpload(BaseModel):
 class ScrapbookPhoto(BaseModel):
     """One uploaded photo. image_url is temporary (about 1 hour)."""
     id: int
-    caption: str | None
-    local_date: date
     created_at: datetime
     image_url: str
 
@@ -153,7 +145,7 @@ class Reflection(BaseModel):
     thought_about_ex: ThoughtAboutEx | None
     mood_change: MoodChange | None
     local_date: date
-    completed_at: datetime
+    created_at: datetime          # when it was saved (= completed, with a selection)
     photo_id: int | None
     image_url: str | None
 

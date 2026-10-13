@@ -82,12 +82,6 @@ struct SelectedActivityDTO: Decodable {
 
 // MARK: - Scrapbook
 
-/// Body of `POST /scrapbook/photos`.
-struct NewScrapbookPhotoRequest: Encodable {
-    let caption: String?
-    let localDate: String
-}
-
 /// Response of `POST /scrapbook/photos`: where to PUT the JPEG.
 struct PhotoUploadTicket: Decodable {
     let id: Int
@@ -97,8 +91,7 @@ struct PhotoUploadTicket: Decodable {
 /// One uploaded photo. `imageUrl` is temporary, so don't store it.
 struct ScrapbookPhotoDTO: Decodable, Identifiable {
     let id: Int
-    let caption: String?
-    let localDate: String
+    let createdAt: String
     let imageUrl: URL
 }
 
@@ -125,7 +118,7 @@ struct ReflectionDTO: Decodable, Identifiable {
     let thoughtAboutEx: ThoughtAboutEx?
     let moodChange: MoodChange?
     let localDate: String
-    let completedAt: String
+    let createdAt: String       // when it was saved (= completed, with a selection)
     let photoId: Int?
     let imageUrl: URL?
 }

@@ -44,9 +44,9 @@ struct APIClient {
     }
 
     /// Uploads one photo: ask the backend for a URL, PUT the JPEG to S3, confirm.
-    func uploadScrapbookPhoto(jpeg: Data, caption: String?, localDate: String) async throws -> ScrapbookPhotoDTO {
-        let body = try encoder.encode(NewScrapbookPhotoRequest(caption: caption, localDate: localDate))
-        let ticket: PhotoUploadTicket = try await send("POST", "scrapbook/photos", body: body)
+    /// The photo joins a memory afterwards, through `saveReflection(photoId:)`.
+    func uploadScrapbookPhoto(jpeg: Data) async throws -> ScrapbookPhotoDTO {
+        let ticket: PhotoUploadTicket = try await send("POST", "scrapbook/photos")
 
         // Straight to S3, not through send(): no X-Installation-ID header,
         // and Content-Type must match what the backend signed.
