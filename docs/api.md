@@ -3,7 +3,7 @@
 This is the contract between the iOS app and the FastAPI backend.
 **Field names and allowed values must match exactly.** If something here needs to change, update this doc in the same pull request as the code.
 
-- **Status:** check-ins, recommendations, activity selection, scrapbook photos, reflections (completion), progress summary
+- **Status:** check-ins, recommendations, activity status (one in progress), bookmarks, scrapbook photos, reflections (completion), progress summary
 - **Local base URL:** `http://127.0.0.1:8000` (works from the iOS Simulator on the same Mac)
 - **Interactive docs:** `http://127.0.0.1:8000/docs` (while the backend is running)
 
@@ -151,8 +151,8 @@ Activity cards for this installation's **most recent** check-in. Called when the
 
 - `recommendations` is in card order (`position` 1, 2, 3...).
 - `id` is the **recommendation** id. Use it to record a selection.
-- `selected_at` is set once the user has tapped "I'll try this" on that card.
-- `completed_at` is set once a reflection was saved for that card's selection (the app shows "Completed ✓").
+- `status`: `null` (not chosen, or the attempt was abandoned), `in_progress` or `completed`. `selected_at` and `completed_at` go with it.
+- `is_saved`: bookmarked with **Save for later**. Saved activities are placed first when the next check-in's cards are made.
 - `category` is one of `outdoor_movement`, `mindfulness_rest`, `solo_exploration`, `social_connection`. The app picks the card's icon and colors from it.
 - **No check-ins yet:** `200` with `"check_in_id": null`, `"check_in_local_date": null`, `"recommendations": []`. The app shows "Check in first".
 
@@ -160,46 +160,49 @@ Activity cards for this installation's **most recent** check-in. Called when the
 
 ---
 
-## `POST /recommendations/{id}/selection`
+## Activity status: one activity at a time
 
-Records that the user tapped **I'll try this** on a recommendation. No request body.
+An **I'll try this** choice is an `activity_selections` row with a `status`:
 
-**Headers:** `X-Installation-ID` (required)
-
-**Response `201 Created`** (first time) or **`200 OK`** (already selected; returns the existing row, so tapping twice never creates two rows):
-```json
-{
-  "id": 7,
-  "recommendation_id": 31,
-  "activity_id": 1,
-  "check_in_id": 12,
-  "selected_at": "2026-10-04T22:21:32.136186Z"
-}
+```
+in_progress ──(POST /reflections)──────────────▶ completed
+     └──────(POST /activity-selections/{id}/abandon)──▶ abandoned
 ```
 
-**`404`** if the recommendation doesn't exist **or belongs to a different installation**.
+The database allows **at most one `in_progress` activity per installation** (a partial unique index), so two simultaneous requests can't both start one. Choosing an activity never completes it.
+
+### `POST /recommendations/{id}/selection`
+
+**I'll try this.** No body. **`201`** with the new selection; **`200`** if this card is already the activity in progress (repeated taps never create a second row):
+```json
+{ "id": 57, "recommendation_id": 120, "activity_id": 1, "check_in_id": 43,
+  "status": "in_progress", "selected_at": "2026-10-13T05:49:20Z", "ended_at": null }
+```
+**`409`** if another activity is in progress (`"You already have an activity in progress. Finish its reflection or change activity first."`) or this card is already completed. **`404`** if the card isn't yours.
+
+### `GET /activity-selections/current`
+
+The activity in progress, or `{"selection": null}`. This is how it survives an app restart.
+```json
+{ "selection": { "selection_id": 57, "recommendation_id": 120, "check_in_id": 43,
+                 "selected_at": "…", "activity": { "id": 1, "slug": "sit_in_sunlight", "…": "…" } } }
+```
+
+### `POST /activity-selections/{id}/abandon`
+
+**Change activity.** Sets the activity in progress aside: it does **not** count as completed, the card can be chosen again later, and saved memories are untouched. Returns the selection with `"status": "abandoned"`. Repeating it is harmless. **`409`** if it's already completed.
 
 ---
 
-## `GET /activity-selections/current`
+## Bookmarks (`/bookmarks`)
 
-The activity the user most recently chose with **I'll try this**, as long as no reflection has been saved for it yet. Choosing another activity replaces it; saving its reflection completes it. This is how the chosen activity survives an app restart.
+**Save for later.** Never selects or completes anything.
 
-**Response `200 OK`:**
-```json
-{
-  "selection": {
-    "selection_id": 15,
-    "recommendation_id": 53,
-    "check_in_id": 21,
-    "selected_at": "2026-10-13T04:37:02.118Z",
-    "activity": { "id": 2, "slug": "walk_without_social_media", "title": "Take a 20-minute walk without checking their social media.", "category": "outdoor_movement", "category_label": "Fresh Air", "duration_minutes": 20, "instructions": "…", "why_it_fits": "…" }
-  }
-}
-```
-`"selection": null` when nothing is waiting for a reflection.
-
-**Selection is not completion.** Tapping "I'll try this" never creates a completed-activity record.
+| Call | Result |
+|---|---|
+| `PUT /bookmarks/{activity_id}` | `201` saved, `200` if already saved (no duplicates), `404` unknown activity |
+| `DELETE /bookmarks/{activity_id}` | `204` (also when it wasn't saved) |
+| `GET /bookmarks` | `[{"activity": {…}, "saved_at": "…"}]`, newest first |
 
 ---
 
@@ -217,7 +220,7 @@ The photo becomes part of a memory through `POST /reflections`. `DELETE /scrapbo
 
 ## `POST /reflections`
 
-**Add to my scrapbook.** Saves a memory and **completes** the selected activity. Upload the photo first (above) and pass its `id`. Every answer is optional.
+**Add to my scrapbook.** Saves the memory and **completes** the activity in progress, in one transaction. `activity_selection_id`, `thought_about_ex` and `mood_change` are **required**; the notes and photo are optional. Upload the photo first (above) and pass its `id`.
 
 ```json
 {
@@ -237,7 +240,6 @@ The photo becomes part of a memory through `POST /reflections`. `DELETE /scrapbo
 | `mood_change` | `worse`, `about_the_same`, `a_little_better`, `much_better` (stored as chosen, never as a score) |
 | `note`, `noticed` | up to 1000 characters |
 
-Leave out `activity_selection_id` for a memory that isn't tied to an activity.
 
 **Response `201 Created`**, or **`200 OK`** if that selection already has a reflection (the first one is returned unchanged, so retries never duplicate):
 ```json
@@ -255,7 +257,7 @@ Leave out `activity_selection_id` for a memory that isn't tied to an activity.
   "image_url": "https://…"
 }
 ```
-`created_at` is when it was saved, which is also when the activity was completed. `image_url` is temporary (1 hour) and `null` without a photo. **`404`** for a selection or photo that isn't yours; **`409`** if the photo isn't uploaded yet or already belongs to another memory.
+`created_at` is when it was saved, which is also when the activity was completed. `image_url` is temporary (1 hour) and `null` without a photo. **`404`** for a selection or photo that isn't yours; **`409`** if the activity was abandoned, or the photo isn't uploaded yet or already belongs to another memory.
 
 ## `GET /reflections`
 

@@ -13,6 +13,7 @@ from app.config import settings
 from app.schemas import (
     Activity,
     ActivitySelection,
+    Bookmark,
     CheckIn,
     CheckInCreate,
     Milestone,
@@ -117,7 +118,14 @@ def _create_recommendations(conn: psycopg.Connection, check_in: CheckIn) -> None
     active_activities = conn.execute(
         "SELECT * FROM activities WHERE is_active ORDER BY sort_order, id"
     ).fetchall()
-    activity_ids = recommendation_rules.choose_activity_ids(check_in, active_activities)
+    saved_ids = {
+        row["activity_id"]
+        for row in conn.execute(
+            "SELECT activity_id FROM activity_bookmarks WHERE installation_id = %s",
+            (check_in.installation_id,),
+        ).fetchall()
+    }
+    activity_ids = recommendation_rules.choose_activity_ids(check_in, active_activities, saved_ids)
 
     for position, activity_id in enumerate(activity_ids, start=1):
         conn.execute(
@@ -151,12 +159,17 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
 
         rows = conn.execute(
             f"""
-            SELECT r.id AS recommendation_id, r.position, s.selected_at,
-                   rf.created_at AS completed_at, {ACTIVITY_COLUMNS}
+            SELECT r.id AS recommendation_id, r.position,
+                   s.status, s.selected_at,
+                   CASE WHEN s.status = 'completed' THEN s.ended_at END AS completed_at,
+                   (b.activity_id IS NOT NULL) AS is_saved, {ACTIVITY_COLUMNS}
             FROM recommendations r
             JOIN activities a ON a.id = r.activity_id
-            LEFT JOIN activity_selections s ON s.recommendation_id = r.id
-            LEFT JOIN reflections rf ON rf.activity_selection_id = s.id
+            -- At most one attempt per card that wasn't abandoned.
+            LEFT JOIN activity_selections s
+                   ON s.recommendation_id = r.id AND s.status <> 'abandoned'
+            LEFT JOIN activity_bookmarks b
+                   ON b.installation_id = r.installation_id AND b.activity_id = r.activity_id
             WHERE r.check_in_id = %s AND r.installation_id = %s
             ORDER BY r.position
             """,
@@ -167,6 +180,8 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
         Recommendation(
             id=row.pop("recommendation_id"),
             position=row.pop("position"),
+            status=row.pop("status"),
+            is_saved=row.pop("is_saved"),
             selected_at=row.pop("selected_at"),
             completed_at=row.pop("completed_at"),
             activity=Activity(**row),
@@ -185,20 +200,23 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
 # ─────────────────────────────────────────────
 
 SELECTION_QUERY = """
-    SELECT s.id, s.recommendation_id, r.activity_id, r.check_in_id, s.selected_at
+    SELECT s.id, s.recommendation_id, r.activity_id, r.check_in_id,
+           s.status, s.selected_at, s.ended_at
     FROM activity_selections s
     JOIN recommendations r ON r.id = s.recommendation_id
-    WHERE s.recommendation_id = %s
+    WHERE s.id = %s
 """
 
 
 def select_recommendation(
     installation_id: UUID, recommendation_id: int
-) -> tuple[ActivitySelection, bool] | None:
+) -> tuple[ActivitySelection, bool]:
     """
-    Records that the user picked this recommendation.
-    Returns (selection, created). created is False if it was already picked.
-    Returns None if the recommendation doesn't exist for this installation.
+    "I'll try this": starts this activity (status in_progress).
+    Returns (selection, created). created is False when this card is already
+    the activity in progress, so a repeated tap never creates a second row.
+    Raises NotFound for a card that isn't this installation's, and Conflict
+    when another activity is in progress or this card is already completed.
     """
     with _connect() as conn:
         owned = conn.execute(
@@ -206,47 +224,103 @@ def select_recommendation(
             (recommendation_id, installation_id),
         ).fetchone()
         if owned is None:
-            return None
+            raise NotFound("Recommendation not found.")
 
         _ensure_installation(conn, installation_id)
-        inserted = conn.execute(
+        # Lock this installation's live attempts so two requests can't race.
+        live = conn.execute(
             """
-            INSERT INTO activity_selections (installation_id, recommendation_id)
-            VALUES (%s, %s)
-            ON CONFLICT (recommendation_id) DO NOTHING
-            RETURNING id
+            SELECT id, recommendation_id, status
+            FROM activity_selections
+            WHERE installation_id = %s
+              AND (status = 'in_progress' OR (recommendation_id = %s AND status = 'completed'))
+            FOR UPDATE
             """,
             (installation_id, recommendation_id),
-        ).fetchone()
+        ).fetchall()
+        for row in live:
+            if row["recommendation_id"] == recommendation_id and row["status"] == "completed":
+                raise Conflict("You\u2019ve already completed this activity.")
+            if row["recommendation_id"] == recommendation_id:
+                return _get_selection(conn, row["id"]), False
+            raise Conflict(
+                "You already have an activity in progress. "
+                "Finish its reflection or change activity first."
+            )
 
-        row = conn.execute(SELECTION_QUERY, (recommendation_id,)).fetchone()
-    return ActivitySelection(**row), inserted is not None
+        try:
+            with conn.transaction():  # savepoint, so we can look around after a clash
+                inserted = conn.execute(
+                    """
+                    INSERT INTO activity_selections (installation_id, recommendation_id)
+                    VALUES (%s, %s)
+                    RETURNING id
+                    """,
+                    (installation_id, recommendation_id),
+                ).fetchone()
+        except psycopg.errors.UniqueViolation:
+            # A simultaneous request started an activity first. If it was this
+            # same card, this is just a repeated tap.
+            current = conn.execute(
+                """
+                SELECT id, recommendation_id FROM activity_selections
+                WHERE installation_id = %s AND status = 'in_progress'
+                """,
+                (installation_id,),
+            ).fetchone()
+            if current and current["recommendation_id"] == recommendation_id:
+                return _get_selection(conn, current["id"]), False
+            raise Conflict("You already have an activity in progress.") from None
+        return _get_selection(conn, inserted["id"]), True
+
+
+def _get_selection(conn: psycopg.Connection, selection_id: int) -> ActivitySelection:
+    return ActivitySelection(**conn.execute(SELECTION_QUERY, (selection_id,)).fetchone())
+
+
+def abandon_selection(installation_id: UUID, selection_id: int) -> ActivitySelection:
+    """
+    "Change activity": ends the activity in progress without completing it.
+    Asking again for an already abandoned one just returns it.
+    Raises NotFound, or Conflict if it was already completed.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT status FROM activity_selections
+            WHERE id = %s AND installation_id = %s
+            FOR UPDATE
+            """,
+            (selection_id, installation_id),
+        ).fetchone()
+        if row is None:
+            raise NotFound("Activity selection not found.")
+        if row["status"] == "completed":
+            raise Conflict("This activity is already completed.")
+        if row["status"] == "in_progress":
+            conn.execute(
+                "UPDATE activity_selections SET status = 'abandoned', ended_at = now() WHERE id = %s",
+                (selection_id,),
+            )
+        return _get_selection(conn, selection_id)
 
 
 def get_current_selection(installation_id: UUID) -> SelectedActivity | None:
-    """
-    The activity the user most recently chose with "I'll try this", as long
-    as no reflection has been saved for it yet. Choosing another activity
-    replaces it; saving its reflection completes it. Either way, earlier
-    memories keep pointing at their own selection.
-    """
+    """The activity in progress (there is at most one), or None."""
     with _connect() as conn:
         row = conn.execute(
             f"""
             SELECT s.id AS selection_id, s.recommendation_id, r.check_in_id,
-                   s.selected_at, rf.id AS reflection_id, {ACTIVITY_COLUMNS}
+                   s.selected_at, {ACTIVITY_COLUMNS}
             FROM activity_selections s
             JOIN recommendations r ON r.id = s.recommendation_id
             JOIN activities a ON a.id = r.activity_id
-            LEFT JOIN reflections rf ON rf.activity_selection_id = s.id
-            WHERE s.installation_id = %s
-            ORDER BY s.selected_at DESC, s.id DESC
-            LIMIT 1
+            WHERE s.installation_id = %s AND s.status = 'in_progress'
             """,
             (installation_id,),
         ).fetchone()
 
-    if row is None or row.pop("reflection_id") is not None:
+    if row is None:
         return None
     return SelectedActivity(
         selection_id=row.pop("selection_id"),
@@ -255,6 +329,60 @@ def get_current_selection(installation_id: UUID) -> SelectedActivity | None:
         selected_at=row.pop("selected_at"),
         activity=Activity(**row),
     )
+
+
+# ─────────────────────────────────────────────
+# Bookmarks ("Save for later")
+# ─────────────────────────────────────────────
+
+def add_bookmark(installation_id: UUID, activity_id: int) -> tuple[Bookmark, bool]:
+    """Returns (bookmark, created). Raises NotFound for an unknown activity."""
+    with _connect() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM activities WHERE id = %s AND is_active", (activity_id,)
+        ).fetchone()
+        if exists is None:
+            raise NotFound("Activity not found.")
+        _ensure_installation(conn, installation_id)
+        inserted = conn.execute(
+            """
+            INSERT INTO activity_bookmarks (installation_id, activity_id)
+            VALUES (%s, %s)
+            ON CONFLICT (installation_id, activity_id) DO NOTHING
+            RETURNING activity_id
+            """,
+            (installation_id, activity_id),
+        ).fetchone()
+        bookmark = _bookmarks(conn, installation_id, activity_id)[0]
+    return bookmark, inserted is not None
+
+
+def remove_bookmark(installation_id: UUID, activity_id: int) -> None:
+    """Removing one that isn't saved is fine (nothing happens)."""
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM activity_bookmarks WHERE installation_id = %s AND activity_id = %s",
+            (installation_id, activity_id),
+        )
+
+
+def list_bookmarks(installation_id: UUID) -> list[Bookmark]:
+    with _connect() as conn:
+        return _bookmarks(conn, installation_id)
+
+
+def _bookmarks(conn: psycopg.Connection, installation_id: UUID, activity_id: int | None = None) -> list[Bookmark]:
+    rows = conn.execute(
+        f"""
+        SELECT b.created_at AS saved_at, {ACTIVITY_COLUMNS}
+        FROM activity_bookmarks b
+        JOIN activities a ON a.id = b.activity_id
+        WHERE b.installation_id = %s AND (%s::int IS NULL OR b.activity_id = %s)
+        ORDER BY b.created_at DESC
+        """,
+        (installation_id, activity_id, activity_id),
+    ).fetchall()
+    return [Bookmark(saved_at=row.pop("saved_at"), activity=Activity(**row)) for row in rows]
 
 
 # ─────────────────────────────────────────────
@@ -333,26 +461,30 @@ REFLECTION_QUERY = """
 
 def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[dict, bool]:
     """
-    Saves a reflection, which completes its selected activity.
-    Returns (reflection row, created). created is False when this selection
-    already had a reflection: that one is returned and nothing is added.
+    "Add to my scrapbook": saves the reflection and completes the activity in
+    progress, in one transaction. Returns (reflection row, created). created
+    is False when this activity was already completed: its reflection is
+    returned and nothing changes, so a repeated submit never duplicates.
     Raises NotFound / Conflict for selections or photos that can't be used.
     """
     with _connect() as conn:
-        if data.activity_selection_id is not None:
-            selection = conn.execute(
-                """
-                SELECT rf.id AS reflection_id
-                FROM activity_selections s
-                LEFT JOIN reflections rf ON rf.activity_selection_id = s.id
-                WHERE s.id = %s AND s.installation_id = %s
-                """,
-                (data.activity_selection_id, installation_id),
-            ).fetchone()
-            if selection is None:
-                raise NotFound("Activity selection not found.")
-            if selection["reflection_id"] is not None:
-                return _get_reflection(conn, selection["reflection_id"]), False
+        # Lock the activity so "Change activity" can't happen at the same time.
+        selection = conn.execute(
+            """
+            SELECT s.status, rf.id AS reflection_id
+            FROM activity_selections s
+            LEFT JOIN reflections rf ON rf.activity_selection_id = s.id
+            WHERE s.id = %s AND s.installation_id = %s
+            FOR UPDATE OF s
+            """,
+            (data.activity_selection_id, installation_id),
+        ).fetchone()
+        if selection is None:
+            raise NotFound("Activity selection not found.")
+        if selection["reflection_id"] is not None:
+            return _get_reflection(conn, selection["reflection_id"]), False
+        if selection["status"] != "in_progress":
+            raise Conflict("This activity was changed, so it can\u2019t be completed.")
 
         if data.photo_id is not None:
             photo = conn.execute(
@@ -367,7 +499,7 @@ def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[di
             if photo is None:
                 raise NotFound("Photo not found.")
             if photo["uploaded_at"] is None:
-                raise Conflict("The photo hasn't been uploaded yet.")
+                raise Conflict("The photo hasn\u2019t been uploaded yet.")
             if photo["reflection_id"] is not None:
                 raise Conflict("That photo already belongs to another memory.")
 
@@ -379,8 +511,7 @@ def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[di
                     (installation_id, activity_selection_id, photo_id, note, noticed,
                      thought_about_ex, mood_change, local_date)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (activity_selection_id) DO NOTHING
-                RETURNING id
+                RETURNING id, created_at
                 """,
                 (
                     installation_id, data.activity_selection_id, data.photo_id,
@@ -392,13 +523,10 @@ def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[di
             # Two saves raced for the same photo.
             raise Conflict("That photo already belongs to another memory.") from None
 
-        if inserted is None:
-            # Two saves raced for the same selection: return the first one.
-            existing = conn.execute(
-                "SELECT id FROM reflections WHERE activity_selection_id = %s",
-                (data.activity_selection_id,),
-            ).fetchone()
-            return _get_reflection(conn, existing["id"]), False
+        conn.execute(
+            "UPDATE activity_selections SET status = 'completed', ended_at = %s WHERE id = %s",
+            (inserted["created_at"], data.activity_selection_id),
+        )
         return _get_reflection(conn, inserted["id"]), True
 
 
@@ -433,9 +561,10 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
             WITH memories AS (
                 SELECT * FROM reflections WHERE installation_id = %(id)s
             ), completed AS (
-                -- A reflection on a selection is a completed activity.
-                SELECT local_date, row_number() OVER (ORDER BY created_at, id) AS n
-                FROM memories WHERE activity_selection_id IS NOT NULL
+                SELECT m.local_date, row_number() OVER (ORDER BY m.created_at, m.id) AS n
+                FROM memories m
+                JOIN activity_selections s ON s.id = m.activity_selection_id
+                WHERE s.status = 'completed'
             )
             SELECT
                 (SELECT min(local_date) FROM check_ins
