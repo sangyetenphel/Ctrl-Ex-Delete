@@ -93,6 +93,21 @@ struct APIClient {
         try await send("GET", "reflections")
     }
 
+    /// `DELETE /reflections/{id}`: removes a memory and its photo (the
+    /// activity still counts as completed).
+    func deleteReflection(id: Int) async throws {
+        let _: EmptyResponse = try await send("DELETE", "reflections/\(id)")
+    }
+
+    /// `GET /insights`: the Progress screen for the week or month containing
+    /// the user's local `today`.
+    func insights(period: InsightsPeriod, today: String) async throws -> InsightsDTO {
+        try await send("GET", "insights", query: [
+            URLQueryItem(name: "period", value: period.rawValue),
+            URLQueryItem(name: "today", value: today),
+        ])
+    }
+
     /// `GET /progress/summary`: journey start, counts and milestones.
     func progressSummary() async throws -> ProgressSummaryDTO {
         try await send("GET", "progress/summary")
@@ -103,9 +118,12 @@ struct APIClient {
     private func send<Response: Decodable>(
         _ method: String,
         _ path: String,
+        query: [URLQueryItem] = [],
         body: Data? = nil
     ) async throws -> Response {
-        var request = URLRequest(url: APIConfig.baseURL.appending(path: path))
+        var url = APIConfig.baseURL.appending(path: path)
+        if !query.isEmpty { url.append(queryItems: query) }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(InstallationID.current.uuidString, forHTTPHeaderField: "X-Installation-ID")
         request.setValue("application/json", forHTTPHeaderField: "Accept")

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app import media, storage
@@ -15,6 +17,8 @@ def require_s3() -> None:
 
 router = APIRouter(prefix="/scrapbook", tags=["scrapbook"], dependencies=[Depends(require_s3)])
 
+logger = logging.getLogger("ced")
+
 MAX_BYTES = 5 * 1024 * 1024  # 5 MB; compressed photos are far smaller
 
 
@@ -24,6 +28,14 @@ def start_upload(x_installation_id: InstallationId):
     Step 1: reserves a photo and returns a URL to upload the JPEG to.
     The photo becomes part of a memory through POST /reflections.
     """
+    # Uploads from earlier attempts that never became a memory.
+    # Best effort: a failure here must never block the new upload.
+    for orphan_key in storage.take_orphan_photo_keys(x_installation_id):
+        try:
+            media.delete(orphan_key)
+        except Exception as error:  # noqa: BLE001
+            logger.warning("Couldn't delete an unused photo from S3: %s", type(error).__name__)
+
     key = media.new_key()
     photo_id = storage.create_scrapbook_photo(x_installation_id, key)
     return PhotoUpload(id=photo_id, upload_url=media.upload_url(key))

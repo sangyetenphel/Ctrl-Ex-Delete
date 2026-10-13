@@ -162,6 +162,48 @@ struct MilestoneDTO: Decodable {
     let reachedOn: String?          // nil = not reached yet
 }
 
+// MARK: - Insights
+
+/// Response of `GET /insights?period=week|month&today=YYYY-MM-DD`.
+/// Everything is calculated by the backend from this installation's records.
+struct InsightsDTO: Decodable {
+    let period: String
+    let start: String
+    let end: String
+    let hasData: Bool
+    let checkInDays: Int
+    let completed: Int
+    let urges: [UrgePointDTO]
+    let moods: [MoodCountDTO]
+    let categories: [CategoryShareDTO]
+    let takeaway: TakeawayDTO
+    let observations: [String]
+}
+
+struct UrgePointDTO: Decodable {
+    let label: String       // "Mon" or "W1"
+    let value: Int?         // average urge 1–10; nil = no check-in
+    let checkIns: Int
+}
+
+struct MoodCountDTO: Decodable {
+    let response: MoodChange
+    let label: String
+    let count: Int
+}
+
+struct CategoryShareDTO: Decodable {
+    let category: String
+    let label: String
+    let count: Int
+    let percent: Int
+}
+
+struct TakeawayDTO: Decodable {
+    let headline: String
+    let body: String
+}
+
 /// For endpoints that answer `204 No Content`.
 struct EmptyResponse: Decodable {}
 

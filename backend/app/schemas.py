@@ -184,3 +184,49 @@ class ProgressSummary(BaseModel):
     memories: int                     # all reflections
     photos: int                       # reflections with a photo
     milestones: list[Milestone]
+
+
+# ─────────────────────────────────────────────
+# Insights (the Progress screen)
+# ─────────────────────────────────────────────
+
+class UrgePoint(BaseModel):
+    """One bar: a day (week view) or a week of the month (month view)."""
+    label: str                 # "Mon" … "Sun", or "W1" … "W5"
+    start: date
+    end: date
+    value: int | None          # average urge (1–10); null = no check-in
+    check_ins: int
+
+
+class MoodCount(BaseModel):
+    """How often an answer to "How do you feel now compared to before?" was given."""
+    response: MoodChange
+    label: str
+    count: int
+
+
+class CategoryShare(BaseModel):
+    category: ActivityCategory
+    label: str
+    count: int                 # completed activities only
+    percent: int               # of all completed activities in the period
+
+
+class Takeaway(BaseModel):
+    headline: str
+    body: str
+
+
+class InsightsResponse(BaseModel):
+    period: Literal["week", "month"]
+    start: date
+    end: date
+    has_data: bool             # false = show the empty state
+    check_in_days: int
+    completed: int
+    urges: list[UrgePoint]
+    moods: list[MoodCount]
+    categories: list[CategoryShare]
+    takeaway: Takeaway
+    observations: list[str]

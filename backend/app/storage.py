@@ -3,6 +3,7 @@ Neon (PostgreSQL) storage.
 This is the ONLY file that talks to the database. The routes call these
 functions and don't care how the data is stored.
 """
+from datetime import date
 from uuid import UUID
 
 import psycopg
@@ -439,6 +440,33 @@ def delete_scrapbook_photo(installation_id: UUID, photo_id: int) -> None:
         )
 
 
+# Uploads that never became part of a memory (the app was closed between the
+# upload and "Add to my scrapbook") are removed after this long.
+ORPHAN_PHOTO_AGE = "1 day"
+
+
+def take_orphan_photo_keys(installation_id: UUID) -> list[str]:
+    """
+    Deletes this installation's old photo rows that no memory uses and
+    returns their S3 keys, so the caller can delete the files too.
+    Only keys under scrapbook/ are touched (older test uploads used another
+    prefix and are left alone).
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            DELETE FROM scrapbook_photos p
+            WHERE p.installation_id = %s
+              AND p.created_at < now() - interval '{ORPHAN_PHOTO_AGE}'
+              AND p.object_key LIKE 'scrapbook/%%'
+              AND NOT EXISTS (SELECT 1 FROM reflections rf WHERE rf.photo_id = p.id)
+            RETURNING p.object_key
+            """,
+            (installation_id,),
+        ).fetchall()
+    return [row["object_key"] for row in rows]
+
+
 # ─────────────────────────────────────────────
 # Reflections (scrapbook memories)
 #
@@ -524,14 +552,44 @@ def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[di
             raise Conflict("That photo already belongs to another memory.") from None
 
         conn.execute(
-            "UPDATE activity_selections SET status = 'completed', ended_at = %s WHERE id = %s",
-            (inserted["created_at"], data.activity_selection_id),
+            """
+            UPDATE activity_selections
+            SET status = 'completed', ended_at = %s, completed_on = %s
+            WHERE id = %s
+            """,
+            (inserted["created_at"], data.local_date, data.activity_selection_id),
         )
         return _get_reflection(conn, inserted["id"]), True
 
 
 def _get_reflection(conn: psycopg.Connection, reflection_id: int) -> dict:
     return conn.execute(f"{REFLECTION_QUERY} WHERE rf.id = %s", (reflection_id,)).fetchone()
+
+
+def delete_reflection(installation_id: UUID, reflection_id: int) -> str | None:
+    """
+    Deletes a memory and its photo row in one transaction, and returns the
+    photo's S3 key (or None) so the caller can delete the file. The activity
+    stays completed. Raises NotFound if it isn't this installation's.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            DELETE FROM reflections
+            WHERE id = %s AND installation_id = %s
+            RETURNING photo_id
+            """,
+            (reflection_id, installation_id),
+        ).fetchone()
+        if row is None:
+            raise NotFound("Memory not found.")
+        if row["photo_id"] is None:
+            return None
+        photo = conn.execute(
+            "DELETE FROM scrapbook_photos WHERE id = %s RETURNING object_key",
+            (row["photo_id"],),
+        ).fetchone()
+    return photo["object_key"] if photo else None
 
 
 def list_reflections(installation_id: UUID) -> list[dict]:
@@ -561,10 +619,12 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
             WITH memories AS (
                 SELECT * FROM reflections WHERE installation_id = %(id)s
             ), completed AS (
-                SELECT m.local_date, row_number() OVER (ORDER BY m.created_at, m.id) AS n
-                FROM memories m
-                JOIN activity_selections s ON s.id = m.activity_selection_id
-                WHERE s.status = 'completed'
+                -- Counted from the activity itself, so deleting a memory
+                -- doesn't undo the completion.
+                SELECT completed_on AS local_date,
+                       row_number() OVER (ORDER BY ended_at, id) AS n
+                FROM activity_selections
+                WHERE installation_id = %(id)s AND status = 'completed'
             )
             SELECT
                 (SELECT min(local_date) FROM check_ins
@@ -604,3 +664,52 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
         photos=row["photos"],
         milestones=milestones,
     )
+
+
+# ─────────────────────────────────────────────
+# Insights (raw records; app/insights.py does the calculations)
+# ─────────────────────────────────────────────
+
+def get_insight_records(installation_id: UUID, start: date, end: date) -> dict:
+    """
+    Everything the Progress screen needs between start and end (inclusive),
+    by the user's own calendar days:
+      check_ins:   [{local_date, contact_urge}]
+      completed:   [{completed_on, category}]            (status completed only)
+      moods:       [{local_date, mood_change, category}] (reflections of completed activities)
+    """
+    with _connect() as conn:
+        check_ins = conn.execute(
+            """
+            SELECT local_date, contact_urge
+            FROM check_ins
+            WHERE installation_id = %s AND local_date BETWEEN %s AND %s
+            ORDER BY local_date, created_at
+            """,
+            (installation_id, start, end),
+        ).fetchall()
+        completed = conn.execute(
+            """
+            SELECT s.completed_on, a.category
+            FROM activity_selections s
+            JOIN recommendations r ON r.id = s.recommendation_id
+            JOIN activities a ON a.id = r.activity_id
+            WHERE s.installation_id = %s AND s.status = 'completed'
+              AND s.completed_on BETWEEN %s AND %s
+            """,
+            (installation_id, start, end),
+        ).fetchall()
+        moods = conn.execute(
+            """
+            SELECT rf.local_date, rf.mood_change, a.category
+            FROM reflections rf
+            JOIN activity_selections s ON s.id = rf.activity_selection_id
+            JOIN recommendations r ON r.id = s.recommendation_id
+            JOIN activities a ON a.id = r.activity_id
+            WHERE rf.installation_id = %s AND s.status = 'completed'
+              AND rf.mood_change IS NOT NULL
+              AND rf.local_date BETWEEN %s AND %s
+            """,
+            (installation_id, start, end),
+        ).fetchall()
+    return {"check_ins": check_ins, "completed": completed, "moods": moods}

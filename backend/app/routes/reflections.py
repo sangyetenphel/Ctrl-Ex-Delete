@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Response, status
 
 from app import media, storage
@@ -5,6 +7,7 @@ from app.dependencies import InstallationId
 from app.schemas import Reflection, ReflectionCreate
 
 router = APIRouter(prefix="/reflections", tags=["reflections"])
+logger = logging.getLogger("ced")
 
 
 def _to_reflection(row: dict) -> Reflection:
@@ -41,3 +44,22 @@ def create_reflection(payload: ReflectionCreate, x_installation_id: Installation
 def list_reflections(x_installation_id: InstallationId):
     """Every scrapbook memory, newest first."""
     return [_to_reflection(row) for row in storage.list_reflections(x_installation_id)]
+
+
+@router.delete("/{reflection_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_reflection(reflection_id: int, x_installation_id: InstallationId):
+    """
+    Deletes a memory: its answers, its photo row and the photo file in S3.
+    The activity still counts as completed.
+    """
+    try:
+        photo_key = storage.delete_reflection(x_installation_id, reflection_id)
+    except storage.NotFound as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from None
+    # The rows are gone first, so the app never shows a memory whose file
+    # was deleted. If S3 fails here, only an unreachable file is left behind.
+    if photo_key and media.is_configured():
+        try:
+            media.delete(photo_key)
+        except Exception as error:  # noqa: BLE001
+            logger.warning("Couldn't delete a photo from S3: %s", type(error).__name__)

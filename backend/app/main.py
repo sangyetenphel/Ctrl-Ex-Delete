@@ -9,6 +9,7 @@ from app.routes import (
     bookmarks,
     check_ins,
     health,
+    insights,
     progress,
     recommendations,
     reflections,
@@ -26,6 +27,7 @@ app.include_router(bookmarks.router)
 app.include_router(scrapbook.router)
 app.include_router(reflections.router)
 app.include_router(progress.router)
+app.include_router(insights.router)
 
 
 @app.exception_handler(psycopg.OperationalError)
