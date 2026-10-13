@@ -19,19 +19,6 @@ def headers(installation_id: str) -> dict:
     return {"X-Installation-ID": installation_id}
 
 
-@pytest.fixture
-def fake_s3(monkeypatch):
-    """Pretends S3 is set up. Put a size in `uploaded[key]` to "upload" a file."""
-    uploaded: dict[str, int] = {}
-    deleted: list[str] = []
-    monkeypatch.setattr(media, "is_configured", lambda: True)
-    monkeypatch.setattr(media, "upload_url", lambda key: f"https://s3.example/put/{key}")
-    monkeypatch.setattr(media, "download_url", lambda key: f"https://s3.example/get/{key}")
-    monkeypatch.setattr(media, "object_size", lambda key: uploaded.get(key))
-    monkeypatch.setattr(media, "delete", deleted.append)
-    return uploaded, deleted
-
-
 def start_upload(installation_id: str) -> tuple[int, str]:
     response = client.post("/scrapbook/photos", json=NEW_PHOTO, headers=headers(installation_id))
     assert response.status_code == 201

@@ -14,10 +14,10 @@ from app.config import settings
 
 # Children first, so foreign keys never block a drop.
 CED_TABLES = [
+    "activity_logs",
     "scrapbook_photos",
     "activity_selections",
     "recommendations",
-    "activity_logs",
     "check_ins",
     "activities",
     "installations",

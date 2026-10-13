@@ -17,6 +17,9 @@ HardestArea = Literal[
 ActivityCategory = Literal[
     "outdoor_movement", "mindfulness_rest", "solo_exploration", "social_connection"
 ]
+# Reflection answers, stored exactly as the user chose them.
+ThoughtAboutEx = Literal["not_really", "a_little", "a_lot"]
+MoodChange = Literal["worse", "about_the_same", "a_little_better", "much_better"]
 
 
 # ─────────────────────────────────────────────
@@ -61,6 +64,7 @@ class Recommendation(BaseModel):
     position: int
     activity: Activity
     selected_at: datetime | None = None
+    completed_at: datetime | None = None   # set once a reflection is saved for it
 
 
 class RecommendationsResponse(BaseModel):
@@ -80,6 +84,21 @@ class ActivitySelection(BaseModel):
     activity_id: int
     check_in_id: int
     selected_at: datetime
+
+
+class SelectedActivity(BaseModel):
+    """An "I'll try this" choice that has no reflection yet."""
+    selection_id: int
+    recommendation_id: int
+    check_in_id: int
+    selected_at: datetime
+    activity: Activity
+
+
+class CurrentSelectionResponse(BaseModel):
+    """The most recent choice still waiting for a reflection, or null."""
+    selection: SelectedActivity | None
+
 
 # ─────────────────────────────────────────────
 # Scrapbook
@@ -104,3 +123,55 @@ class ScrapbookPhoto(BaseModel):
     local_date: date
     created_at: datetime
     image_url: str
+
+
+# ─────────────────────────────────────────────
+# Reflections (scrapbook memories)
+# ─────────────────────────────────────────────
+
+class ReflectionCreate(BaseModel):
+    """
+    What the iOS app SENDS from "Add to my scrapbook". Saving it marks the
+    selected activity as completed. Every answer is optional.
+    """
+    activity_selection_id: int | None = None
+    photo_id: int | None = None
+    note: str | None = Field(default=None, max_length=1000)
+    noticed: str | None = Field(default=None, max_length=1000)
+    thought_about_ex: ThoughtAboutEx | None = None
+    mood_change: MoodChange | None = None
+    local_date: date
+
+
+class Reflection(BaseModel):
+    """One saved memory. image_url is temporary (about 1 hour)."""
+    id: int
+    activity_selection_id: int | None
+    activity: Activity | None
+    note: str | None
+    noticed: str | None
+    thought_about_ex: ThoughtAboutEx | None
+    mood_change: MoodChange | None
+    local_date: date
+    completed_at: datetime
+    photo_id: int | None
+    image_url: str | None
+
+
+# ─────────────────────────────────────────────
+# Progress
+# ─────────────────────────────────────────────
+
+class Milestone(BaseModel):
+    label: str
+    reached_on: date | None   # null = not reached yet
+
+
+class ProgressSummary(BaseModel):
+    journey_started_on: date | None   # local date of the first check-in
+    check_ins: int
+    activities_selected: int
+    activities_completed: int         # reflections linked to an activity
+    memories: int                     # all reflections
+    photos: int                       # reflections with a photo
+    milestones: list[Milestone]

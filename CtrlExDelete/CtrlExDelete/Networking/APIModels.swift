@@ -42,6 +42,7 @@ struct RecommendationDTO: Decodable {
     let position: Int
     let activity: ActivityDTO
     let selectedAt: String?
+    let completedAt: String?    // set once a reflection was saved for it
 }
 
 struct ActivityDTO: Decodable {
@@ -64,6 +65,21 @@ struct ActivitySelectionResponse: Decodable {
     let selectedAt: String
 }
 
+/// Response of `GET /activity-selections/current`.
+/// `selection` is nil when nothing is waiting for a reflection.
+struct CurrentSelectionResponse: Decodable {
+    let selection: SelectedActivityDTO?
+}
+
+/// An "I'll try this" choice that has no reflection yet.
+struct SelectedActivityDTO: Decodable {
+    let selectionId: Int
+    let recommendationId: Int
+    let checkInId: Int
+    let selectedAt: String
+    let activity: ActivityDTO
+}
+
 // MARK: - Scrapbook
 
 /// Body of `POST /scrapbook/photos`.
@@ -84,6 +100,52 @@ struct ScrapbookPhotoDTO: Decodable, Identifiable {
     let caption: String?
     let localDate: String
     let imageUrl: URL
+}
+
+// MARK: - Reflections (scrapbook memories)
+
+/// Body of `POST /reflections` ("Add to my scrapbook"). Nil fields are left out.
+struct ReflectionRequest: Encodable {
+    let activitySelectionId: Int?
+    let photoId: Int?
+    let note: String?
+    let noticed: String?
+    let thoughtAboutEx: ThoughtAboutEx?
+    let moodChange: MoodChange?
+    let localDate: String
+}
+
+/// One saved memory. `imageUrl` is temporary (about an hour), so don't store it.
+struct ReflectionDTO: Decodable, Identifiable {
+    let id: Int
+    let activitySelectionId: Int?
+    let activity: ActivityDTO?
+    let note: String?
+    let noticed: String?
+    let thoughtAboutEx: ThoughtAboutEx?
+    let moodChange: MoodChange?
+    let localDate: String
+    let completedAt: String
+    let photoId: Int?
+    let imageUrl: URL?
+}
+
+// MARK: - Progress
+
+/// Response of `GET /progress/summary`.
+struct ProgressSummaryDTO: Decodable {
+    let journeyStartedOn: String?   // "YYYY-MM-DD" of the first check-in
+    let checkIns: Int
+    let activitiesSelected: Int
+    let activitiesCompleted: Int
+    let memories: Int
+    let photos: Int
+    let milestones: [MilestoneDTO]
+}
+
+struct MilestoneDTO: Decodable {
+    let label: String
+    let reachedOn: String?          // nil = not reached yet
 }
 
 /// FastAPI error bodies look like `{"detail": "..."}` (422s use a list instead).
