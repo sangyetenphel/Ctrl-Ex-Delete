@@ -4,13 +4,15 @@ import SwiftUI
 /// then talk it through with Ced instead of sending it.
 struct TalkView: View {
     @Environment(AppRouter.self) private var router
-    @State private var message = CedChat.defaultUnsentMessage
+    @State private var message = ""
     @State private var isChatOpen = false
 
     var body: some View {
         if isChatOpen {
             CedChatView(initialMessage: message) {
-                // Ending the conversation returns to the room, like the prototype.
+                // Ending the conversation discards it (including the unsent
+                // message) and returns to the room, like the prototype.
+                message = ""
                 isChatOpen = false
                 router.go(to: .room)
             }
@@ -99,7 +101,9 @@ struct TalkView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 4)
 
-            TextField("", text: $message, axis: .vertical)
+            TextField("", text: $message,
+                      prompt: Text(CedChat.unsentMessagePlaceholder).foregroundStyle(CEDColor.hint),
+                      axis: .vertical)
                 .lineLimit(7, reservesSpace: true)
                 .cedTextStyle(.body)
                 .foregroundStyle(CEDColor.foreground)

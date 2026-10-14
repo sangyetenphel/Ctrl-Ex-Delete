@@ -3,7 +3,7 @@
 This is the contract between the iOS app and the FastAPI backend.
 **Field names and allowed values must match exactly.** If something here needs to change, update this doc in the same pull request as the code.
 
-- **Status:** check-ins, recommendations, activity status (one in progress), bookmarks, scrapbook photos, reflections (completion), progress summary, insights
+- **Status:** check-ins, recommendations, activity status (one in progress), bookmarks, scrapbook photos, reflections (completion), progress summary, insights, Ced chat
 - **Local base URL:** `http://127.0.0.1:8000` (works from the iOS Simulator on the same Mac)
 - **Interactive docs:** `http://127.0.0.1:8000/docs` (while the backend is running)
 
@@ -315,6 +315,33 @@ The Progress screen, calculated from this installation's records. `today` is the
 
 ---
 
+## `POST /ced/messages`
+
+Ced's reply to the conversation so far. **Nothing is stored:** the app keeps the conversation in memory while the chat is open, sends the recent turns each time, and forgets them when the user ends the chat. Only a per-day message count is kept (`ced_usage`), for limits.
+
+```json
+{ "messages": [ { "role": "user", "content": "Can we talk? I keep thinking about us." } ],
+  "mode": "unsent_message" }
+```
+- `messages`: 1–40 turns, roles `user` / `assistant`, each 1–2000 characters, ending with `user`. The server sends at most the last 12 (≈6,000 characters) to the AI, plus Ced's instructions. No check-ins, scrapbook or other app data is ever included.
+- `mode`: `chat`, or `unsent_message` when the first message was written on **Say it here first** (words for the ex that were not sent; nothing is ever sent to anyone).
+
+**Response `200`:**
+```json
+{ "reply": "…", "kind": "ai", "show_support": false }
+```
+`kind` is `ai`, or `crisis` / `danger` / `boundary` for fixed replies from the backend safety checks, which run **before** the AI is called (self-harm, danger, violence, harassment/revenge/tracking). Crisis and danger replies include 988/911 and set `show_support: true` (the app opens the human-support sheet). AI replies that claim to be a therapist, diagnose, or give medication advice are replaced with a safe fallback.
+
+| Status | When | Body `detail` (shown to the user) |
+|---|---|---|
+| `429` | Per-installation (8/min, 60/day) or server-wide (25/min) limit, or the provider's own limit. `Retry-After` header. | "Ced needs a short pause…" / "…today's limit…" |
+| `503` | `GROQ_API_KEY` not set, or rejected | "Ced isn't available right now…" |
+| `504` / `502` | Provider timeout (20 s) / other provider error | "Ced is taking too long…" / "Ced couldn't answer just now…" |
+
+Crisis replies work even without a key and past the limits. Provider and model are set in `.env` (`AI_PROVIDER`, `AI_MODEL`); the app is unaffected by a switch.
+
+---
+
 ## Errors
 
 | Code | Meaning | Common cause |
@@ -360,4 +387,4 @@ These are already implemented in `CtrlExDelete/CtrlExDelete/Networking/`:
 
 - Real recommendation rules based on the check-in answers
 - Saving activities for later (the Save button is local-only for now)
-- Ced chat, the no-contact companion and the moving-forward check-in
+- The moving-forward check-in
