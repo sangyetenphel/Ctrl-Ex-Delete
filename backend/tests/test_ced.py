@@ -320,3 +320,11 @@ def test_groq_errors_are_mapped():
     provider, _ = _groq_provider(_completion(""))
     with pytest.raises(providers.ProviderError):
         provider.complete([providers.ChatMessage("user", "hi")])
+
+
+def test_settings_accept_groq_model_and_ignore_unknown_lines(monkeypatch):
+    from app.config import Settings
+
+    monkeypatch.setenv("GROQ_MODEL", "some/other-model")
+    monkeypatch.setenv("SOMETHING_UNRELATED", "x")
+    assert Settings().ai_model == "some/other-model"
