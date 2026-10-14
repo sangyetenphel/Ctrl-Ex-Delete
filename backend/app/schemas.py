@@ -230,3 +230,32 @@ class InsightsResponse(BaseModel):
     categories: list[CategoryShare]
     takeaway: Takeaway
     observations: list[str]
+
+
+# ─────────────────────────────────────────────
+# Ced (AI chat). Nothing here is stored.
+# ─────────────────────────────────────────────
+
+class CedTurn(BaseModel):
+    """One message of the conversation the app is showing."""
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class CedChatRequest(BaseModel):
+    """
+    The conversation so far, ending with the user's new message. The app
+    keeps it in memory only while the chat is open; the server never stores
+    it. "unsent_message": the first message was written on the "Say it here
+    first" screen (words for the ex that were NOT sent).
+    """
+    messages: list[CedTurn] = Field(min_length=1, max_length=40)
+    mode: Literal["chat", "unsent_message"] = "chat"
+
+
+class CedChatResponse(BaseModel):
+    reply: str
+    # "ai": from the model. The others are fixed replies from the safety
+    # checks, given without calling the model.
+    kind: Literal["ai", "crisis", "danger", "boundary"]
+    show_support: bool          # open the "Connect with human support" sheet

@@ -14,6 +14,17 @@ class Settings(BaseSettings):
     # Only for local testing against an S3-compatible server (e.g. MinIO).
     s3_endpoint_url: str | None = None
 
+    # Ced (AI chat). Optional: without a key the API still runs, and only
+    # POST /ced/messages answers 503. Switch provider/model here, not in the app.
+    ai_provider: str = "groq"
+    ai_model: str = "openai/gpt-oss-120b"
+    groq_api_key: str | None = None
+    ai_timeout_seconds: float = 20
+    ai_max_output_tokens: int = 700        # includes the model's hidden reasoning
+    ced_daily_message_limit: int = 60      # per installation, per UTC day
+    ced_per_minute_limit: int = 8          # per installation
+    ced_global_per_minute_limit: int = 25  # whole server; Groq's free tier allows ~30 RPM
+
     model_config = SettingsConfigDict(env_file=".env")
 
     @property

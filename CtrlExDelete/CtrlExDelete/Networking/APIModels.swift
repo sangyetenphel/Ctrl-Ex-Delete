@@ -204,6 +204,27 @@ struct TakeawayDTO: Decodable {
     let body: String
 }
 
+// MARK: - Ced
+
+/// Body of `POST /ced/messages`: the conversation so far, ending with the
+/// user's new message. Kept only in memory while the chat is open; the
+/// server never stores it.
+struct CedChatRequest: Encodable {
+    struct Turn: Encodable {
+        let role: String        // "user" or "assistant"
+        let content: String
+    }
+    let messages: [Turn]
+    let mode: String            // "chat" or "unsent_message"
+}
+
+/// Response of `POST /ced/messages`.
+struct CedChatResponse: Decodable {
+    let reply: String
+    let kind: String            // "ai", or "crisis" / "danger" / "boundary" (fixed safety replies)
+    let showSupport: Bool       // open the "Connect with human support" sheet
+}
+
 /// For endpoints that answer `204 No Content`.
 struct EmptyResponse: Decodable {}
 

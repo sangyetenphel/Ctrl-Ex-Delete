@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The conversation with Ced. Ced's replies are the prototype's sample
-/// responses (CedChat.sampleReplies), shown after a short "thinking" pause.
+/// The conversation with Ced. Replies come from the backend (and from there
+/// the AI provider). The conversation exists only in this view's memory:
+/// closing the chat discards it, and the server never stores it.
 struct CedChatView: View {
     let initialMessage: String
     let onClose: () -> Void
@@ -10,18 +11,21 @@ struct CedChatView: View {
     @State private var messages: [ChatMessage]
     @State private var reply = ""
     @State private var isThinking = false
-    @State private var cedTurn = 0
+    @State private var errorMessage: String?
     @State private var replyTask: Task<Void, Never>?
 
+    /// The chat began with words written for the ex on "Say it here first".
+    private let startedFromUnsentMessage: Bool
     private let bottomID = "bottom"
 
     init(initialMessage: String, onClose: @escaping () -> Void) {
         self.initialMessage = initialMessage
         self.onClose = onClose
-        _messages = State(initialValue: [
-            ChatMessage(sender: .user, text: initialMessage),
-            ChatMessage(sender: .ced, text: CedChat.openingReply),
-        ])
+        let unsent = initialMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        startedFromUnsentMessage = !unsent.isEmpty
+        _messages = State(initialValue: unsent.isEmpty
+            ? [ChatMessage(sender: .ced, text: CedChat.greeting)]
+            : [ChatMessage(sender: .user, text: unsent)])
     }
 
     private var canSend: Bool {
@@ -35,6 +39,10 @@ struct CedChatView: View {
             composer
         }
         .background(CEDColor.background)
+        .task {
+            // Ced answers the unsent message as soon as the chat opens.
+            if messages.last?.sender == .user { requestReply() }
+        }
         .onDisappear { replyTask?.cancel() }
     }
 
@@ -96,6 +104,9 @@ struct CedChatView: View {
                         CedBubble { ThinkingDots() }
                             .accessibilityLabel("Ced is typing")
                     }
+                    if let errorMessage {
+                        errorRow(errorMessage)
+                    }
                     Color.clear.frame(height: 0).id(bottomID)
                 }
                 .padding(16)
@@ -105,6 +116,7 @@ struct CedChatView: View {
             .defaultScrollAnchor(.bottom)
             .onChange(of: messages) { scrollToBottom(proxy) }
             .onChange(of: isThinking) { scrollToBottom(proxy) }
+            .onChange(of: errorMessage) { scrollToBottom(proxy) }
         }
     }
 
@@ -145,21 +157,53 @@ struct CedChatView: View {
         }
     }
 
+    /// Couldn't get a reply: say why, and offer to try again.
+    private func errorRow(_ message: String) -> some View {
+        VStack(spacing: 6) {
+            Text(message)
+                .cedTextStyle(.caption)
+                .foregroundStyle(CEDColor.mutedForeground)
+                .multilineTextAlignment(.center)
+            Button("Try again", action: requestReply)
+                .cedTextStyle(.captionBold)
+                .foregroundStyle(CEDColor.primary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
+    }
+
     private func sendReply() {
         let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isThinking else { return }
         messages.append(ChatMessage(sender: .user, text: text))
         reply = ""
+        requestReply()
+    }
+
+    /// Asks the backend for Ced's reply to the conversation so far.
+    private func requestReply() {
+        guard !isThinking else { return }
+        errorMessage = nil
         isThinking = true
+        let request = CedChat.request(for: messages, startedFromUnsentMessage: startedFromUnsentMessage)
 
         replyTask = Task {
-            try? await Task.sleep(for: CedChat.thinkingDelay)
-            guard !Task.isCancelled else { return }
-            let answer = CedChat.sampleReplies[cedTurn % CedChat.sampleReplies.count]
-            messages.append(ChatMessage(sender: .ced, text: answer))
-            cedTurn += 1
-            isThinking = false
-            AccessibilityNotification.Announcement("Ced: \(answer)").post()
+            defer { isThinking = false }
+            do {
+                let response = try await APIClient.shared.cedReply(request)
+                guard !Task.isCancelled else { return }
+                messages.append(ChatMessage(sender: .ced, text: response.reply))
+                AccessibilityNotification.Announcement("Ced: \(response.reply)").post()
+                if response.showSupport {
+                    // Crisis or safety reply: put human support one tap away.
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        router.isSupportSheetPresented = true
+                    }
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }
@@ -248,6 +292,6 @@ private struct ThinkingDots: View {
 
 #Preview {
     let _ = FontRegistrar.registerBundledFonts()
-    CedChatView(initialMessage: CedChat.defaultUnsentMessage) {}
+    CedChatView(initialMessage: "") {}
         .environment(AppRouter(start: .talk))
 }
