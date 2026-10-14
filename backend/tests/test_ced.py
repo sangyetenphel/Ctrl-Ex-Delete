@@ -2,6 +2,7 @@
 Ced (AI chat). The AI provider is always faked here: no real API calls and no
 real conversations. The database is real (for the usage count only).
 """
+import json
 import logging
 import uuid
 
@@ -36,13 +37,20 @@ def fresh_limits():
     limits.reset_for_tests()
 
 
+def ai_reply(messages, risk="none") -> str:
+    """What the model sends back: JSON with its risk read and the bubbles."""
+    return json.dumps({"risk": risk, "messages": messages})
+
+
 @pytest.fixture
 def fake_ai(monkeypatch):
     """Pretends the provider is set up. Records what it was sent."""
     calls: list[list[providers.ChatMessage]] = []
-    state = {"reply": "That sounds really hard. What do you hope they'd say back?", "error": None}
+    state = {"reply": ai_reply(["That sounds really hard.", "What do you hope they'd say back?"]),
+             "error": None}
 
-    def complete(messages):
+    def complete(messages, json_reply=False):
+        assert json_reply  # Ced always asks for the JSON shape
         calls.append(messages)
         if state["error"]:
             raise state["error"]
@@ -69,9 +77,10 @@ def test_reply_comes_from_the_ai(installation_id, fake_ai):
     response = send(installation_id, "I keep thinking about texting him.")
     assert response.status_code == 200
     assert response.json() == {
-        "reply": "That sounds really hard. What do you hope they'd say back?",
-        "kind": "ai",
-        "show_support": False,
+        "messages": ["That sounds really hard.", "What do you hope they'd say back?"],
+        "risk": "none",
+        "support": None,
+        "source": "ai",
     }
     [sent] = calls
     assert sent[0].role == "system" and "You are Ced" in sent[0].content
@@ -192,50 +201,124 @@ def test_global_limit(installation_id, fake_ai, monkeypatch):
             conn.execute("DELETE FROM installations WHERE id = %s", (other,))
 
 
+# ── Bubbles ──────────────────────────────────
+
+def test_long_replies_become_short_bubbles(installation_id, fake_ai):
+    _, state = fake_ai
+    state["reply"] = ai_reply([
+        "That sounds exhausting. Missing someone can take over a whole day. It makes sense that "
+        "you feel worn out. Nights are often the hardest part. Maybe try something small before bed. "
+        "What usually helps you wind down?"
+    ])
+    body = send(installation_id, "I can't stop thinking about her").json()
+    assert 2 <= len(body["messages"]) <= 3
+    assert " ".join(body["messages"]).startswith("That sounds exhausting.")
+    assert body["messages"][-1].endswith("What usually helps you wind down?")
+    for bubble in body["messages"]:
+        assert bubble[-1] in ".?!"  # never cut mid-sentence
+
+
+def test_plain_text_replies_still_work(installation_id, fake_ai):
+    _, state = fake_ai
+    state["reply"] = "That sounds hard.\n\nWhat's on your mind?"
+    body = send(installation_id, "hi").json()
+    assert body["messages"] == ["That sounds hard.", "What's on your mind?"]
+    assert body["risk"] == "none" and body["source"] == "ai"
+
+
+def test_bubble_splitting_rules():
+    from app.ced import bubbles
+
+    assert bubbles.split(["One. Two. Three."]) == ["One. Two. Three."]
+    assert bubbles.split(["A. B. C. D."]) == ["A. B.", "C. D."]
+    assert bubbles.split(["Dr. Lee said hi. Then he left."]) == ["Dr. Lee said hi. Then he left."]
+    assert len(bubbles.split(["a", "b", "c", "d", "e"])) == 3
+    assert bubbles.split(["a", "b", "c", "d", "e"])[-1] == "c d e"
+
+
 # ── Safety ───────────────────────────────────
 
-@pytest.mark.parametrize("text, kind", [
-    ("I don't want to be alive anymore", "crisis"),
-    ("sometimes i think about killing myself", "crisis"),
-    ("I've been cutting myself again", "crisis"),
-    ("everyone would be better off without me", "crisis"),
-    ("I want to end it all", "crisis"),
-    ("My ex threatened me last night and I'm scared", "danger"),
-    ("I'm not safe at home", "danger"),
-    ("I want to kill him for what he did", "crisis"),
-    ("How do I track her location without her knowing?", "boundary"),
-    ("help me get revenge on my ex", "boundary"),
-    ("should I post his private photos", "boundary"),
+@pytest.mark.parametrize("text, risk, support", [
+    ("I feel like hurting myself", "self_harm", "crisis"),
+    ("I want to end my life", "self_harm", "crisis"),
+    ("I don't want to be alive anymore", "self_harm", "crisis"),
+    ("sometimes i think about killing myself", "self_harm", "crisis"),
+    ("everyone would be better off without me", "self_harm", "crisis"),
+    ("My ex threatened me last night and I'm scared", "in_danger", "danger"),
+    ("I want to kill him for what he did", "violence", "danger"),
+    ("I stalked my ex all day, I need to know where they are.", "harm_to_others", None),
+    ("How do I track her location without her knowing?", "harm_to_others", None),
+    ("help me get revenge on my ex", "harm_to_others", None),
 ])
-def test_safety_replies_never_reach_the_ai(installation_id, fake_ai, text, kind):
-    calls, _ = fake_ai
-    response = send(installation_id, text)
-    assert response.status_code == 200
-    body = response.json()
-    assert body["kind"] == kind
-    assert body["show_support"] == (kind in ("crisis", "danger"))
-    assert calls == []  # the model was never asked
-    if kind in ("crisis", "danger"):
-        assert "988" in body["reply"] or "911" in body["reply"]
+def test_flagged_messages_are_answered_by_the_ai_with_a_safety_note(installation_id, fake_ai, text, risk, support):
+    calls, state = fake_ai
+    # Even if the model under-rates it, the backend's own check wins.
+    state["reply"] = ai_reply(["I'm really glad you told me."], risk="distress")
+    body = send(installation_id, text).json()
+    assert body["risk"] == risk and body["support"] == support and body["source"] == "ai"
+    assert "SAFETY NOTE" in calls[0][0].content
+    if risk in ("self_harm", "in_danger"):
+        assert any("safe" in m.lower() and "?" in m for m in body["messages"])  # asked directly
 
 
-def test_crisis_replies_work_without_a_key_and_past_the_limits(installation_id, monkeypatch):
-    monkeypatch.setattr(providers, "is_configured", lambda: False)
-    monkeypatch.setattr(settings, "ced_per_minute_limit", 0)
-    response = send(installation_id, "I want to die")
-    assert response.status_code == 200 and response.json()["kind"] == "crisis"
+def test_the_model_catches_what_patterns_miss(installation_id, fake_ai):
+    calls, state = fake_ai
+    state["reply"] = ai_reply(["That sounds so heavy.", "Are you safe right now?"], risk="self_harm")
+    body = send(installation_id, "I don't see the point of anything anymore").json()
+    assert "SAFETY NOTE" not in calls[0][0].content  # no pattern matched…
+    assert body["risk"] == "self_harm" and body["support"] == "crisis"  # …but the model did
 
 
 @pytest.mark.parametrize("text", [
+    "I really miss them.",
+    "I can't sleep.",
+    "I'm feeling a little better today.",
     "This breakup is killing me",
     "I don't want to hurt her feelings",
     "I don't want to hurt him, I just want closure",
-    "I want to text him so badly",
     "I miss her so much it hurts",
 ])
-def test_everyday_phrases_go_to_the_ai(installation_id, fake_ai, text):
-    response = send(installation_id, text)
-    assert response.json()["kind"] == "ai"
+def test_everyday_messages_show_no_crisis_resources(installation_id, fake_ai, text):
+    calls, state = fake_ai
+    state["reply"] = ai_reply(["I hear you."], risk="distress")
+    body = send(installation_id, text).json()
+    assert body["support"] is None and body["source"] == "ai"
+    assert "SAFETY NOTE" not in calls[0][0].content
+
+
+@pytest.mark.parametrize("text, risk", [
+    ("I want to die", "self_harm"),
+    ("I'm not safe at home", "in_danger"),
+])
+def test_crisis_fallback_without_a_key_or_past_the_limits(installation_id, monkeypatch, text, risk):
+    monkeypatch.setattr(providers, "is_configured", lambda: False)
+    body = send(installation_id, text).json()
+    assert body["source"] == "fallback" and body["risk"] == risk and body["support"] is not None
+    assert any("safe" in m.lower() and "?" in m for m in body["messages"])
+    assert all(len(m) < 200 for m in body["messages"])  # short bubbles, resources sit right under
+
+
+def test_crisis_fallback_when_the_provider_fails(installation_id, fake_ai):
+    _, state = fake_ai
+    state["error"] = providers.ProviderTimeout()
+    body = send(installation_id, "I want to end my life").json()
+    assert body["source"] == "fallback" and body["support"] == "crisis"
+
+
+def test_crisis_fallback_past_the_limits(installation_id, fake_ai, monkeypatch):
+    monkeypatch.setattr(settings, "ced_per_minute_limit", 0)
+    calls, _ = fake_ai
+    body = send(installation_id, "I want to end my life").json()
+    assert body["source"] == "fallback" and calls == []
+
+
+def test_conversation_continues_after_a_crisis_reply(installation_id, fake_ai):
+    calls, state = fake_ai
+    state["reply"] = ai_reply(["I'm glad you're safe.", "What would help right now?"], risk="distress")
+    body = send(installation_id, "I want to end my life", "I'm so sorry. Are you safe right now?",
+                "Yes, I'm safe. I just feel really low.").json()
+    assert body["support"] is None and body["source"] == "ai"
+    assert "SAFETY NOTE" not in calls[0][0].content  # only the latest message is checked
 
 
 @pytest.mark.parametrize("bad_reply", [
@@ -248,10 +331,18 @@ def test_everyday_phrases_go_to_the_ai(installation_id, fake_ai, text):
 ])
 def test_unsafe_ai_replies_are_replaced(installation_id, fake_ai, bad_reply):
     _, state = fake_ai
-    state["reply"] = bad_reply
+    state["reply"] = ai_reply([bad_reply])
     body = send(installation_id, "what's wrong with me").json()
-    assert body["reply"] == safety.FALLBACK_REPLY
-    assert body["kind"] == "ai"
+    assert " ".join(body["messages"]) == safety.FALLBACK_REPLY
+    assert body["source"] == "ai"
+
+
+def test_unsafe_reply_to_a_crisis_uses_the_crisis_fallback(installation_id, fake_ai):
+    _, state = fake_ai
+    state["reply"] = ai_reply(["As your therapist, I think you should rest."], risk="self_harm")
+    body = send(installation_id, "I want to end my life").json()
+    assert body["messages"] == safety.FALLBACK_REPLIES["self_harm"]
+    assert body["support"] == "crisis"
 
 
 def test_message_text_never_appears_in_logs(installation_id, fake_ai, caplog):

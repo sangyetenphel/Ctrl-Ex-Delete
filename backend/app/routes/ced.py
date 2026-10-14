@@ -20,7 +20,9 @@ def send_message(payload: CedChatRequest, x_installation_id: InstallationId):
     """
     Ced's reply to the conversation so far. The conversation is not stored:
     the app sends the recent turns each time and forgets them when the chat
-    ends. Crisis and harmful messages get a fixed reply without calling the AI.
+    ends. The reply comes as 1–3 bubbles; `support` says which crisis
+    resources to show under it (the app never opens them by itself).
+    Crisis messages are always answered, even when the AI can't be reached.
     """
     try:
         return chat.respond(x_installation_id, payload)

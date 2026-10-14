@@ -22,7 +22,7 @@ class Settings(BaseSettings):
                           validation_alias=AliasChoices("AI_MODEL", "GROQ_MODEL"))
     groq_api_key: str | None = None
     ai_timeout_seconds: float = 20
-    ai_max_output_tokens: int = 700        # includes the model's hidden reasoning
+    ai_max_output_tokens: int = 900        # includes the model's hidden reasoning
     ced_daily_message_limit: int = 60      # per installation, per UTC day
     ced_per_minute_limit: int = 8          # per installation
     ced_global_per_minute_limit: int = 25  # whole server; Groq's free tier allows ~30 RPM

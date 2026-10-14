@@ -326,11 +326,16 @@ Ced's reply to the conversation so far. **Nothing is stored:** the app keeps the
 - `messages`: 1–40 turns, roles `user` / `assistant`, each 1–2000 characters, ending with `user`. The server sends at most the last 12 (≈6,000 characters) to the AI, plus Ced's instructions. No check-ins, scrapbook or other app data is ever included.
 - `mode`: `chat`, or `unsent_message` when the first message was written on **Say it here first** (words for the ex that were not sent; nothing is ever sent to anyone).
 
-**Response `200`:**
+**Response `200`:** Ced's reply as 1–3 short chat bubbles, in order.
 ```json
-{ "reply": "…", "kind": "ai", "show_support": false }
+{ "messages": ["I'm really sorry you're feeling like this right now.", "Are you safe where you are at this moment?"],
+  "risk": "self_harm", "support": "crisis", "source": "ai" }
 ```
-`kind` is `ai`, or `crisis` / `danger` / `boundary` for fixed replies from the backend safety checks, which run **before** the AI is called (self-harm, danger, violence, harassment/revenge/tracking). Crisis and danger replies include 988/911 and set `show_support: true` (the app opens the human-support sheet). AI replies that claim to be a therapist, diagnose, or give medication advice are replaced with a safe fallback.
+- `risk`: `none`, `distress`, `harm_to_others`, `self_harm`, `in_danger` or `violence`. Two independent reads are combined and the more serious wins: backend patterns (`app/ced/safety.py`) and the model's own rating of the message (it replies in JSON with a `risk` field), which catches indirect wording.
+- `support`: crisis resources the app shows **directly under the reply**: `crisis` (self-harm: Call/Text 988, 911 for immediate danger) or `danger` (in danger / violence: Call 911 first), else `null`. The app never opens a call, text, browser or sheet by itself.
+- Self-harm and in-danger replies always include a direct "are you safe right now?" question (added by the backend if the model leaves it out). A pattern hit is passed to the model as a safety note; stalking/harassment gets a reply that doesn't help and encourages stopping, without crisis resources.
+- `source`: `ai`, or `fallback` when a crisis message couldn't reach the AI (no key, limits, provider error): a short human-written reply plus the resources. Crisis messages are always answered.
+- Replies that claim to be a therapist, diagnose, give medication advice or promise outcomes are replaced with a safe fallback.
 
 | Status | When | Body `detail` (shown to the user) |
 |---|---|---|
