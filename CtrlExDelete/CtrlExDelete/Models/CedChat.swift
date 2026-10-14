@@ -10,6 +10,8 @@ struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     let sender: Sender
     let text: String
+    /// Crisis resources shown right under this bubble (the last of a reply).
+    var support: CrisisSupport? = nil
 }
 
 enum CedChat {
@@ -25,10 +27,20 @@ enum CedChat {
     /// The request for Ced's next reply. `startedFromUnsentMessage`: the first
     /// message was written on "Say it here first" (words for the ex, not sent).
     static func request(for messages: [ChatMessage], startedFromUnsentMessage: Bool) -> CedChatRequest {
-        let recent = messages.suffix(maxMessagesSent)
+        // One reply shown as several bubbles is one turn for the AI.
+        var turns: [CedChatRequest.Turn] = []
+        for message in messages {
+            let role = message.sender == .user ? "user" : "assistant"
+            if let last = turns.last, last.role == role {
+                turns[turns.count - 1] = .init(role: role, content: last.content + "\n\n" + message.text)
+            } else {
+                turns.append(.init(role: role, content: message.text))
+            }
+        }
+        let recent = Array(turns.suffix(maxMessagesSent))
         return CedChatRequest(
-            messages: recent.map { .init(role: $0.sender == .user ? "user" : "assistant", content: $0.text) },
-            mode: startedFromUnsentMessage && recent.count == messages.count ? "unsent_message" : "chat"
+            messages: recent,
+            mode: startedFromUnsentMessage && recent.count == turns.count ? "unsent_message" : "chat"
         )
     }
 }

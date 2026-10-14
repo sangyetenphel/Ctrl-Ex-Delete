@@ -93,19 +93,18 @@ struct CedChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(messages) { message in
-                        switch message.sender {
-                        case .user: UserBubble(text: message.text)
-                        case .ced: CedBubble { Text(message.text) }
-                        }
+                VStack(spacing: 0) {
+                    ForEach(messages.indices, id: \.self) { index in
+                        messageRow(at: index)
                     }
                     if isThinking {
-                        CedBubble { ThinkingDots() }
+                        CedBubble(showsName: messages.last?.sender != .ced) { ThinkingDots() }
                             .accessibilityLabel("Ced is typing")
+                            .padding(.top, messages.last?.sender == .ced ? 4 : 12)
                     }
                     if let errorMessage {
                         errorRow(errorMessage)
+                            .padding(.top, 12)
                     }
                     Color.clear.frame(height: 0).id(bottomID)
                 }
@@ -118,6 +117,37 @@ struct CedChatView: View {
             .onChange(of: isThinking) { scrollToBottom(proxy) }
             .onChange(of: errorMessage) { scrollToBottom(proxy) }
         }
+    }
+
+    /// Ced's bubbles from one reply sit close together like a messaging app:
+    /// "Ced" over the first, the avatar beside the last. Crisis resources
+    /// appear right under the bubble they belong to.
+    @ViewBuilder
+    private func messageRow(at index: Int) -> some View {
+        let message = messages[index]
+        let previous = index > 0 ? messages[index - 1].sender : nil
+        let next = index + 1 < messages.count ? messages[index + 1].sender : nil
+        let continuesGroup = previous == message.sender
+
+        VStack(spacing: 8) {
+            switch message.sender {
+            case .user:
+                UserBubble(text: message.text)
+            case .ced:
+                CedBubble(showsName: !continuesGroup,
+                          showsAvatar: next != .ced && !(index == messages.count - 1 && isThinking)) {
+                    Text(message.text)
+                }
+            }
+            if let support = message.support {
+                CrisisSupportCard(support: support) {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        router.isSupportSheetPresented = true
+                    }
+                }
+            }
+        }
+        .padding(.top, index == 0 ? 0 : (continuesGroup ? 4 : 12))
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
@@ -192,12 +222,19 @@ struct CedChatView: View {
             do {
                 let response = try await APIClient.shared.cedReply(request)
                 guard !Task.isCancelled else { return }
-                messages.append(ChatMessage(sender: .ced, text: response.reply))
-                AccessibilityNotification.Announcement("Ced: \(response.reply)").post()
-                if response.showSupport {
-                    // Crisis or safety reply: put human support one tap away.
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        router.isSupportSheetPresented = true
+                AccessibilityNotification.Announcement("Ced: \(response.messages.joined(separator: " "))").post()
+
+                for (index, text) in response.messages.enumerated() {
+                    // A short pause between bubbles, like someone texting.
+                    // Crisis replies show at once so the resources are there right away.
+                    if index > 0, response.support == nil {
+                        try? await Task.sleep(for: .milliseconds(650))
+                        guard !Task.isCancelled else { return }
+                    }
+                    let isLast = index == response.messages.count - 1
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        messages.append(ChatMessage(sender: .ced, text: text,
+                                                    support: isLast ? response.support : nil))
                     }
                 }
             } catch {
@@ -232,19 +269,26 @@ private struct UserBubble: View {
 }
 
 /// Ced's messages: avatar, "Ced" label and a powder-blue bubble on the left.
+/// In a run of bubbles, only the first shows "Ced" and only the last the avatar.
 private struct CedBubble<Content: View>: View {
+    var showsName = true
+    var showsAvatar = true
     @ViewBuilder let content: Content
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             CedAvatar(size: 26)
                 .padding(.bottom, 2)
+                .opacity(showsAvatar ? 1 : 0)
+                .accessibilityHidden(!showsAvatar)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Ced")
-                    .cedTextStyle(.smallBold)
-                    .foregroundStyle(CEDColor.accent)
-                    .padding(.leading, 4)
+                if showsName {
+                    Text("Ced")
+                        .cedTextStyle(.smallBold)
+                        .foregroundStyle(CEDColor.accent)
+                        .padding(.leading, 4)
+                }
                 content
                     .cedTextStyle(.bodyRelaxed)
                     .foregroundStyle(CEDColor.foreground)
@@ -252,7 +296,7 @@ private struct CedBubble<Content: View>: View {
                     .padding(.vertical, 12)
                     .background(
                         CEDColor.secondary,
-                        in: UnevenRoundedRectangle(topLeadingRadius: 2, bottomLeadingRadius: 16,
+                        in: UnevenRoundedRectangle(topLeadingRadius: showsName ? 2 : 16, bottomLeadingRadius: 16,
                                                    bottomTrailingRadius: 16, topTrailingRadius: 16)
                     )
             }

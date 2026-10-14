@@ -38,6 +38,8 @@ class _MinuteWindow:
             while hits and now - hits[0] >= WINDOW_SECONDS:
                 hits.popleft()
             if len(hits) >= limit:
+                if not hits:  # a limit of 0 blocks everything
+                    return WINDOW_SECONDS
                 return max(1, math.ceil(WINDOW_SECONDS - (now - hits[0])))
             hits.append(now)
             return None

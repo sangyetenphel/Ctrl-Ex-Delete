@@ -39,7 +39,7 @@ class ChatMessage:
 
 
 class ChatProvider(Protocol):
-    def complete(self, messages: list[ChatMessage]) -> str: ...
+    def complete(self, messages: list[ChatMessage], json_reply: bool = False) -> str: ...
 
 
 class GroqProvider:
@@ -53,8 +53,9 @@ class GroqProvider:
         self._client = groq.Groq(api_key=api_key, timeout=settings.ai_timeout_seconds, max_retries=1)
         self._model = model
 
-    def complete(self, messages: list[ChatMessage]) -> str:
+    def complete(self, messages: list[ChatMessage], json_reply: bool = False) -> str:
         g = self._groq
+        extra = {"response_format": {"type": "json_object"}} if json_reply else {}
         try:
             response = self._client.chat.completions.create(
                 model=self._model,
@@ -65,6 +66,7 @@ class GroqProvider:
                 # send the reasoning back: only the final answer is used.
                 reasoning_effort="low",
                 include_reasoning=False,
+                **extra,
             )
         except g.RateLimitError as error:
             retry_after = error.response.headers.get("retry-after") if error.response else None
@@ -73,6 +75,9 @@ class GroqProvider:
             raise ProviderUnavailable() from None
         except g.APITimeoutError:
             raise ProviderTimeout() from None
+        except g.BadRequestError as error:
+            # e.g. the model's JSON didn't validate: treated like any other failure.
+            raise ProviderError(type(error).__name__) from None
         except g.APIError as error:
             raise ProviderError(type(error).__name__) from None
 
@@ -95,5 +100,5 @@ def is_configured() -> bool:
     return settings.ai_provider == "groq" and bool(settings.groq_api_key)
 
 
-def complete(messages: list[ChatMessage]) -> str:
-    return _provider().complete(messages)
+def complete(messages: list[ChatMessage], json_reply: bool = False) -> str:
+    return _provider().complete(messages, json_reply=json_reply)

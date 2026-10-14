@@ -254,8 +254,18 @@ class CedChatRequest(BaseModel):
 
 
 class CedChatResponse(BaseModel):
-    reply: str
-    # "ai": from the model. The others are fixed replies from the safety
-    # checks, given without calling the model.
-    kind: Literal["ai", "crisis", "danger", "boundary"]
-    show_support: bool          # open the "Connect with human support" sheet
+    """
+    Ced's reply as 1–3 chat bubbles, shown in order.
+
+    risk: how serious the latest message was (patterns and the model's own
+      read combined; the more serious wins).
+    support: crisis resources to show right under the reply. "crisis" = 988
+      first (911 for immediate danger), "danger" = 911 first. The app shows
+      them in the chat and never opens anything by itself.
+    source: "ai" (written by the model) or "fallback" (a fixed, human-written
+      reply used when the model couldn't be reached for a crisis message).
+    """
+    messages: list[str] = Field(min_length=1, max_length=3)
+    risk: Literal["none", "distress", "harm_to_others", "self_harm", "in_danger", "violence"]
+    support: Literal["crisis", "danger"] | None
+    source: Literal["ai", "fallback"]
