@@ -57,9 +57,29 @@ def test_saved_activities_come_first_next_time(installation_id):
     next_cards = check_in_and_list(installation_id)
     assert next_cards[0]["activity"]["id"] == last["id"]
     assert next_cards[0]["is_saved"] is True
-    # The others keep their usual order behind it.
-    assert [c["activity"]["id"] for c in next_cards[1:]] == [c["activity"]["id"] for c in cards[:-1]]
+    # The others are new: cards shown recently wait a few check-ins to come back.
+    shown_before = {c["activity"]["id"] for c in cards[:-1]}
+    assert shown_before.isdisjoint(c["activity"]["id"] for c in next_cards[1:])
 
 
 def test_unknown_activity(installation_id):
     assert client.put("/bookmarks/999999", headers=headers(installation_id)).status_code == 404
+
+def test_saved_activity_waits_after_it_is_completed(installation_id):
+    def check_in_on(local_date):
+        body = {**CHECK_IN, "local_date": local_date}
+        assert client.post("/check-ins", json=body, headers=headers(installation_id)).status_code == 201
+        return client.get("/recommendations/latest", headers=headers(installation_id)).json()["recommendations"]
+
+    card = check_in_on("2026-10-06")[0]
+    client.put(f"/bookmarks/{card['activity']['id']}", headers=headers(installation_id))
+    selection = client.post(f"/recommendations/{card['id']}/selection", headers=headers(installation_id)).json()
+    assert client.post("/reflections", headers=headers(installation_id), json={
+        "activity_selection_id": selection["id"], "thought_about_ex": "not_really",
+        "mood_change": "a_little_better", "local_date": "2026-10-06",
+    }).status_code == 201
+
+    # Completed 2 days ago: not moved to the front.
+    assert check_in_on("2026-10-08")[0]["activity"]["id"] != card["activity"]["id"]
+    # 3 days later it's saved-first again.
+    assert check_in_on("2026-10-09")[0]["activity"]["id"] == card["activity"]["id"]

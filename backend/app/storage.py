@@ -119,14 +119,68 @@ def _create_recommendations(conn: psycopg.Connection, check_in: CheckIn) -> None
     active_activities = conn.execute(
         "SELECT * FROM activities WHERE is_active ORDER BY sort_order, id"
     ).fetchall()
+    # Saved activities, except ones completed in the last few days: those wait
+    # a bit before jumping to the front again.
     saved_ids = {
         row["activity_id"]
         for row in conn.execute(
-            "SELECT activity_id FROM activity_bookmarks WHERE installation_id = %s",
-            (check_in.installation_id,),
+            """
+            SELECT b.activity_id
+            FROM activity_bookmarks b
+            WHERE b.installation_id = %(installation)s
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM activity_selections s
+                  JOIN recommendations r ON r.id = s.recommendation_id
+                  WHERE s.installation_id = %(installation)s
+                    AND r.activity_id = b.activity_id
+                    AND s.status = 'completed'
+                    AND s.completed_on > %(today)s::date - %(days)s
+              )
+            """,
+            {
+                "installation": check_in.installation_id,
+                "today": check_in.local_date,
+                "days": recommendation_rules.SAVED_COMPLETED_HIDE_DAYS,
+            },
         ).fetchall()
     }
-    activity_ids = recommendation_rules.choose_activity_ids(check_in, active_activities, saved_ids)
+    # Activities shown in this installation's last few check-ins (not this one)
+    # or completed in the last few days, so the rules can skip them and the
+    # deck feels fresh day to day.
+    recent_ids = {
+        row["activity_id"]
+        for row in conn.execute(
+            """
+            SELECT r.activity_id
+            FROM recommendations r
+            WHERE r.installation_id = %(installation)s
+              AND r.check_in_id IN (
+                  SELECT id FROM check_ins
+                  WHERE installation_id = %(installation)s AND id <> %(check_in)s
+                  ORDER BY created_at DESC, id DESC
+                  LIMIT %(window)s
+              )
+            UNION
+            SELECT r.activity_id
+            FROM activity_selections s
+            JOIN recommendations r ON r.id = s.recommendation_id
+            WHERE s.installation_id = %(installation)s
+              AND s.status = 'completed'
+              AND s.completed_on > %(today)s::date - %(days)s
+            """,
+            {
+                "installation": check_in.installation_id,
+                "check_in": check_in.id,
+                "window": recommendation_rules.REPEAT_WINDOW,
+                "today": check_in.local_date,
+                "days": recommendation_rules.RECENTLY_COMPLETED_DAYS,
+            },
+        ).fetchall()
+    }
+    activity_ids = recommendation_rules.choose_activity_ids(
+        check_in, active_activities, saved_ids, recent_ids
+    )
 
     for position, activity_id in enumerate(activity_ids, start=1):
         conn.execute(

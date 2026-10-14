@@ -358,6 +358,5 @@ These are already implemented in `CtrlExDelete/CtrlExDelete/Networking/`:
 
 ## Coming later
 
-- Real recommendation rules based on the check-in answers
 - Saving activities for later (the Save button is local-only for now)
 - Ced chat, the no-contact companion and the moving-forward check-in
