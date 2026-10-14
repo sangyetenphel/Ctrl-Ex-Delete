@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,7 +18,8 @@ class Settings(BaseSettings):
     # Ced (AI chat). Optional: without a key the API still runs, and only
     # POST /ced/messages answers 503. Switch provider/model here, not in the app.
     ai_provider: str = "groq"
-    ai_model: str = "openai/gpt-oss-120b"
+    ai_model: str = Field(default="openai/gpt-oss-120b",
+                          validation_alias=AliasChoices("AI_MODEL", "GROQ_MODEL"))
     groq_api_key: str | None = None
     ai_timeout_seconds: float = 20
     ai_max_output_tokens: int = 700        # includes the model's hidden reasoning
@@ -25,7 +27,8 @@ class Settings(BaseSettings):
     ced_per_minute_limit: int = 8          # per installation
     ced_global_per_minute_limit: int = 25  # whole server; Groq's free tier allows ~30 RPM
 
-    model_config = SettingsConfigDict(env_file=".env")
+    # extra="ignore": an unrelated line in .env must never stop the server.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
     def s3_configured(self) -> bool:
