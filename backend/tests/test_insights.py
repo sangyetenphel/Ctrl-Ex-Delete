@@ -149,25 +149,28 @@ def test_api_new_user_gets_the_empty_state(installation_id):
 
 def test_api_counts_only_completed_activities_once(installation_id):
     check_in(installation_id, "2026-10-12", 8)
-    complete_activity(installation_id, 0, "2026-10-12")          # mindfulness_rest
-    complete_activity(installation_id, 1, "2026-10-13", "much_better")  # outdoor_movement
-
+    first_two = client.get("/recommendations/latest", headers=headers(installation_id)).json()["recommendations"][:2]
+    complete_activity(installation_id, 0, "2026-10-12")
+    complete_activity(installation_id, 1, "2026-10-13", "much_better")
+ 
     # Abandoned, bookmarked and in-progress activities don't count.
     cards = client.get("/recommendations/latest", headers=headers(installation_id)).json()["recommendations"]
     client.put(f"/bookmarks/{cards[2]['activity']['id']}", headers=headers(installation_id))
     started = client.post(f"/recommendations/{cards[2]['id']}/selection", headers=headers(installation_id)).json()
     client.post(f"/activity-selections/{started['id']}/abandon", headers=headers(installation_id))
     client.post(f"/recommendations/{cards[2]['id']}/selection", headers=headers(installation_id))
-
+ 
     week = get_insights(installation_id)
     assert week["completed"] == 2
-    assert {c["category"]: c["count"] for c in week["categories"]} == {
-        "outdoor_movement": 1, "mindfulness_rest": 1, "solo_exploration": 0, "social_connection": 0,
-    }
+    expected = {"outdoor_movement": 0, "mindfulness_rest": 0, "solo_exploration": 0, "social_connection": 0}
+    for card in first_two:
+        expected[card["activity"]["category"]] += 1
+    assert {c["category"]: c["count"] for c in week["categories"]} == expected
     assert {m["response"]: m["count"] for m in week["moods"]} == {
         "worse": 0, "about_the_same": 0, "a_little_better": 1, "much_better": 1,
     }
     assert week["urges"][0]["value"] == 8 and week["urges"][1]["value"] is None
+
 
 
 def test_api_week_and_month_use_their_own_boundaries(installation_id):
