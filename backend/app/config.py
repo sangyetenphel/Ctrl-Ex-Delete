@@ -1,5 +1,19 @@
-from pydantic import AliasChoices, Field
+import logging
+
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Gemini's prebuilt voices (https://ai.google.dev/gemini-api/docs/speech-generation).
+# Gemini silently falls back to its own default for an unknown name, so the
+# setting is checked here instead.
+GEMINI_VOICES = (
+    "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede", "Callirrhoe", "Autonoe",
+    "Enceladus", "Iapetus", "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi",
+    "Laomedeia", "Achernar", "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird",
+    "Zubenelgenubi", "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
+)
+DEFAULT_GEMINI_VOICE = "Vindemiatrix"
 
 
 class Settings(BaseSettings):
@@ -31,12 +45,22 @@ class Settings(BaseSettings):
     # runs, and /ced/voice tells the app voice isn't available.
     gemini_api_key: str | None = None
     gemini_live_model: str = "gemini-3.8-live"
-    gemini_voice: str = "Vindemiatrix"     # "Gentle". Alternatives: Achernar (Soft), Sulafat (Warm)
+    gemini_voice: str = DEFAULT_GEMINI_VOICE   # "Gentle". Others: Zephyr (Bright), Achernar (Soft), Sulafat (Warm)
     ced_voice_max_minutes: int = 15        # per call
     ced_voice_max_concurrent: int = 3      # calls at once, whole server
     # TEMPORARY: privacy-safe call diagnostics (states, counts, sizes; never audio,
     # transcripts or keys). Set CED_VOICE_DIAGNOSTICS=false to silence.
     ced_voice_diagnostics: bool = True
+
+    @field_validator("gemini_voice")
+    @classmethod
+    def _known_voice(cls, value: str) -> str:
+        for name in GEMINI_VOICES:
+            if name.lower() == value.strip().lower():
+                return name
+        logging.getLogger("ced").warning(
+            "GEMINI_VOICE=%r isn't a Gemini voice; using %s instead.", value, DEFAULT_GEMINI_VOICE)
+        return DEFAULT_GEMINI_VOICE
 
     # extra="ignore": an unrelated line in .env must never stop the server.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

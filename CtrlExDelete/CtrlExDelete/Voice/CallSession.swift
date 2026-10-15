@@ -11,16 +11,21 @@ final class CallSession {
     }
 
     enum Activity: String {
-        case listening, thinking, speaking
+        case listening, thinking, speaking, reconnecting
 
         var label: String {
             switch self {
             case .listening: "Listening\u{2026}"
             case .thinking: "Ced is thinking\u{2026}"
             case .speaking: "Ced is speaking\u{2026}"
+            case .reconnecting: "Reconnecting\u{2026}"
             }
         }
     }
+
+    /// The server normally moves on within seconds; this long with no word at
+    /// all while waiting on Ced means the call is stuck.
+    private static let silentServerTimeout: TimeInterval = 25
 
     private(set) var phase = Phase.connecting
     private(set) var activity = Activity.listening
@@ -36,6 +41,8 @@ final class CallSession {
     private let audio = CallAudio()
     private var transport: VoiceTransport
     private var interruptionObserver: NSObjectProtocol?
+    private let lastServerEvent = ServerClock()
+    private var watchdog: Task<Void, Never>?
 
     init() {
         #if DEBUG
@@ -74,7 +81,10 @@ final class CallSession {
         let audio = self.audio
         let call = WeakCall(self)
         let source = ObjectIdentifier(transport)
+        let clock = lastServerEvent
+        clock.touch()
         transport.connect { event in
+            clock.touch()
             // Ced's voice goes straight to the speaker; everything else to the UI.
             if case .audio(let pcm) = event {
                 audio.play(pcm)
@@ -140,6 +150,7 @@ final class CallSession {
         }
         phase = .active
         connectedAt = .now
+        startWatchdog()
         CallDiagnostics.log("call active")
     }
 
@@ -175,9 +186,27 @@ final class CallSession {
         support = nil
     }
 
+    /// Ends a call that's stuck waiting on Ced with no word from the server.
+    private func startWatchdog() {
+        watchdog?.cancel()
+        watchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, self.phase == .active else { return }
+                let waitingOnCed = self.activity != .listening
+                if waitingOnCed, self.lastServerEvent.secondsSince > Self.silentServerTimeout {
+                    CallDiagnostics.log("watchdog: no server events for \(Int(Self.silentServerTimeout)) s while \(self.activity.rawValue)")
+                    self.finish("Ced stopped responding. Tap \u{201C}Call again\u{201D} to reconnect.")
+                    return
+                }
+            }
+        }
+    }
+
     private func finish(_ reason: String) {
         if case .ended = phase { return }
         CallDiagnostics.log("call finished")
+        watchdog?.cancel()
         phase = .ended(reason)
         transport.close()
         audio.onCapture = nil
@@ -194,4 +223,13 @@ final class CallSession {
 private final class WeakCall: Sendable {
     nonisolated(unsafe) weak var session: CallSession?
     nonisolated init(_ session: CallSession) { self.session = session }
+}
+
+/// When the server last sent anything (audio or an event). Thread-safe.
+private final class ServerClock: Sendable {
+    private let lock = NSLock()
+    nonisolated(unsafe) private var last = Date()
+
+    nonisolated func touch() { lock.withLock { last = Date() } }
+    nonisolated var secondsSince: TimeInterval { lock.withLock { Date().timeIntervalSince(last) } }
 }
