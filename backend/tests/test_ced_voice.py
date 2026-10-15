@@ -22,6 +22,9 @@ client = TestClient(app)
 
 
 class FakeLive:
+    """Behaves like Gemini Live: speech start/end, transcript, reply audio.
+    b"SAY:silent:<words>" is heard but gets no reply (like an "um")."""
+
     def __init__(self):
         self.queue: asyncio.Queue = asyncio.Queue()
         self.audio_in: list[bytes] = []
@@ -32,7 +35,11 @@ class FakeLive:
         self.audio_in.append(pcm)
         if pcm.startswith(b"SAY:"):
             words = pcm[4:].decode()
-            await self.queue.put(("user_text", words))
+            await self.queue.put(("speech_start",))
+            await self.queue.put(("user_text", words.removeprefix("silent:")))
+            await self.queue.put(("speech_end",))
+            if words.startswith("silent:"):
+                return  # Gemini heard it but doesn't answer
             if words == "interrupt me":
                 await self.queue.put(("audio", b"ced-starts"))
                 await self.queue.put(("interrupted",))
@@ -44,8 +51,9 @@ class FakeLive:
     async def end_audio(self) -> None:
         self.audio_ended += 1
 
-    async def greet(self) -> None:
-        await self.queue.put(("audio", b"ced-hello"))
+    async def greet(self, reconnected: bool = False) -> None:
+        self.greeted_after_reconnect = reconnected
+        await self.queue.put(("audio", b"ced-back" if reconnected else b"ced-hello"))
         await self.queue.put(("turn_complete",))
 
     async def send_note(self, text: str) -> None:
@@ -62,8 +70,9 @@ def live(monkeypatch):
     state = {"session": None, "classified": [], "classifier_says": None}
 
     @asynccontextmanager
-    async def connect():
+    async def connect(resume_handle=None):
         state["session"] = FakeLive()
+        state.setdefault("handles", []).append(resume_handle)
         yield state["session"]
 
     def classify(text):
@@ -119,6 +128,22 @@ def test_call_connects_and_ced_greets(installation_id, live):
     assert seen[0] == {"type": "ready", "max_seconds": settings.ced_voice_max_minutes * 60}
     assert {"type": "state", "state": "speaking"} in seen
     assert b"ced-hello" in seen
+
+
+def test_voice_and_resumption_are_in_the_live_config(monkeypatch):
+    monkeypatch.setattr(settings, "gemini_voice", "Zephyr")
+    config = voice.live_config()
+    assert config.speech_config.voice_config.prebuilt_voice_config.voice_name == "Zephyr"
+    assert config.session_resumption is not None and config.session_resumption.handle is None
+    assert voice.live_config("handle-1").session_resumption.handle == "handle-1"
+
+
+@pytest.mark.parametrize("raw, used", [("Zephyr", "Zephyr"), ("zephyr", "Zephyr"), (" Charon ", "Charon"),
+                                       ("Zepher", "Vindemiatrix")])
+def test_voice_setting_is_checked(raw, used):
+    from app.config import Settings
+
+    assert Settings(gemini_voice=raw).gemini_voice == used
 
 
 def test_the_voice_prompt_is_ced_without_the_json_format():
@@ -301,7 +326,7 @@ class FailingLive(FakeLive):
 
     async def events(self):
         if self.after_greeting:
-            yield ("audio", b"ced-hello")
+            yield await self.queue.get()  # the greeting it was asked for
         raise RuntimeError("1011 internal error")
 
 
@@ -316,23 +341,143 @@ def test_reconnects_once_if_gemini_fails_before_ced_speaks(installation_id, live
 
     monkeypatch.setattr(voice, "gemini_connect", connect)
     with call(installation_id) as ws:
-        seen = connected(ws)
+        seen = read_until(ws, lambda item: item == b"ced-hello")
     assert len(attempts) == 2
     assert [i for i in seen if isinstance(i, dict) and i["type"] == "ready"] == [
         {"type": "ready", "max_seconds": settings.ced_voice_max_minutes * 60}]  # the app saw one call
     assert b"ced-hello" in seen
 
 
-def test_no_silent_retry_once_ced_has_spoken(installation_id, live, monkeypatch):
+def test_repeated_failures_after_ced_spoke_end_with_a_clear_error(installation_id, live, monkeypatch):
     attempts = []
 
     @asynccontextmanager
-    async def connect():
+    async def connect(resume_handle=None):
         attempts.append(1)
         live["session"] = FailingLive(after_greeting=True)
         yield live["session"]
 
     monkeypatch.setattr(voice, "gemini_connect", connect)
     with call(installation_id) as ws:
-        seen = read_until(ws, event("error", code="dropped"))
-    assert len(attempts) == 1 and b"ced-hello" in seen
+        seen = read_until(ws, event("error", code="dropped"), limit=60)
+    assert len(attempts) == 1 + voice.MAX_RECONNECTS
+    assert {"type": "state", "state": "reconnecting"} in seen
+    assert b"ced-back" in seen  # each fresh session said it was back
+
+
+
+# ── Never stuck ──────────────────────────────
+
+def states_in(seen):
+    return [i["state"] for i in seen if isinstance(i, dict) and i.get("type") == "state"]
+
+
+def test_no_reply_from_gemini_returns_to_listening(installation_id, live, monkeypatch):
+    monkeypatch.setattr(voice, "REPLY_TIMEOUT", 0.6)
+    with call(installation_id) as ws:
+        connected(ws)
+        ws.send_bytes(b"SAY:silent:um")
+        seen = read_until(ws, event("state", state="listening"))
+    assert states_in(seen) == ["thinking", "listening"]
+    assert live["classified"] == ["um"]  # safety checks still ran
+
+
+def test_crisis_words_without_a_reply_still_show_resources(installation_id, live, monkeypatch):
+    monkeypatch.setattr(voice, "REPLY_TIMEOUT", 0.6)
+    monkeypatch.setattr(voice, "TRANSCRIPT_GRACE", 0.1)
+    with call(installation_id) as ws:
+        connected(ws)
+        ws.send_bytes(b"SAY:silent:I want to end my life")
+        seen = read_until(ws, event("safety"))
+    assert seen[-1] == {"type": "safety", "support": "crisis", "risk": "self_harm"}
+
+
+def test_still_talking_goes_back_to_listening(installation_id, live, monkeypatch):
+    monkeypatch.setattr(voice, "REPLY_TIMEOUT", 30)
+    with call(installation_id) as ws:
+        connected(ws)
+        ws.send_bytes(b"SAY:silent:so I was thinking")
+        read_until(ws, event("state", state="thinking"))
+        ws.send_bytes(b"SAY:that maybe I should call her")  # speech_start -> listening, then a reply
+        seen = read_until(ws, event("state", state="speaking"))
+    assert states_in(seen)[:2] == ["listening", "thinking"]
+
+
+def test_stalled_reply_returns_to_listening(installation_id, live, monkeypatch):
+    monkeypatch.setattr(voice, "SPEAKING_STALL_TIMEOUT", 0.6)
+    with call(installation_id) as ws:
+        connected(ws)
+        session = live["session"]
+        session.queue.put_nowait(("audio", b"half a reply"))  # ...and then nothing
+        seen = read_until(ws, event("state", state="listening"))
+    assert "speaking" in states_in(seen)
+
+
+# ── Dropped Gemini connections ───────────────
+
+class DroppingLive(FakeLive):
+    """Greets, hands out a resumption handle, then the connection drops."""
+
+    async def events(self):
+        yield ("resume_handle", "handle-123")
+        yield ("audio", b"ced-hello")
+        yield ("turn_complete",)
+        raise RuntimeError("1011 connection closed")
+
+
+def test_a_dropped_connection_resumes_the_conversation(installation_id, live, monkeypatch):
+    connections = []
+
+    @asynccontextmanager
+    async def connect(resume_handle=None):
+        connections.append(resume_handle)
+        live["session"] = DroppingLive() if len(connections) == 1 else FakeLive()
+        yield live["session"]
+
+    monkeypatch.setattr(voice, "gemini_connect", connect)
+    with call(installation_id) as ws:
+        connected(ws)
+        ws.send_bytes(b"SAY:are you still there")
+        seen = read_until(ws, event("state", state="speaking"))
+    assert connections == [None, "handle-123"]  # second connection resumed, no new greeting
+    assert not any(isinstance(i, dict) and i.get("type") == "error" for i in seen)
+
+
+def test_gives_up_after_repeated_drops(installation_id, live, monkeypatch):
+    @asynccontextmanager
+    async def connect(resume_handle=None):
+        live["session"] = DroppingLive()
+        yield live["session"]
+
+    monkeypatch.setattr(voice, "gemini_connect", connect)
+    with call(installation_id) as ws:
+        seen = read_until(ws, event("error", code="dropped"), limit=60)
+    assert "Call again" in seen[-1]["message"]
+
+
+
+def test_refused_resume_falls_back_to_a_fresh_session(installation_id, live, monkeypatch):
+    connections = []
+
+    class RefusedResume(FakeLive):
+        async def events(self):
+            raise RuntimeError("1008 policy violation")
+            yield  # pragma: no cover
+
+    @asynccontextmanager
+    async def connect(resume_handle=None):
+        connections.append(resume_handle)
+        if len(connections) == 1:
+            live["session"] = DroppingLive()       # hands out a handle, then drops
+        elif resume_handle:
+            live["session"] = RefusedResume()      # Gemini refuses the handle
+        else:
+            live["session"] = FakeLive()           # fresh session works
+        yield live["session"]
+
+    monkeypatch.setattr(voice, "gemini_connect", connect)
+    with call(installation_id) as ws:
+        seen = read_until(ws, lambda item: item == b"ced-back", limit=40)
+    assert connections == [None, "handle-123", None]
+    assert {"type": "state", "state": "reconnecting"} in seen
+    assert not any(isinstance(i, dict) and i.get("type") == "error" for i in seen)

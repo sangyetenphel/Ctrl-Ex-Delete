@@ -174,13 +174,29 @@ struct CallCedView: View {
                 CallControl(systemImage: "phone.down.fill", label: "End", style: .end) { hangUp() }
             }
         case .ended:
-            Button("Close") { dismiss() }
-                .cedTextStyle(.button)
-                .foregroundStyle(CEDColor.primary)
-                .padding(.horizontal, 44)
-                .padding(.vertical, 14)
-                .background(.white, in: Capsule())
+            HStack(spacing: 12) {
+                Button("Close") { dismiss() }
+                    .cedTextStyle(.button)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 14)
+                    .background(.white.opacity(0.18), in: Capsule())
+                Button("Call again") { callAgain() }
+                    .cedTextStyle(.button)
+                    .foregroundStyle(CEDColor.primary)
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 14)
+                    .background(.white, in: Capsule())
+                    .accessibilityHint("Starts a new call with Ced")
+            }
         }
+    }
+
+    /// A fresh call after one ended (dropped, timed out, or hung up).
+    private func callAgain() {
+        let next = CallSession()
+        call = next
+        Task { await next.start() }
     }
 
     /// Ends the call, then (only because the user tapped it) opens 988 or 911.

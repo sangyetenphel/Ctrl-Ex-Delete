@@ -54,6 +54,26 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
         self.task = task
         task.resume()
         receive()
+        keepAlive()
+    }
+
+    /// Pings the server every 10 s; a failed ping means the connection is
+    /// dead (e.g. Wi-Fi dropped) even though no error arrived.
+    private func keepAlive() {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self, !self.isClosed, let task = self.task else { return }
+            task.sendPing { error in
+                guard !self.isClosed else { return }
+                if let error {
+                    CallDiagnostics.log("keep-alive ping failed: \((error as NSError).domain) \((error as NSError).code)")
+                    self.lock.withLock { self.closed = true }
+                    self.onEvent?(.failed(code: "dropped",
+                                          message: "The call with Ced dropped. Tap \u{201C}Call again\u{201D} to reconnect."))
+                } else {
+                    self.keepAlive()
+                }
+            }
+        }
     }
 
     private func receive() {
@@ -76,7 +96,8 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
             case .failure(let error):
                 CallDiagnostics.log("websocket receive ended: \((error as NSError).domain) \((error as NSError).code), closed by app \(self.isClosed)")
                 if !self.isClosed {
-                    self.onEvent?(.failed(code: "dropped", message: "The call dropped. Please try calling again."))
+                    self.onEvent?(.failed(code: "dropped",
+                                          message: "The call with Ced dropped. Tap \u{201C}Call again\u{201D} to reconnect."))
                 }
             }
         }
