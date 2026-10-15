@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     gemini_voice: str = "Vindemiatrix"     # "Gentle". Alternatives: Achernar (Soft), Sulafat (Warm)
     ced_voice_max_minutes: int = 15        # per call
     ced_voice_max_concurrent: int = 3      # calls at once, whole server
+    # TEMPORARY: privacy-safe call diagnostics (states, counts, sizes; never audio,
+    # transcripts or keys). Set CED_VOICE_DIAGNOSTICS=false to silence.
+    ced_voice_diagnostics: bool = True
 
     # extra="ignore": an unrelated line in .env must never stop the server.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
