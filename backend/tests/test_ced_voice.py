@@ -288,3 +288,51 @@ def test_invalid_installation_id_is_refused():
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/ced/voice", headers={"X-Installation-ID": "nope"}) as ws:
             ws.receive()
+
+
+# ── Reliability ──────────────────────────────
+
+class FailingLive(FakeLive):
+    """Fails like Gemini's temporary '1011 internal error'."""
+
+    def __init__(self, after_greeting: bool):
+        super().__init__()
+        self.after_greeting = after_greeting
+
+    async def events(self):
+        if self.after_greeting:
+            yield ("audio", b"ced-hello")
+        raise RuntimeError("1011 internal error")
+
+
+def test_reconnects_once_if_gemini_fails_before_ced_speaks(installation_id, live, monkeypatch):
+    attempts = []
+
+    @asynccontextmanager
+    async def connect():
+        attempts.append(1)
+        live["session"] = FailingLive(after_greeting=False) if len(attempts) == 1 else FakeLive()
+        yield live["session"]
+
+    monkeypatch.setattr(voice, "gemini_connect", connect)
+    with call(installation_id) as ws:
+        seen = connected(ws)
+    assert len(attempts) == 2
+    assert [i for i in seen if isinstance(i, dict) and i["type"] == "ready"] == [
+        {"type": "ready", "max_seconds": settings.ced_voice_max_minutes * 60}]  # the app saw one call
+    assert b"ced-hello" in seen
+
+
+def test_no_silent_retry_once_ced_has_spoken(installation_id, live, monkeypatch):
+    attempts = []
+
+    @asynccontextmanager
+    async def connect():
+        attempts.append(1)
+        live["session"] = FailingLive(after_greeting=True)
+        yield live["session"]
+
+    monkeypatch.setattr(voice, "gemini_connect", connect)
+    with call(installation_id) as ws:
+        seen = read_until(ws, event("error", code="dropped"))
+    assert len(attempts) == 1 and b"ced-hello" in seen

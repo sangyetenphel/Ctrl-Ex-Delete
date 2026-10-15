@@ -70,6 +70,7 @@ final class CallSession {
 
     private func connect() {
         isMock = transport.isMock
+        CallDiagnostics.log("call starting with \(transport.isMock ? "MOCK voice (Debug practice mode)" : "LIVE voice (backend + Gemini)")")
         let audio = self.audio
         let call = WeakCall(self)
         let source = ObjectIdentifier(transport)
@@ -86,7 +87,10 @@ final class CallSession {
     private func handle(_ event: VoiceEvent, from source: ObjectIdentifier) {
         // Ignore late events from a connection that was already replaced
         // (e.g. the server closing after saying voice isn't available).
-        guard source == ObjectIdentifier(transport) else { return }
+        guard source == ObjectIdentifier(transport) else {
+            CallDiagnostics.log("ignored event from a replaced connection")
+            return
+        }
         switch event {
         case .ready:
             guard phase == .connecting else { return }
@@ -136,6 +140,7 @@ final class CallSession {
         }
         phase = .active
         connectedAt = .now
+        CallDiagnostics.log("call active")
     }
 
     private func micLevel(_ value: Float) {
@@ -172,6 +177,7 @@ final class CallSession {
 
     private func finish(_ reason: String) {
         if case .ended = phase { return }
+        CallDiagnostics.log("call finished")
         phase = .ended(reason)
         transport.close()
         audio.onCapture = nil

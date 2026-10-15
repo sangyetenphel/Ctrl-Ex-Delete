@@ -42,6 +42,21 @@ from app.config import settings
 
 logger = logging.getLogger("ced")
 
+# TEMPORARY diagnostics (settings.ced_voice_diagnostics): connection states,
+# chunk counts and byte counts only. Never audio, transcripts or keys.
+diag_log = logging.getLogger("ced.voice.diag")
+if not diag_log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(asctime)s [voice] %(message)s", "%H:%M:%S"))
+    diag_log.addHandler(_handler)
+    diag_log.setLevel(logging.INFO)
+    diag_log.propagate = False
+
+
+def diag(message: str, *args) -> None:
+    if settings.ced_voice_diagnostics:
+        diag_log.info(message, *args)
+
 INPUT_MIME = "audio/pcm;rate=16000"
 
 
@@ -181,12 +196,22 @@ class _Call:
         self.flagged = "none"           # most serious risk seen so far in this call
         self.noted: set[str] = set()    # safety notes already given to the model
         self.checks: set[asyncio.Task] = set()
+        self.call_id = format(id(self) % 10_000, "04d")   # just to tell calls apart in logs
+        self.audio_in = [0, 0]      # chunks, bytes from the app this turn
+        self.audio_out = [0, 0]     # chunks, bytes to the app this turn
+        self.audio_out_total = 0    # whole call: has Ced said anything yet?
 
     async def send(self, **event) -> None:
         await self.ws.send_text(json.dumps(event))
 
     async def set_state(self, state: str) -> None:
         if state != self.state:
+            diag("call %s: state %s -> %s (in %d chunks/%d B, out %d chunks/%d B)", self.call_id,
+                 self.state, state, *self.audio_in, *self.audio_out)
+            if state == "listening":
+                self.audio_out = [0, 0]
+            if state == "speaking":
+                self.audio_in = [0, 0]
             self.state = state
             await self.send(type="state", state=state)
 
@@ -202,6 +227,7 @@ class _Call:
             support = safety.SUPPORT_FOR_RISK.get(level)
             if support:
                 await self.send(type="safety", support=support, risk=level)
+        diag("call %s: safety level %s", self.call_id, level)
         if level in prompt.SAFETY_NOTES and level not in self.noted:
             self.noted.add(level)
             with contextlib.suppress(Exception):  # the on-screen resources don't depend on this
@@ -229,12 +255,18 @@ class _Call:
                 return
             if message.get("bytes") is not None:
                 if not self.muted:
+                    self.audio_in[0] += 1
+                    self.audio_in[1] += len(message["bytes"])
+                    if self.audio_in[0] == 1 or self.audio_in[0] % 100 == 0:
+                        diag("call %s: mic audio from app: %d chunks / %d B this turn",
+                             self.call_id, *self.audio_in)
                     await self.session.send_audio(message["bytes"])
             elif message.get("text") is not None:
                 try:
                     command = json.loads(message["text"]).get("type")
                 except (json.JSONDecodeError, AttributeError):
                     continue
+                diag("call %s: app command %s", self.call_id, command)
                 if command == "end":
                     return
                 if command == "mute" and not self.muted:
@@ -247,6 +279,7 @@ class _Call:
         async for event in self.session.events():
             kind = event[0]
             if kind == "user_text":
+                diag("call %s: gemini heard speech (transcript chunk, %d chars)", self.call_id, len(event[1]))
                 self.heard += event[1]
                 if self.state == "listening":
                     await self.set_state("thinking")
@@ -254,11 +287,18 @@ class _Call:
                 if self.state != "speaking":
                     await self.finish_user_turn()
                     await self.set_state("speaking")
+                self.audio_out[0] += 1
+                self.audio_out[1] += len(event[1])
+                self.audio_out_total += len(event[1])
+                if self.audio_out[0] == 1:
+                    diag("call %s: first audio from gemini this turn (%d B)", self.call_id, len(event[1]))
                 await self.ws.send_bytes(event[1])
             elif kind == "interrupted":
+                diag("call %s: gemini says interrupted", self.call_id)
                 await self.send(type="interrupted")
                 await self.set_state("listening")
             elif kind == "turn_complete":
+                diag("call %s: gemini turn complete (sent %d chunks / %d B of audio)", self.call_id, *self.audio_out)
                 await self.finish_user_turn()
                 await self.set_state("listening")
         await self.send(type="error", code="dropped", message="The call dropped. Please try calling again.")
@@ -278,7 +318,9 @@ async def run_call(
         await ws.send_text(json.dumps({"type": "error", "code": code, "message": message}))
         await ws.close()
 
+    diag("app connected")
     if not is_configured():
+        diag("refused: no GEMINI_API_KEY")
         return await refuse("unavailable", "Calling Ced isn’t available right now.")
     problem = slots.take(installation_id)
     if problem:
@@ -288,29 +330,55 @@ async def run_call(
         if storage.count_ced_message(installation_id) > settings.ced_daily_message_limit:
             return await refuse("limit", "You’ve reached today’s limit for talking with Ced. It resets tomorrow.")
 
-        async with connect() as session:
-            call = _Call(ws, session, classify)
-            await call.send(type="ready", max_seconds=settings.ced_voice_max_minutes * 60)
-            await session.greet()
+        call: _Call | None = None
+        # Gemini sometimes fails right after connecting (e.g. a temporary
+        # "1011 internal error"). If Ced hasn't said anything yet, reconnect
+        # once without the app noticing.
+        for attempt in (1, 2):
+            started = asyncio.get_running_loop().time()
+            diag("connecting to %s (voice %s), attempt %d", settings.gemini_live_model, settings.gemini_voice, attempt)
+            try:
+                async with connect() as session:
+                    if call is None:
+                        call = _Call(ws, session, classify)
+                        await call.send(type="ready", max_seconds=settings.ced_voice_max_minutes * 60)
+                    else:
+                        call.session = session
+                        call.state = "listening"
+                    diag("call %s: gemini session ready in %.2f s", call.call_id,
+                         asyncio.get_running_loop().time() - started)
+                    await session.greet()
 
-            relays = [
-                asyncio.create_task(call.from_app()),
-                asyncio.create_task(call.from_model()),
-                asyncio.create_task(asyncio.sleep(settings.ced_voice_max_minutes * 60)),
-            ]
-            done, pending = await asyncio.wait(relays, return_when=asyncio.FIRST_COMPLETED)
-            for task in [*pending, *call.checks]:
-                task.cancel()
-            if relays[2] in done:
-                await call.send(type="ended", reason="time_limit")
-            for task in done:
-                if task.exception() and not isinstance(task.exception(), WebSocketDisconnect):
-                    raise task.exception()
+                    relays = [
+                        asyncio.create_task(call.from_app()),
+                        asyncio.create_task(call.from_model()),
+                        asyncio.create_task(asyncio.sleep(settings.ced_voice_max_minutes * 60)),
+                    ]
+                    done, pending = await asyncio.wait(relays, return_when=asyncio.FIRST_COMPLETED)
+                    for task in [*pending, *call.checks]:
+                        task.cancel()
+                    diag("call %s: ended (%s)", call.call_id,
+                         "app hung up" if relays[0] in done else "gemini closed" if relays[1] in done else "time limit")
+                    if relays[2] in done:
+                        await call.send(type="ended", reason="time_limit")
+                    for task in done:
+                        if task.exception() and not isinstance(task.exception(), WebSocketDisconnect):
+                            raise task.exception()
+                break
+            except WebSocketDisconnect:
+                raise
+            except Exception as error:  # noqa: BLE001
+                if attempt == 1 and (call is None or call.audio_out_total == 0):
+                    diag("gemini failed before Ced spoke (%s %s); reconnecting once",
+                         type(error).__name__, getattr(error, "code", ""))
+                    continue
+                raise
     except WebSocketDisconnect:
         pass
     except Exception as error:  # noqa: BLE001
         # Only the error type is logged; never audio or transcripts.
         logger.warning("Voice call failed: %s", type(error).__name__)
+        diag("call failed: %s", type(error).__name__)
         with contextlib.suppress(Exception):
             await ws.send_text(json.dumps({
                 "type": "error", "code": "dropped",

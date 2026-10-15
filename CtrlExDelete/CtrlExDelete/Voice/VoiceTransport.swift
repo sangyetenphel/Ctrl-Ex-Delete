@@ -48,6 +48,7 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
 
     func connect(onEvent: @escaping @Sendable (VoiceEvent) -> Void) {
         self.onEvent = onEvent
+        CallDiagnostics.log("websocket connecting to \(request.url?.host() ?? "?"):\(request.url?.port ?? 0)\(request.url?.path() ?? "")")
         let task = URLSession.shared.webSocketTask(with: request)
         task.maximumMessageSize = 4 * 1024 * 1024
         self.task = task
@@ -63,6 +64,7 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
                 self.onEvent?(.audio(data))
                 self.receive()
             case .success(.string(let text)):
+                CallDiagnostics.log("server event: \(Self.eventSummary(text))")
                 if let event = Self.event(from: text) {
                     // After an error the server hangs up; that isn't a second problem.
                     if case .failed = event { self.lock.withLock { self.closed = true } }
@@ -71,7 +73,8 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
                 self.receive()
             case .success:
                 self.receive()
-            case .failure:
+            case .failure(let error):
+                CallDiagnostics.log("websocket receive ended: \((error as NSError).domain) \((error as NSError).code), closed by app \(self.isClosed)")
                 if !self.isClosed {
                     self.onEvent?(.failed(code: "dropped", message: "The call dropped. Please try calling again."))
                 }
@@ -96,9 +99,28 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
         }
     }
 
+    private var sentChunks = 0
+    private var sentBytes = 0
+
     func sendAudio(_ pcm: Data, level: Float) {
         guard !isClosed else { return }
-        task?.send(.data(pcm)) { _ in }
+        sentChunks += 1
+        sentBytes += pcm.count
+        if sentChunks == 1 || sentChunks % 100 == 0 {
+            CallDiagnostics.log("mic audio sent to server: \(sentChunks) chunks / \(sentBytes) B")
+        }
+        task?.send(.data(pcm)) { error in
+            if let error { CallDiagnostics.log("websocket send failed: \((error as NSError).code)") }
+        }
+    }
+
+    /// Type and state only, never content.
+    private static func eventSummary(_ text: String) -> String {
+        guard let data = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return "unreadable" }
+        let type = json["type"] as? String ?? "?"
+        let detail = (json["state"] ?? json["code"] ?? json["support"] ?? json["reason"]) as? String
+        return detail.map { "\(type) \($0)" } ?? type
     }
 
     func setMuted(_ muted: Bool) {
