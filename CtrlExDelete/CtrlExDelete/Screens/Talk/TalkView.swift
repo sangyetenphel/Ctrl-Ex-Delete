@@ -116,10 +116,8 @@ struct TalkView: View {
         .background(CEDColor.card, in: RoundedRectangle(cornerRadius: CEDRadius.xl))
         .overlay(RoundedRectangle(cornerRadius: CEDRadius.xl).strokeBorder(CEDColor.border, lineWidth: 1))
         .overlay(alignment: .bottomTrailing) {
-            // Dictation needs microphone permission, which isn't set up yet,
-            // so this button is shown but does nothing for now.
-            CircleIconButton(icon: .mic, iconSize: 18, label: "Dictate message",
-                             hint: "Dictation isn\u{2019}t available yet") {}
+            // Say it out loud instead: a voice call with Ced.
+            CallCedButton()
                 .padding(12)
         }
     }

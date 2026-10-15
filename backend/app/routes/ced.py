@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, WebSocket, status
 
-from app.ced import chat, limits, providers
+from app.ced import chat, limits, providers, voice
 from app.dependencies import InstallationId
 from app.schemas import CedChatRequest, CedChatResponse
 
@@ -49,3 +49,12 @@ def send_message(payload: CedChatRequest, x_installation_id: InstallationId):
     except providers.ProviderError:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY,
                             "Ced couldn’t answer just now. Please try again.") from None
+
+
+@router.websocket("/voice")
+async def voice_call(websocket: WebSocket, x_installation_id: InstallationId):
+    """
+    A voice call with Ced (Gemini Live), relayed by the server so the key
+    never reaches the app. See app/ced/voice.py for the message format.
+    """
+    await voice.run_call(websocket, x_installation_id)

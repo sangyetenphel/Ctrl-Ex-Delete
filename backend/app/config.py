@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     ced_per_minute_limit: int = 8          # per installation
     ced_global_per_minute_limit: int = 25  # whole server; Groq's free tier allows ~30 RPM
 
+    # Ced voice calls (Gemini Live). Optional: without a key the API still
+    # runs, and /ced/voice tells the app voice isn't available.
+    gemini_api_key: str | None = None
+    gemini_live_model: str = "gemini-3.8-live"
+    gemini_voice: str = "Vindemiatrix"     # "Gentle". Alternatives: Achernar (Soft), Sulafat (Warm)
+    ced_voice_max_minutes: int = 15        # per call
+    ced_voice_max_concurrent: int = 3      # calls at once, whole server
+
     # extra="ignore": an unrelated line in .env must never stop the server.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
