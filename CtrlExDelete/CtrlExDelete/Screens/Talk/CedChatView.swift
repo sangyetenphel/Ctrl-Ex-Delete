@@ -160,9 +160,8 @@ struct CedChatView: View {
 
     private var composer: some View {
         HStack(spacing: 8) {
-            // Dictation needs microphone permission, which isn't set up yet.
-            CircleIconButton(icon: .micBold, label: "Dictate reply",
-                             hint: "Dictation isn\u{2019}t available yet") {}
+            // Starts a voice call with Ced; this text chat stays as it is.
+            CallCedButton()
 
             TextField("", text: $reply, prompt: Text("Reply to Ced\u{2026}").foregroundStyle(CEDColor.foreground.opacity(0.5)))
                 .cedTextStyle(.body)

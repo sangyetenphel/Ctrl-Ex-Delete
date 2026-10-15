@@ -3,7 +3,7 @@
 This is the contract between the iOS app and the FastAPI backend.
 **Field names and allowed values must match exactly.** If something here needs to change, update this doc in the same pull request as the code.
 
-- **Status:** check-ins, recommendations, activity status (one in progress), bookmarks, scrapbook photos, reflections (completion), progress summary, insights, Ced chat
+- **Status:** check-ins, recommendations, activity status (one in progress), bookmarks, scrapbook photos, reflections (completion), progress summary, insights, Ced chat, Ced voice calls
 - **Local base URL:** `http://127.0.0.1:8000` (works from the iOS Simulator on the same Mac)
 - **Interactive docs:** `http://127.0.0.1:8000/docs` (while the backend is running)
 
@@ -344,6 +344,20 @@ Ced's reply to the conversation so far. **Nothing is stored:** the app keeps the
 | `504` / `502` | Provider timeout (20 s) / other provider error | "Ced is taking too long…" / "Ced couldn't answer just now…" |
 
 Crisis replies work even without a key and past the limits. Provider and model are set in `.env` (`AI_PROVIDER`, `AI_MODEL`); the app is unaffected by a switch.
+
+---
+
+## `WebSocket /ced/voice`: voice calls with Ced
+
+The app streams microphone audio here; the backend relays it to **Gemini Live** (`GEMINI_LIVE_MODEL`, default `gemini-3.8-live`, voice `GEMINI_VOICE`, default `Vindemiatrix`). The Gemini key never reaches the app. Header: `X-Installation-ID`. Full message format: `backend/app/ced/voice.py`.
+
+- **App → server:** binary PCM 16-bit LE, **16 kHz**, mono (≈100 ms chunks); JSON `{"type":"mute"}`, `{"type":"unmute"}`, `{"type":"end"}`.
+- **Server → app:** binary PCM 16-bit LE, **24 kHz**, mono (Ced's voice, streamed); JSON `ready`, `state` (`listening` / `thinking` / `speaking`), `interrupted` (stop playback: the user talked over Ced), `safety` (`support`: `crisis` / `danger`), `ended` (`time_limit`), `error` (`unavailable` / `busy` / `limit` / `dropped`, with a `message` for the user).
+- **Turn-taking:** Gemini's automatic voice-activity detection (700 ms of silence ends a turn); users can interrupt Ced. Long calls use context compression.
+- **Safety:** each finished user turn's transcript is checked by the backend patterns and by an independent Groq classifier. Self-harm or danger → a `safety` event (the app shows 988 / 911 on the call screen; nothing is dialled automatically) and a note to the voice model so its next words address safety. Stalking/harassment → a note only.
+- **Limits:** one call per installation, `CED_VOICE_MAX_CONCURRENT` calls server-wide (3), `CED_VOICE_MAX_MINUTES` per call (15); each call counts as one message toward the daily Ced limit.
+- **Privacy:** audio and transcripts pass through memory only; nothing is stored or logged.
+- Without `GEMINI_API_KEY` the server sends `error`/`unavailable`. Debug builds of the app then fall back to a clearly labelled practice mock (`-CEDMockVoice YES` forces it; `-CEDMockVoiceCrisis YES` also simulates a crisis).
 
 ---
 
