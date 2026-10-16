@@ -79,6 +79,44 @@ enum HardestArea: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+// MARK: - Reflection answers
+
+/// "Did you think about your ex during the activity?"
+enum ThoughtAboutEx: String, CaseIterable, Identifiable, Codable {
+    case notReally = "not_really"
+    case aLittle = "a_little"
+    case aLot = "a_lot"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .notReally: "Not really"
+        case .aLittle: "A little"
+        case .aLot: "A lot"
+        }
+    }
+}
+
+/// "How do you feel now compared to before?" Stored as chosen, never as a score.
+enum MoodChange: String, CaseIterable, Identifiable, Codable {
+    case worse
+    case aboutTheSame = "about_the_same"
+    case aLittleBetter = "a_little_better"
+    case muchBetter = "much_better"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .worse: "Worse"
+        case .aboutTheSame: "About the same"
+        case .aLittleBetter: "A little better"
+        case .muchBetter: "Much better"
+        }
+    }
+}
+
 enum SampleData {
     static let urgeRange = 1...10
 }
@@ -88,6 +126,7 @@ enum SampleData {
 /// One activity card, built from a recommendation sent by the backend.
 struct Activity: Identifiable {
     let recommendationId: Int   // used to record "I'll try this"
+    let activityId: Int
     let category: String        // e.g. "Gentle Reset · 10 min"
     let title: String
     let instructions: String
@@ -95,28 +134,42 @@ struct Activity: Identifiable {
     let icon: CEDIcon
     let background: Color   // soft tint behind the card art
     let accent: Color       // icon and category pill
+    let isCompleted: Bool   // its reflection was saved
+    var isSaved: Bool       // bookmarked with "Save for later"
 
     var id: Int { recommendationId }
 
     init(recommendation: RecommendationDTO) {
-        let activity = recommendation.activity
-        recommendationId = recommendation.id
+        self.init(activity: recommendation.activity,
+                  recommendationId: recommendation.id,
+                  isCompleted: recommendation.status == .completed,
+                  isSaved: recommendation.isSaved)
+    }
+
+    init(activity: ActivityDTO, recommendationId: Int, isCompleted: Bool = false, isSaved: Bool = false) {
+        self.recommendationId = recommendationId
+        self.isCompleted = isCompleted
+        self.isSaved = isSaved
+        activityId = activity.id
         category = "\(activity.categoryLabel) · \(Self.durationText(minutes: activity.durationMinutes))"
         title = activity.title
         instructions = activity.instructions
         whyItFits = activity.whyItFits
+        (icon, background, accent) = Self.palette(for: activity.category)
+    }
 
-        // Card colors and icon come from the activity's category,
-        // matching the prototype's three cards.
-        switch activity.category {
+    /// Card colors and icon come from the activity's category,
+    /// matching the prototype's three cards.
+    static func palette(for category: String) -> (icon: CEDIcon, background: Color, accent: Color) {
+        switch category {
         case "mindfulness_rest":
-            (icon, background, accent) = (.sun, Color(hex: 0xFDE8D8), Color(hex: 0xC4633B))
+            (.sun, Color(hex: 0xFDE8D8), Color(hex: 0xC4633B))
         case "outdoor_movement":
-            (icon, background, accent) = (.zap, Color(hex: 0xE8F0E0), Color(hex: 0x6BA84A))
+            (.zap, Color(hex: 0xE8F0E0), Color(hex: 0x6BA84A))
         case "solo_exploration":
-            (icon, background, accent) = (.users, Color(hex: 0xEAE0F0), Color(hex: 0x7B5E7B))
+            (.users, Color(hex: 0xEAE0F0), Color(hex: 0x7B5E7B))
         default: // social_connection or anything new
-            (icon, background, accent) = (.users, CEDColor.secondary, CEDColor.primary)
+            (.users, CEDColor.secondary, CEDColor.primary)
         }
     }
 
@@ -130,12 +183,11 @@ struct Activity: Identifiable {
     }
 }
 
-/// Which activity card is showing and which ones were saved.
-/// The rules match the prototype's ActivitiesScreen.
+/// Which activity card is showing. The paging rules match the prototype's
+/// ActivitiesScreen; the saved state comes from the backend.
 struct ActivityDeck {
-    let activities: [Activity]
+    private(set) var activities: [Activity]
     private(set) var index = 0
-    private(set) var savedIndices: Set<Int> = []
 
     /// `activities` must not be empty.
     init(activities: [Activity]) {
@@ -145,13 +197,12 @@ struct ActivityDeck {
     var current: Activity { activities[index] }
     var canGoBack: Bool { index > 0 }
     var canGoForward: Bool { index < activities.count - 1 }
-    var isCurrentSaved: Bool { savedIndices.contains(index) }
 
     mutating func goBack() {
         index = max(0, index - 1)
     }
 
-    /// Skip uses this too: it moves to the next card and stays on the last one.
+    /// Moves to the next card and stays on the last one.
     mutating func goForward() {
         index = min(activities.count - 1, index + 1)
     }
@@ -161,10 +212,11 @@ struct ActivityDeck {
         index = newIndex
     }
 
-    /// Saves the current card. Returns `true` only the first time,
-    /// which is when the "Saved for another day" toast should appear.
-    mutating func saveCurrent() -> Bool {
-        savedIndices.insert(index).inserted
+    /// Shows the saved state for every card of this activity.
+    mutating func setSaved(_ isSaved: Bool, activityId: Int) {
+        for i in activities.indices where activities[i].activityId == activityId {
+            activities[i].isSaved = isSaved
+        }
     }
 }
 

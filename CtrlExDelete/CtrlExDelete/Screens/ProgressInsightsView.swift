@@ -1,14 +1,20 @@
 import SwiftUI
 
 /// "Your patterns.": week / month charts of urges and moods, what the user
-/// made time for, and gentle observations. Uses local sample data.
+/// made time for, and gentle observations. Everything comes from
+/// `GET /insights`, calculated from the user's own records.
 struct ProgressInsightsView: View {
     @Environment(AppRouter.self) private var router
     @State private var period = InsightsPeriod.week
     @State private var tappedUrge: Int?
     @State private var tappedMood: Int?
+    @State private var loadState = LoadState.loading
 
-    private var data: InsightsData { .sample(for: period) }
+    private enum LoadState {
+        case loading
+        case loaded(InsightsData)
+        case failed(String)
+    }
 
     var body: some View {
         ScrollView {
@@ -16,32 +22,29 @@ struct ProgressInsightsView: View {
                 header
 
                 VStack(spacing: 20) {
-                    takeawayCard
-
-                    BarChartCard(
-                        title: "Urges to reach out",
-                        subtitle: "Rated 1\u{2013}10 at each check-in",
-                        footnote: "Tap a bar to see the rating. Gaps are days without a check-in.",
-                        points: data.urges,
-                        barColor: CEDColor.hint,
-                        tappedBarColor: CEDColor.foreground,
-                        valueColor: CEDColor.primary,
-                        tappedIndex: $tappedUrge
-                    )
-
-                    BarChartCard(
-                        title: "Mood after activities",
-                        subtitle: "Rated 1\u{2013}10 after each activity",
-                        footnote: "Tap a bar to see the rating. Gaps are days without an activity.",
-                        points: data.moods,
-                        barColor: Color(hex: 0x6BA84A),
-                        tappedBarColor: Color(hex: 0x4A8A30),
-                        valueColor: Color(hex: 0x4A8A30),
-                        tappedIndex: $tappedMood
-                    )
-
-                    breakdownCard
-                    observationsCard
+                    switch loadState {
+                    case .loading:
+                        ProgressView()
+                            .tint(CEDColor.primary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 60)
+                    case .failed(let message):
+                        VStack(spacing: 12) {
+                            Text("Your insights couldn\u{2019}t be loaded")
+                                .cedTextStyle(.bodyBold)
+                                .foregroundStyle(CEDColor.foreground)
+                            Text(message)
+                                .cedTextStyle(.body)
+                                .foregroundStyle(CEDColor.mutedForeground)
+                                .multilineTextAlignment(.center)
+                            PrimaryButton(title: "Try again", isCompact: true) {
+                                Task { await load() }
+                            }
+                        }
+                        .cardStyle()
+                    case .loaded(let data):
+                        cards(for: data)
+                    }
 
                     OutlineButton(title: "Moving-forward check-in \u{2192}") {
                         router.go(to: .movingForward)
@@ -55,6 +58,64 @@ struct ProgressInsightsView: View {
         .scrollIndicators(.hidden)
         .statusBarBackground(CEDColor.card)
         .background(CEDColor.background)
+        // Runs when the screen opens (so new check-ins and reflections show
+        // up) and again whenever the period changes.
+        .task(id: period) { await load() }
+    }
+
+    private func load() async {
+        if case .loaded = loadState {} else { loadState = .loading }
+        do {
+            let dto = try await APIClient.shared.insights(
+                period: period,
+                today: CheckInAnswers.localDateText(for: .now)
+            )
+            loadState = .loaded(InsightsData(dto))
+        } catch is CancellationError {
+            // The period changed again; the newer request takes over.
+        } catch {
+            loadState = .failed(error.localizedDescription)
+        }
+    }
+
+    @ViewBuilder
+    private func cards(for data: InsightsData) -> some View {
+        takeawayCard(data)
+
+        BarChartCard(
+            title: "Urges to reach out",
+            subtitle: "Rated 1\u{2013}10 at each check-in",
+            footnote: data.period == .week
+                ? "Tap a bar to see the rating. Gaps are days without a check-in."
+                : "Each bar is a week\u{2019}s average. Tap a bar to see it. Gaps are weeks without a check-in.",
+            points: data.urges,
+            maxValue: 10,
+            valueText: { "\($0)" },
+            accessibilityValue: { "\($0) out of 10" },
+            barColor: CEDColor.hint,
+            tappedBarColor: CEDColor.foreground,
+            valueColor: CEDColor.primary,
+            tappedIndex: $tappedUrge
+        )
+
+        BarChartCard(
+            title: "Mood after activities",
+            subtitle: "How you felt compared to before, after each activity",
+            footnote: data.moodTotal == 0
+                ? "Your answers will appear here after you finish an activity."
+                : "Each bar counts how often you chose that answer. Tap a bar to see the number.",
+            points: data.moods,
+            maxValue: max(1, data.moods.compactMap(\.value).max() ?? 1),
+            valueText: { "\($0)" },
+            accessibilityValue: { $0 == 1 ? "once" : "\($0) times" },
+            barColor: Color(hex: 0x6BA84A),
+            tappedBarColor: Color(hex: 0x4A8A30),
+            valueColor: Color(hex: 0x4A8A30),
+            tappedIndex: $tappedMood
+        )
+
+        breakdownCard(data)
+        observationsCard(data)
     }
 
     // MARK: Header with the week / month switch
@@ -111,7 +172,7 @@ struct ProgressInsightsView: View {
 
     // MARK: Cards
 
-    private var takeawayCard: some View {
+    private func takeawayCard(_ data: InsightsData) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Main takeaway")
                 .textCase(.uppercase)
@@ -133,7 +194,7 @@ struct ProgressInsightsView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var breakdownCard: some View {
+    private func breakdownCard(_ data: InsightsData) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("What you made time for")
                 .cedTextStyle(.bodyBold)
@@ -170,12 +231,18 @@ struct ProgressInsightsView: View {
         .cardStyle()
     }
 
-    private var observationsCard: some View {
+    private func observationsCard(_ data: InsightsData) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Patterns you might recognize")
                 .cedTextStyle(.serifBodyBold)
                 .foregroundStyle(CEDColor.foreground)
                 .padding(.bottom, 12)
+
+            if data.observations.isEmpty {
+                Text("As you check in and finish activities, patterns from your own days will show up here. There\u{2019}s no rush.")
+                    .cedTextStyle(.bodyRelaxed)
+                    .foregroundStyle(CEDColor.mutedForeground)
+            }
 
             ForEach(data.observations.indices, id: \.self) { index in
                 if index > 0 {
@@ -197,13 +264,16 @@ struct ProgressInsightsView: View {
 
 // MARK: - Bar chart
 
-/// A simple bar chart where 10 fills the full 100pt height. Tapping a bar
-/// shows its rating above the day label; missing days show a short grey stub.
+/// A simple bar chart where `maxValue` fills the full 100pt height. Tapping a
+/// bar shows its value above the label; nil values show a short grey stub.
 private struct BarChartCard: View {
     let title: String
     let subtitle: String
     let footnote: String
     let points: [ChartPoint]
+    let maxValue: Int
+    let valueText: (Int) -> String
+    let accessibilityValue: (Int) -> String
     let barColor: Color
     let tappedBarColor: Color
     let valueColor: Color
@@ -233,7 +303,7 @@ private struct BarChartCard: View {
                 ForEach(points.indices, id: \.self) { index in
                     VStack(spacing: 2) {
                         if tappedIndex == index, let value = points[index].value {
-                            Text("\(value)")
+                            Text(valueText(value))
                                 .cedTextStyle(.tinyBold)
                                 .foregroundStyle(valueColor)
                         }
@@ -264,19 +334,19 @@ private struct BarChartCard: View {
             } label: {
                 UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6)
                     .fill(tappedIndex == index ? tappedBarColor : barColor)
-                    .frame(height: CGFloat(value) / 10 * chartHeight)
+                    .frame(height: CGFloat(value) / CGFloat(max(maxValue, 1)) * chartHeight)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .contentShape(Rectangle())
                     .animation(.easeOut(duration: 0.15), value: tappedIndex)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(point.label): \(value) out of 10")
+            .accessibilityLabel("\(point.label): \(accessibilityValue(value))")
         } else {
             UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6)
                 .fill(CEDColor.border)
                 .frame(height: 4)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .accessibilityLabel("\(point.label): no rating")
+                .accessibilityLabel("\(point.label): nothing recorded")
         }
     }
 }

@@ -4,6 +4,7 @@ import SwiftUI
 /// the scrapbook on the desk for your story, or the telephone to talk instead.
 struct HealingRoomView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(JourneyStore.self) private var journey
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pressedObject: RoomObject?
     @State private var isCedFloating = false
@@ -18,10 +19,10 @@ struct HealingRoomView: View {
             let roomHeight = RoomGrid.size.height * scale
 
             ZStack(alignment: .topLeading) {
-                RoomBackdrop()
+                RoomBackdrop(day: journey.dayNumber)
                     .frame(width: roomWidth, height: roomHeight)
                     .accessibilityElement()
-                    .accessibilityLabel("Day 1. Your Healing Room. Ced says: You don\u{2019}t have to feel great today. Let\u{2019}s choose one small thing.")
+                    .accessibilityLabel("Day \(journey.dayNumber). Your Healing Room. Ced says: You don\u{2019}t have to feel great today. Let\u{2019}s choose one small thing.")
                     .accessibilityAddTraits(.isHeader)
 
                 cedShadow(scale: scale)
@@ -184,4 +185,5 @@ private struct RoomTooltip: View {
         BottomNavBar()
     }
     .environment(AppRouter(start: .room))
+    .environment(JourneyStore())
 }

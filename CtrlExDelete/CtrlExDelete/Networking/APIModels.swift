@@ -41,7 +41,18 @@ struct RecommendationDTO: Decodable {
     let id: Int
     let position: Int
     let activity: ActivityDTO
+    let isSaved: Bool           // bookmarked with "Save for later"
+    let status: SelectionStatus?  // nil = not chosen (or the attempt was abandoned)
     let selectedAt: String?
+    let completedAt: String?    // set once its reflection was saved
+}
+
+/// An "I'll try this" choice: in progress until its reflection is saved
+/// (completed) or the user picks "Change activity" (abandoned).
+enum SelectionStatus: String, Decodable {
+    case inProgress = "in_progress"
+    case completed
+    case abandoned
 }
 
 struct ActivityDTO: Decodable {
@@ -55,14 +66,146 @@ struct ActivityDTO: Decodable {
     let whyItFits: String
 }
 
-/// Response of `POST /recommendations/{id}/selection`.
+/// Response of `POST /recommendations/{id}/selection` and `.../abandon`.
 struct ActivitySelectionResponse: Decodable {
     let id: Int
     let recommendationId: Int
     let activityId: Int
     let checkInId: Int
+    let status: SelectionStatus
     let selectedAt: String
+    let endedAt: String?
 }
+
+/// Response of `GET /activity-selections/current`.
+/// `selection` is nil when no activity is in progress.
+struct CurrentSelectionResponse: Decodable {
+    let selection: SelectedActivityDTO?
+}
+
+/// The activity in progress.
+struct SelectedActivityDTO: Decodable {
+    let selectionId: Int
+    let recommendationId: Int
+    let checkInId: Int
+    let selectedAt: String
+    let activity: ActivityDTO
+}
+
+// MARK: - Scrapbook
+
+/// Response of `POST /scrapbook/photos`: where to PUT the JPEG.
+struct PhotoUploadTicket: Decodable {
+    let id: Int
+    let uploadUrl: URL
+}
+
+/// One uploaded photo. `imageUrl` is temporary, so don't store it.
+struct ScrapbookPhotoDTO: Decodable, Identifiable {
+    let id: Int
+    let createdAt: String
+    let imageUrl: URL
+}
+
+// MARK: - Reflections (scrapbook memories)
+
+/// Body of `POST /reflections` ("Add to my scrapbook"): completes the activity
+/// in progress. Both questions are required; nil notes/photo are left out.
+struct ReflectionRequest: Encodable {
+    let activitySelectionId: Int
+    let thoughtAboutEx: ThoughtAboutEx
+    let moodChange: MoodChange
+    let note: String?
+    let noticed: String?
+    let photoId: Int?
+    let localDate: String
+}
+
+/// One saved memory. `imageUrl` is temporary (about an hour), so don't store it.
+struct ReflectionDTO: Decodable, Identifiable {
+    let id: Int
+    let activitySelectionId: Int?
+    let activity: ActivityDTO?
+    let note: String?
+    let noticed: String?
+    let thoughtAboutEx: ThoughtAboutEx?
+    let moodChange: MoodChange?
+    let localDate: String
+    let createdAt: String       // when it was saved (= completed, with a selection)
+    let photoId: Int?
+    let imageUrl: URL?
+}
+
+// MARK: - Bookmarks
+
+/// One activity saved with "Save for later".
+struct BookmarkDTO: Decodable {
+    let activity: ActivityDTO
+    let savedAt: String
+}
+
+// MARK: - Progress
+
+/// Response of `GET /progress/summary`.
+struct ProgressSummaryDTO: Decodable {
+    let journeyStartedOn: String?   // "YYYY-MM-DD" of the first check-in
+    let checkIns: Int
+    let activitiesSelected: Int
+    let activitiesCompleted: Int
+    let memories: Int
+    let photos: Int
+    let milestones: [MilestoneDTO]
+}
+
+struct MilestoneDTO: Decodable {
+    let label: String
+    let reachedOn: String?          // nil = not reached yet
+}
+
+// MARK: - Insights
+
+/// Response of `GET /insights?period=week|month&today=YYYY-MM-DD`.
+/// Everything is calculated by the backend from this installation's records.
+struct InsightsDTO: Decodable {
+    let period: String
+    let start: String
+    let end: String
+    let hasData: Bool
+    let checkInDays: Int
+    let completed: Int
+    let urges: [UrgePointDTO]
+    let moods: [MoodCountDTO]
+    let categories: [CategoryShareDTO]
+    let takeaway: TakeawayDTO
+    let observations: [String]
+}
+
+struct UrgePointDTO: Decodable {
+    let label: String       // "Mon" or "W1"
+    let value: Int?         // average urge 1–10; nil = no check-in
+    let checkIns: Int
+}
+
+struct MoodCountDTO: Decodable {
+    let response: MoodChange
+    let label: String
+    let count: Int
+}
+
+struct CategoryShareDTO: Decodable {
+    let category: String
+    let label: String
+    let count: Int
+    let percent: Int
+}
+
+struct TakeawayDTO: Decodable {
+    let headline: String
+    let body: String
+}
+
+/// For endpoints that answer `204 No Content`.
+struct EmptyResponse: Decodable {}
 
 /// FastAPI error bodies look like `{"detail": "..."}` (422s use a list instead).
 struct APIErrorBody: Decodable {

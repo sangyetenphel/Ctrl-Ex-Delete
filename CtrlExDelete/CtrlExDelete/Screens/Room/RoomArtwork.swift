@@ -50,12 +50,15 @@ private func verticalGradient(_ stops: [(Double, UInt32)], in rect: CGRect) -> G
 // MARK: - The room (everything that isn't tappable)
 
 struct RoomBackdrop: View {
+    /// Shown as "DAY N" in the header.
+    var day = 1
+
     var body: some View {
         Canvas { context, size in
             let scale = size.width / RoomGrid.size.width
             context.scaleBy(x: scale, y: scale)
             Self.drawWallAndFloor(in: context)
-            Self.drawHeader(in: context)
+            Self.drawHeader(in: context, day: day)
             Self.drawLampAndBookshelf(in: context)
             Self.drawWindowAndPainting(in: context)
             Self.drawPlant(in: context)
@@ -88,11 +91,11 @@ struct RoomBackdrop: View {
         }
     }
 
-    private static func drawHeader(in c: GraphicsContext) {
+    private static func drawHeader(in c: GraphicsContext, day: Int) {
         let header = CGRect(x: 0, y: 0, width: 390, height: 78)
         c.rect(0, 0, 390, 78, verticalGradient([(0, 0x2D5A70), (1, 0x35677D)], in: header))
         c.rect(0, 76, 390, 3, 0x1E4A5E, opacity: 0.7)
-        c.text("DAY 1", font: .nunitoExtraBold, size: 10, hex: 0xE7F1F6, x: 22, baseline: 28, tracking: 1.8)
+        c.text("DAY \(day)", font: .nunitoExtraBold, size: 10, hex: 0xE7F1F6, x: 22, baseline: 28, tracking: 1.8)
         c.text("Your Healing Room", font: .loraBold, size: 20, hex: 0xFFFFFF, x: 22, baseline: 56)
     }
 
