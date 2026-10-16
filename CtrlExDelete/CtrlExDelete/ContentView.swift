@@ -5,11 +5,10 @@ import SwiftUI
 struct ContentView: View {
     #if DEBUG
     @State private var router = AppRouter(start: AppRouter.debugStartScreen())
-    @State private var journey = JourneyStore.debugStore()
     #else
     @State private var router = AppRouter()
-    @State private var journey = JourneyStore()
     #endif
+    @State private var journey = JourneyStore()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,6 +31,9 @@ struct ContentView: View {
         .background(CEDColor.background.ignoresSafeArea())
         .environment(router)
         .environment(journey)
+        // The selected activity, memories and day count come from the backend,
+        // so they are the same after a restart.
+        .task { await journey.refresh() }
         // The prototype is designed for light mode only. The healing room asks
         // for dark so the status bar text turns white over its teal header.
         .preferredColorScheme(router.current == .room ? .dark : .light)

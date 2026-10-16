@@ -14,9 +14,12 @@ from app.config import settings
 
 # Children first, so foreign keys never block a drop.
 CED_TABLES = [
+    "activity_bookmarks",
+    "reflections",
+    "activity_logs",        # replaced by reflections in 005; kept for older databases
+    "scrapbook_photos",
     "activity_selections",
     "recommendations",
-    "activity_logs",
     "check_ins",
     "activities",
     "installations",

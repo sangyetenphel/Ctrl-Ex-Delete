@@ -17,6 +17,12 @@ HardestArea = Literal[
 ActivityCategory = Literal[
     "outdoor_movement", "mindfulness_rest", "solo_exploration", "social_connection"
 ]
+# Reflection answers, stored exactly as the user chose them.
+ThoughtAboutEx = Literal["not_really", "a_little", "a_lot"]
+MoodChange = Literal["worse", "about_the_same", "a_little_better", "much_better"]
+# An "I'll try this" choice: in progress until its reflection is saved
+# (completed) or the user picks "Change activity" (abandoned).
+SelectionStatus = Literal["in_progress", "completed", "abandoned"]
 
 
 # ─────────────────────────────────────────────
@@ -60,7 +66,10 @@ class Recommendation(BaseModel):
     id: int
     position: int
     activity: Activity
+    is_saved: bool = False                 # bookmarked with "Save for later"
+    status: SelectionStatus | None = None  # null = not chosen (or abandoned)
     selected_at: datetime | None = None
+    completed_at: datetime | None = None   # set once its reflection is saved
 
 
 class RecommendationsResponse(BaseModel):
@@ -79,4 +88,145 @@ class ActivitySelection(BaseModel):
     recommendation_id: int
     activity_id: int
     check_in_id: int
+    status: SelectionStatus
     selected_at: datetime
+    ended_at: datetime | None
+
+
+class SelectedActivity(BaseModel):
+    """The activity in progress: chosen with "I'll try this", not yet finished."""
+    selection_id: int
+    recommendation_id: int
+    check_in_id: int
+    selected_at: datetime
+    activity: Activity
+
+
+class CurrentSelectionResponse(BaseModel):
+    """The activity in progress, or null."""
+    selection: SelectedActivity | None
+
+
+# ─────────────────────────────────────────────
+# Scrapbook
+# ─────────────────────────────────────────────
+
+class PhotoUpload(BaseModel):
+    """What the API SENDS BACK: where to PUT the JPEG."""
+    id: int
+    upload_url: str
+
+
+class ScrapbookPhoto(BaseModel):
+    """One uploaded photo. image_url is temporary (about 1 hour)."""
+    id: int
+    created_at: datetime
+    image_url: str
+
+
+# ─────────────────────────────────────────────
+# Reflections (scrapbook memories)
+# ─────────────────────────────────────────────
+
+class ReflectionCreate(BaseModel):
+    """
+    What the iOS app SENDS from "Add to my scrapbook". Saving it completes the
+    activity in progress. The two questions are required; the notes and the
+    photo are optional.
+    """
+    activity_selection_id: int
+    thought_about_ex: ThoughtAboutEx
+    mood_change: MoodChange
+    note: str | None = Field(default=None, max_length=1000)
+    noticed: str | None = Field(default=None, max_length=1000)
+    photo_id: int | None = None
+    local_date: date
+
+
+class Reflection(BaseModel):
+    """One saved memory. image_url is temporary (about 1 hour)."""
+    id: int
+    activity_selection_id: int | None
+    activity: Activity | None
+    note: str | None
+    noticed: str | None
+    thought_about_ex: ThoughtAboutEx | None
+    mood_change: MoodChange | None
+    local_date: date
+    created_at: datetime          # when it was saved (= completed, with a selection)
+    photo_id: int | None
+    image_url: str | None
+
+
+# ─────────────────────────────────────────────
+# Bookmarks ("Save for later")
+# ─────────────────────────────────────────────
+
+class Bookmark(BaseModel):
+    activity: Activity
+    saved_at: datetime
+
+
+# ─────────────────────────────────────────────
+# Progress
+# ─────────────────────────────────────────────
+
+class Milestone(BaseModel):
+    label: str
+    reached_on: date | None   # null = not reached yet
+
+
+class ProgressSummary(BaseModel):
+    journey_started_on: date | None   # local date of the first check-in
+    check_ins: int
+    activities_selected: int
+    activities_completed: int         # reflections linked to an activity
+    memories: int                     # all reflections
+    photos: int                       # reflections with a photo
+    milestones: list[Milestone]
+
+
+# ─────────────────────────────────────────────
+# Insights (the Progress screen)
+# ─────────────────────────────────────────────
+
+class UrgePoint(BaseModel):
+    """One bar: a day (week view) or a week of the month (month view)."""
+    label: str                 # "Mon" … "Sun", or "W1" … "W5"
+    start: date
+    end: date
+    value: int | None          # average urge (1–10); null = no check-in
+    check_ins: int
+
+
+class MoodCount(BaseModel):
+    """How often an answer to "How do you feel now compared to before?" was given."""
+    response: MoodChange
+    label: str
+    count: int
+
+
+class CategoryShare(BaseModel):
+    category: ActivityCategory
+    label: str
+    count: int                 # completed activities only
+    percent: int               # of all completed activities in the period
+
+
+class Takeaway(BaseModel):
+    headline: str
+    body: str
+
+
+class InsightsResponse(BaseModel):
+    period: Literal["week", "month"]
+    start: date
+    end: date
+    has_data: bool             # false = show the empty state
+    check_in_days: int
+    completed: int
+    urges: list[UrgePoint]
+    moods: list[MoodCount]
+    categories: list[CategoryShare]
+    takeaway: Takeaway
+    observations: list[str]

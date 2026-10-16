@@ -32,9 +32,85 @@ struct APIClient {
         try await send("GET", "recommendations/latest")
     }
 
-    /// `POST /recommendations/{id}/selection`: the user tapped "I'll try this".
+    /// `POST /recommendations/{id}/selection`: "I'll try this" starts the activity
+    /// (in progress). The server answers 409 while another one is in progress.
     func selectRecommendation(id: Int) async throws -> ActivitySelectionResponse {
         try await send("POST", "recommendations/\(id)/selection")
+    }
+
+    /// `POST /activity-selections/{id}/abandon`: "Change activity". It doesn't
+    /// count as completed, and saved memories are untouched.
+    func abandonSelection(id: Int) async throws -> ActivitySelectionResponse {
+        try await send("POST", "activity-selections/\(id)/abandon")
+    }
+
+    /// `PUT` / `DELETE /bookmarks/{activityId}`: "Save for later" on or off.
+    /// Never selects the activity. Repeating either call is harmless.
+    func setSaved(activityId: Int, _ isSaved: Bool) async throws {
+        if isSaved {
+            let _: BookmarkDTO = try await send("PUT", "bookmarks/\(activityId)")
+        } else {
+            let _: EmptyResponse = try await send("DELETE", "bookmarks/\(activityId)")
+        }
+    }
+
+    /// `GET /activity-selections/current`: the activity in progress.
+    func currentSelection() async throws -> SelectedActivityDTO? {
+        let response: CurrentSelectionResponse = try await send("GET", "activity-selections/current")
+        return response.selection
+    }
+
+    /// Uploads one photo: ask the backend for a URL, PUT the JPEG to S3, confirm.
+    /// The photo joins a memory afterwards, through `saveReflection(photoId:)`.
+    func uploadScrapbookPhoto(jpeg: Data) async throws -> ScrapbookPhotoDTO {
+        let ticket: PhotoUploadTicket = try await send("POST", "scrapbook/photos")
+
+        // Straight to S3, not through send(): no X-Installation-ID header,
+        // and Content-Type must match what the backend signed.
+        var put = URLRequest(url: ticket.uploadUrl)
+        put.httpMethod = "PUT"
+        put.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        do {
+            let (_, response) = try await session.upload(for: put, from: jpeg)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                throw APIError.unexpectedResponse
+            }
+        } catch let error as URLError {
+            throw APIError(urlError: error)
+        }
+
+        return try await send("POST", "scrapbook/photos/\(ticket.id)/complete")
+    }
+
+    /// `POST /reflections`: saves a memory and completes its selected activity.
+    /// Saving the same selection twice returns the first memory.
+    func saveReflection(_ reflection: ReflectionRequest) async throws -> ReflectionDTO {
+        try await send("POST", "reflections", body: try encoder.encode(reflection))
+    }
+
+    /// `GET /reflections`: every scrapbook memory, newest first.
+    func reflections() async throws -> [ReflectionDTO] {
+        try await send("GET", "reflections")
+    }
+
+    /// `DELETE /reflections/{id}`: removes a memory and its photo (the
+    /// activity still counts as completed).
+    func deleteReflection(id: Int) async throws {
+        let _: EmptyResponse = try await send("DELETE", "reflections/\(id)")
+    }
+
+    /// `GET /insights`: the Progress screen for the week or month containing
+    /// the user's local `today`.
+    func insights(period: InsightsPeriod, today: String) async throws -> InsightsDTO {
+        try await send("GET", "insights", query: [
+            URLQueryItem(name: "period", value: period.rawValue),
+            URLQueryItem(name: "today", value: today),
+        ])
+    }
+
+    /// `GET /progress/summary`: journey start, counts and milestones.
+    func progressSummary() async throws -> ProgressSummaryDTO {
+        try await send("GET", "progress/summary")
     }
 
     // MARK: Shared request code
@@ -42,9 +118,12 @@ struct APIClient {
     private func send<Response: Decodable>(
         _ method: String,
         _ path: String,
+        query: [URLQueryItem] = [],
         body: Data? = nil
     ) async throws -> Response {
-        var request = URLRequest(url: APIConfig.baseURL.appending(path: path))
+        var url = APIConfig.baseURL.appending(path: path)
+        if !query.isEmpty { url.append(queryItems: query) }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(InstallationID.current.uuidString, forHTTPHeaderField: "X-Installation-ID")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -70,7 +149,8 @@ struct APIClient {
         }
 
         do {
-            return try decoder.decode(Response.self, from: data)
+            // 204 No Content has an empty body.
+            return try decoder.decode(Response.self, from: data.isEmpty ? Data("{}".utf8) : data)
         } catch {
             throw APIError.unexpectedResponse
         }
@@ -111,6 +191,8 @@ enum APIError: LocalizedError {
         case .server(let status, let detail):
             if status == 503, let detail { return detail }
             if status >= 500 { return "Something went wrong on our side. Please try again." }
+            // 404/409 details are written for people, e.g. "You already have an activity in progress."
+            if status == 404 || status == 409, let detail { return detail }
             return "That request wasn\u{2019}t accepted (error \(status)). Please try again."
         case .unexpectedResponse:
             return "The server sent an unexpected response. Please try again."

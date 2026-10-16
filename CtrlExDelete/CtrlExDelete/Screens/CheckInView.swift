@@ -6,6 +6,7 @@ import SwiftUI
 /// server confirms it was saved.
 struct CheckInView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(JourneyStore.self) private var journey
     @State private var answers = CheckInAnswers()
     @State private var submission = Submission.idle
 
@@ -74,6 +75,7 @@ struct CheckInView: View {
         Task {
             do {
                 _ = try await APIClient.shared.submitCheckIn(request)
+                await journey.refresh()   // the first check-in starts the day count
                 withAnimation(.easeOut(duration: 0.2)) { submission = .saved }
                 AccessibilityNotification.Announcement("Check-in saved").post()
                 // Let the confirmation show briefly before moving on.
@@ -112,7 +114,7 @@ struct CheckInView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Day 1")
+            Text("Day \(journey.dayNumber)")
                 .textCase(.uppercase)
                 .cedTextStyle(.eyebrow)
                 .foregroundStyle(CEDColor.primary)
@@ -307,4 +309,5 @@ private struct CheckInProgressBar: View {
     let _ = FontRegistrar.registerBundledFonts()
     CheckInView()
         .environment(AppRouter())
+        .environment(JourneyStore())
 }
