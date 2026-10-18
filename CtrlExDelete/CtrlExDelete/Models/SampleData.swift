@@ -121,13 +121,31 @@ enum SampleData {
     static let urgeRange = 1...10
 }
 
+// MARK: - Reflection
+
+/// The rule for "Add to my scrapbook": every input is required. The backend
+/// checks the same things (POST /reflections), so an incomplete form can
+/// never save a memory or complete an activity.
+enum ReflectionDraft {
+    /// The note with spaces and line breaks trimmed; nil if nothing is left.
+    static func trimmedNote(_ note: String) -> String? {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func isComplete(hasPhoto: Bool, note: String,
+                           thoughtAboutEx: ThoughtAboutEx?, moodChange: MoodChange?) -> Bool {
+        hasPhoto && trimmedNote(note) != nil && thoughtAboutEx != nil && moodChange != nil
+    }
+}
+
 // MARK: - Activity recommendations
 
 /// One activity card, built from a recommendation sent by the backend.
 struct Activity: Identifiable {
     let recommendationId: Int   // used to record "I'll try this"
     let activityId: Int
-    let category: String        // e.g. "Gentle Reset · 10 min"
+    let category: String        // e.g. "Mindfulness & Rest · 10 min"
     let title: String
     let instructions: String
     let whyItFits: String
@@ -186,27 +204,24 @@ struct Activity: Identifiable {
 /// Which activity card is showing. The paging rules match the prototype's
 /// ActivitiesScreen; the saved state comes from the backend.
 struct ActivityDeck {
+    /// The most cards shown at once (the backend never sends more either).
+    static let maxCards = 3
+
     private(set) var activities: [Activity]
     private(set) var index = 0
 
-    /// `activities` must not be empty.
+    /// Keeps the first `maxCards` cards, skipping any repeat of an activity
+    /// already in the deck. `activities` must not be empty.
     init(activities: [Activity]) {
-        self.activities = activities
+        var seen = Set<Int>()
+        self.activities = Array(
+            activities.filter { seen.insert($0.activityId).inserted }.prefix(Self.maxCards)
+        )
     }
 
     var current: Activity { activities[index] }
-    var canGoBack: Bool { index > 0 }
-    var canGoForward: Bool { index < activities.count - 1 }
 
-    mutating func goBack() {
-        index = max(0, index - 1)
-    }
-
-    /// Moves to the next card and stays on the last one.
-    mutating func goForward() {
-        index = min(activities.count - 1, index + 1)
-    }
-
+    /// The visible card (the pager reports it); out-of-range indexes are ignored.
     mutating func go(to newIndex: Int) {
         guard activities.indices.contains(newIndex) else { return }
         index = newIndex
@@ -260,11 +275,6 @@ struct CheckInAnswers {
 
     /// The user's own calendar day as "YYYY-MM-DD", in their time zone.
     static func localDateText(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        LocalDate.text(for: date)
     }
 }

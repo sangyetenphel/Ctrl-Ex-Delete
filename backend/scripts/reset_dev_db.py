@@ -14,6 +14,8 @@ from app.config import settings
 
 # Children first, so foreign keys never block a drop.
 CED_TABLES = [
+    "activity_research_bases",
+    "research_bases",
     "activity_bookmarks",
     "reflections",
     "activity_logs",        # replaced by reflections in 005; kept for older databases
@@ -22,6 +24,7 @@ CED_TABLES = [
     "recommendations",
     "check_ins",
     "activities",
+    "activity_categories",
     "installations",
     "schema_migrations",
 ]
@@ -38,6 +41,7 @@ def main() -> None:
     with psycopg.connect(settings.database_url) as conn:
         for table in CED_TABLES:
             conn.execute(f"DROP TABLE IF EXISTS {table}")
+        conn.execute("DROP FUNCTION IF EXISTS activities_set_category_label()")
     print("Done. Now run: python -m scripts.migrate")
 
 

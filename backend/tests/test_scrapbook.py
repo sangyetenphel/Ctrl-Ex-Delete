@@ -114,7 +114,7 @@ def _memory_with_photo(installation_id, uploaded):
     card = client.get("/recommendations/latest", headers=headers(installation_id)).json()["recommendations"][0]
     selection = client.post(f"/recommendations/{card['id']}/selection", headers=headers(installation_id)).json()
     memory = client.post("/reflections", headers=headers(installation_id), json={
-        "activity_selection_id": selection["id"], "photo_id": photo_id,
+        "activity_selection_id": selection["id"], "photo_id": photo_id, "note": "A quiet moment",
         "thought_about_ex": "a_lot", "mood_change": "about_the_same", "local_date": "2026-10-05",
     }).json()
     return memory, photo_id, key

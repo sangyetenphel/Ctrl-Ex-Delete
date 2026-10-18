@@ -31,7 +31,7 @@ struct SelectedActivity {
 struct ScrapbookMemory: Identifiable {
     let id: Int
     let title: String
-    let reflection: String?   // shown in quotes; nil if the user wrote nothing
+    let reflection: String?   // "What did you notice?", shown in quotes; nil if left empty
     let date: String          // e.g. "September 4"
     let tint: Color           // background behind the photo
     let imageURL: URL?        // temporary S3 link; nil without a photo
@@ -39,7 +39,7 @@ struct ScrapbookMemory: Identifiable {
     init(_ dto: ReflectionDTO) {
         id = dto.id
         title = dto.activity?.title ?? "Today\u{2019}s activity"
-        reflection = dto.note ?? dto.noticed
+        reflection = dto.note
         date = LocalDate.format(dto.localDate, .dateTime.month(.wide).day())
         tint = dto.activity.map { Activity.palette(for: $0.category).background } ?? CEDColor.secondary
         imageURL = dto.imageUrl
@@ -62,6 +62,10 @@ final class JourneyStore {
     private(set) var summary: ProgressSummaryDTO?
     private(set) var hasLoaded = false
     private(set) var loadError: String?
+    /// When the progress on screen was last confirmed by the backend, if it
+    /// came from the on-device copy instead (the backend couldn't be reached).
+    /// nil once fresh data has loaded.
+    private(set) var cachedAt: Date?
 
     /// "Day N" in the headers: day 1 is the day of the first check-in.
     var dayNumber: Int {
@@ -85,22 +89,57 @@ final class JourneyStore {
     // MARK: Loading
 
     /// Reloads the current choice, the memories and the progress counts.
+    /// Errors are kept in `loadError` for the screens to show.
     func refresh() async {
         do {
-            // One after another: `async let` crashes the Swift runtime here
-            // (swift_task_dealloc) with the project's MainActor default isolation.
-            let currentSelection = try await APIClient.shared.currentSelection()
-            let savedReflections = try await APIClient.shared.reflections()
-            let progress = try await APIClient.shared.progressSummary()
-
-            selectedActivity = currentSelection.map(SelectedActivity.init)
-            memories = savedReflections.map(ScrapbookMemory.init)
-            self.summary = progress
-            loadError = nil
+            try await reloadStory()
         } catch {
             loadError = error.localizedDescription
         }
         hasLoaded = true
+    }
+
+    /// Same as `refresh()`, but throws, so a caller can retry it. Nothing is
+    /// replaced unless all three requests succeed.
+    func reloadStory() async throws {
+        // One after another: `async let` crashes the Swift runtime here
+        // (swift_task_dealloc) with the project's MainActor default isolation.
+        let currentSelection = try await APIClient.shared.currentSelection()
+        let savedReflections = try await APIClient.shared.reflections()
+        let progress = try await APIClient.shared.progressSummary()
+
+        selectedActivity = currentSelection.map(SelectedActivity.init)
+        memories = savedReflections.map(ScrapbookMemory.init)
+        self.summary = progress
+        loadError = nil
+        hasLoaded = true
+        cachedAt = nil
+        JourneyCache.save(selection: currentSelection, reflections: savedReflections, summary: progress)
+    }
+
+    // MARK: Startup
+
+    /// Startup and returning to the app: asks the backend whether the user
+    /// has checked in on `today` and reloads their progress. The backend is
+    /// the source of truth; if it can't be reached this throws, and nothing
+    /// is decided from the error (no new user, no extra check-in).
+    func restoreSession(today: String) async throws -> CheckInStatusDTO {
+        let status = try await APIClient.shared.checkInStatus(localDate: today)
+        try await reloadStory()
+        return status
+    }
+
+    /// Shows the progress saved on this device after the last successful load,
+    /// while the backend can't be reached. Returns false if there is none.
+    @discardableResult
+    func showCachedProgress() -> Bool {
+        guard !hasLoaded || cachedAt != nil, let cache = JourneyCache.load() else { return false }
+        selectedActivity = cache.selection.map(SelectedActivity.init)
+        memories = cache.reflections.map(ScrapbookMemory.init)
+        summary = cache.summary
+        cachedAt = cache.savedAt
+        hasLoaded = true
+        return true
     }
 
     // MARK: Choosing, changing and completing an activity
@@ -110,21 +149,29 @@ final class JourneyStore {
     func select(_ activity: Activity) async throws {
         do {
             _ = try await APIClient.shared.selectRecommendation(id: activity.recommendationId)
-        } catch APIError.server(status: 409, let detail) {
-            // Another activity is already in progress (maybe from a request
-            // this screen didn't know about): show it instead.
+        } catch APIError.server(let status, let detail) where status == 409 || status == 404 {
+            // 409: another activity is already in progress (maybe from a
+            // request this screen didn't know about): show it instead.
+            // 404: the card is gone (e.g. the test data was reset): reload,
+            // so nothing stale stays on screen.
             await refresh()
-            throw APIError.server(status: 409, detail: detail)
+            throw APIError.server(status: status, detail: detail)
         }
         selectedActivity = try await APIClient.shared.currentSelection().map(SelectedActivity.init)
-        summary = try? await APIClient.shared.progressSummary()
+        // The day count can catch up in the background; the reflection
+        // screen shouldn't wait for it.
+        Task { if let progress = try? await APIClient.shared.progressSummary() { summary = progress } }
     }
 
     /// "Change activity": sets the activity in progress aside. It doesn't
     /// count as completed, and saved memories stay as they are.
     func abandonCurrentActivity() async throws {
         guard let current = selectedActivity else { return }
-        _ = try await APIClient.shared.abandonSelection(id: current.selectionId)
+        do {
+            _ = try await APIClient.shared.abandonSelection(id: current.selectionId)
+        } catch APIError.server(status: 404, _) {
+            // Already gone on the server, which is what was asked for.
+        }
         selectedActivity = nil
         await refresh()
     }
@@ -136,7 +183,11 @@ final class JourneyStore {
 
     /// Deletes a memory and its photo. The activity still counts as completed.
     func deleteMemory(id: Int) async throws {
-        try await APIClient.shared.deleteReflection(id: id)
+        do {
+            try await APIClient.shared.deleteReflection(id: id)
+        } catch APIError.server(status: 404, _) {
+            // Already gone on the server: just drop the stale card.
+        }
         memories.removeAll { $0.id == id }
         await refresh()
     }
@@ -146,23 +197,50 @@ final class JourneyStore {
         try await APIClient.shared.uploadScrapbookPhoto(jpeg: jpeg).id
     }
 
-    /// "Add to my scrapbook": saves the memory, which completes the activity in progress.
-    func saveReflection(_ request: ReflectionRequest) async throws {
-        let saved = try await APIClient.shared.saveReflection(request)
+    /// "Add to my scrapbook": saves the memory, which completes the activity
+    /// in progress. Only this request; call `reloadStory()` afterwards, so a
+    /// failed refresh can be retried without saving again. (Saving the same
+    /// selection twice is harmless anyway: the backend returns the first memory.)
+    @discardableResult
+    func saveReflection(_ request: ReflectionRequest) async throws -> ReflectionDTO {
+        let saved: ReflectionDTO
+        do {
+            saved = try await APIClient.shared.saveReflection(request)
+        } catch APIError.server(status: 404, let detail) {
+            // The activity in progress or the photo no longer exists (e.g. the
+            // test data was reset): reload, so the screens stop showing it.
+            await refresh()
+            throw APIError.server(status: 404, detail: detail)
+        }
         if !memories.contains(where: { $0.id == saved.id }) {
             memories.insert(ScrapbookMemory(saved), at: 0)
         }
         if selectedActivity?.selectionId == saved.activitySelectionId {
             selectedActivity = nil
         }
-        await refresh()
+        return saved
     }
 }
 
 // MARK: - Dates from the API
 
 /// The API sends calendar days as "YYYY-MM-DD" in the user's own time zone.
+///
+/// Time zone policy: "today" is the phone's current calendar day in its
+/// current time zone (midnight to midnight), never a rolling 24 hours and
+/// never UTC. The app sends that day with check-ins, reflections and
+/// insights; the backend stores it as is and allows one check-in per day.
 enum LocalDate {
+    /// "YYYY-MM-DD" for `date` in the phone's current time zone.
+    static func text(for date: Date = .now) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
     static func date(from text: String) -> Date? {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)

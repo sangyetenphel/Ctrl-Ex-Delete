@@ -1,0 +1,15 @@
+// Copy this file to DeveloperSettings.xcconfig (same folder; it's gitignored)
+// and put in your Mac's address, so a Debug build on your iPhone can reach the
+// backend running on your Mac, even when opened from the Home Screen.
+//
+// Your Mac's local name: System Settings > General > Sharing > Local hostname
+// (or run `scutil --get LocalHostName` and add ".local"). It keeps working
+// when your Wi-Fi gives the Mac a new IP. An IP address (System Settings >
+// Wi-Fi > Details) also works, until it changes.
+//
+// The [sdk=iphoneos*] part applies it to physical devices only, so the
+// Simulator keeps using 127.0.0.1. Rebuild and run once from Xcode after
+// changing it. Host only, no http:// ("//" starts a comment here).
+
+CED_DEV_SERVER_HOST[sdk=iphoneos*] = Your-Mac-Name.local
+// CED_DEV_SERVER_PORT = 8000

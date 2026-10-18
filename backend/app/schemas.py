@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # Allowed values. These must match db/migrations and the Swift app exactly.
 Feeling = Literal["heavy", "getting_through", "missing_them", "hopeful"]
@@ -45,6 +45,16 @@ class CheckIn(CheckInCreate):
     created_at: datetime
 
 
+class CheckInStatus(BaseModel):
+    """
+    GET /check-ins/today: has the user checked in on their local day?
+    The app asks on startup, before choosing the welcome, check-in or room screen.
+    """
+    local_date: date
+    check_in: CheckIn | None      # that day's check-in, or null if there isn't one yet
+    has_any_check_in: bool        # false for someone who has never checked in
+
+
 # ─────────────────────────────────────────────
 # Activities and recommendations
 # ─────────────────────────────────────────────
@@ -55,7 +65,12 @@ class Activity(BaseModel):
     slug: str
     title: str
     category: ActivityCategory
+    # The category's display name, e.g. "Mindfulness & Rest". Stored on the
+    # activity and kept in step with activity_categories by the database.
     category_label: str
+    # Overall demand (physical, cognitive, social, preparation), separate from
+    # duration; a check-in's energy decides which levels are recommended.
+    energy_level: EnergyLevel
     duration_minutes: int
     instructions: str
     why_it_fits: str
@@ -72,13 +87,23 @@ class Recommendation(BaseModel):
     completed_at: datetime | None = None   # set once its reflection is saved
 
 
+class CheckInAnswers(BaseModel):
+    """The answers the recommendations were chosen from (shown as the page heading)."""
+    feeling: Feeling
+    contact_urge: int
+    energy_level: EnergyLevel
+    hardest_areas: list[HardestArea]
+
+
 class RecommendationsResponse(BaseModel):
     """
     Recommendations for the installation's most recent check-in.
-    check_in_id is null (and the list is empty) if there are no check-ins yet.
+    check_in_id and check_in are null (and the list is empty) if there are no
+    check-ins yet.
     """
     check_in_id: int | None
     check_in_local_date: date | None
+    check_in: CheckInAnswers | None = None
     recommendations: list[Recommendation]
 
 
@@ -131,16 +156,31 @@ class ScrapbookPhoto(BaseModel):
 class ReflectionCreate(BaseModel):
     """
     What the iOS app SENDS from "Add to my scrapbook". Saving it completes the
-    activity in progress. The two questions are required; the notes and the
-    photo are optional.
+    activity in progress. Everything is required: the two questions, the note
+    ("What did you notice?", not blank) and an uploaded photo of this
+    installation (see POST /scrapbook/photos; storage.py checks the photo).
     """
     activity_selection_id: int
     thought_about_ex: ThoughtAboutEx
     mood_change: MoodChange
     note: str | None = Field(default=None, max_length=1000)
-    noticed: str | None = Field(default=None, max_length=1000)
-    photo_id: int | None = None
+    # Older app builds asked a second question and sent it as `noticed`.
+    # It's still accepted so their text isn't lost, and joined into `note`.
+    noticed: str | None = Field(default=None, max_length=1000, deprecated=True, exclude=True)
+    photo_id: int
     local_date: date
+
+    @model_validator(mode="after")
+    def _note_is_required(self):
+        note = (self.note or "").strip()
+        extra = (self.__dict__.get("noticed") or "").strip()
+        if extra:
+            note = extra if not note or note == extra else f"{note}\n\n{extra}"
+        self.__dict__["noticed"] = None
+        if not note:
+            raise ValueError("Please write what you noticed.")
+        self.note = note
+        return self
 
 
 class Reflection(BaseModel):
@@ -148,8 +188,7 @@ class Reflection(BaseModel):
     id: int
     activity_selection_id: int | None
     activity: Activity | None
-    note: str | None
-    noticed: str | None
+    note: str | None              # the answer to "What did you notice?"
     thought_about_ex: ThoughtAboutEx | None
     mood_change: MoodChange | None
     local_date: date
@@ -199,6 +238,20 @@ class UrgePoint(BaseModel):
     check_ins: int
 
 
+class MoodPoint(BaseModel):
+    """
+    One bar of "Mood after activities": a day (week view) or a week of the
+    month (month view). `value` is the average of the internal scores of the
+    answers given then (see insights.MOOD_SCORES), only for sizing the bar;
+    it is not a rating the user entered. null = no completed activity.
+    """
+    label: str                 # "Mon" … "Sun", or "W1" … "W5"
+    start: date
+    end: date
+    value: float | None        # 1–10 scale, one decimal; null = gap
+    answers: list[MoodChange]  # the answers behind the bar, in the order given
+
+
 class MoodCount(BaseModel):
     """How often an answer to "How do you feel now compared to before?" was given."""
     response: MoodChange
@@ -226,7 +279,8 @@ class InsightsResponse(BaseModel):
     check_in_days: int
     completed: int
     urges: list[UrgePoint]
-    moods: list[MoodCount]
+    moods: list[MoodCount]     # how often each answer was given (totals)
+    mood_points: list[MoodPoint] = []
     categories: list[CategoryShare]
     takeaway: Takeaway
     observations: list[str]

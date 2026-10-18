@@ -27,17 +27,23 @@ def make_check_in(**answers) -> CheckIn:
     )
 
 
+def activity(id, category, minutes, energy, moves=False):
+    return {"id": id, "category": category, "duration_minutes": minutes,
+            "energy_level": energy, "involves_movement": moves}
+
+
 # A small catalog, already in sort_order like the real query returns it.
 CATALOG = [
-    {"id": 1, "category": "mindfulness_rest", "duration_minutes": 10},
-    {"id": 2, "category": "outdoor_movement", "duration_minutes": 20},
-    {"id": 3, "category": "solo_exploration", "duration_minutes": 120},
-    {"id": 4, "category": "social_connection", "duration_minutes": 15},
-    {"id": 5, "category": "social_connection", "duration_minutes": 60},
-    {"id": 6, "category": "mindfulness_rest", "duration_minutes": 5},
-    {"id": 7, "category": "outdoor_movement", "duration_minutes": 45},
-    {"id": 8, "category": "solo_exploration", "duration_minutes": 30},
+    activity(1, "mindfulness_rest", 10, "low"),
+    activity(2, "outdoor_movement", 20, "medium", moves=True),   # e.g. a brisk walk
+    activity(3, "solo_exploration", 120, "high"),
+    activity(4, "social_connection", 15, "low"),
+    activity(5, "social_connection", 60, "high"),
+    activity(6, "mindfulness_rest", 5, "low"),
+    activity(7, "outdoor_movement", 45, "medium", moves=True),
+    activity(8, "solo_exploration", 30, "medium"),
 ]
+LOW_DEMAND = {a["id"] for a in CATALOG if a["energy_level"] == "low"}
 
 
 def by_id(ids):
@@ -48,16 +54,28 @@ def test_returns_max_recommendations():
     assert len(choose_activity_ids(make_check_in(), CATALOG)) == MAX_RECOMMENDATIONS
 
 
-def test_low_energy_only_gets_short_activities():
-    ids = choose_activity_ids(make_check_in(energy_level="low"), CATALOG)
-    assert all(a["duration_minutes"] <= 15 for a in by_id(ids))
+def test_energy_allows_demand_levels():
+    for energy, allowed in (("low", {"low"}), ("medium", {"low", "medium"}),
+                            ("high", {"low", "medium", "high"})):
+        for check_in_kwargs in ({}, {"hardest_areas": ["feeling_lonely"]}, {"contact_urge": 9}):
+            ids = choose_activity_ids(make_check_in(energy_level=energy, **check_in_kwargs), CATALOG)
+            assert {a["energy_level"] for a in by_id(ids)} <= allowed
 
 
-def test_low_energy_tops_up_when_too_few_fit():
-    catalog = [a for a in CATALOG if a["duration_minutes"] > 15] + [CATALOG[0]]
-    ids = choose_activity_ids(make_check_in(energy_level="low"), catalog)
-    assert len(ids) == MAX_RECOMMENDATIONS
-    assert ids[0] == 1  # the only one that fits comes first
+def test_too_few_suitable_activities_gives_a_shorter_deck():
+    # Only one activity fits low energy: nothing above it is added to fill up.
+    catalog = [a for a in CATALOG if a["energy_level"] != "low"] + [CATALOG[0]]
+    assert choose_activity_ids(make_check_in(energy_level="low"), catalog) == [1]
+
+
+def test_energy_is_demand_not_duration():
+    long_and_quiet = activity(20, "mindfulness_rest", 45, "low")        # a long, restful session
+    short_and_demanding = activity(21, "social_connection", 5, "high")  # brief, but socially hard
+    catalog = [long_and_quiet, short_and_demanding]
+    low = choose_activity_ids(make_check_in(energy_level="low", hardest_areas=["feeling_lonely"]), catalog)
+    assert low == [20]
+    high = choose_activity_ids(make_check_in(energy_level="high", hardest_areas=["feeling_lonely"]), catalog)
+    assert high == [21, 20]
 
 
 def test_feeling_lonely_puts_social_connection_first():
@@ -65,9 +83,28 @@ def test_feeling_lonely_puts_social_connection_first():
     assert by_id(ids)[0]["category"] == "social_connection"
 
 
-def test_high_urge_puts_outdoor_movement_first():
+def test_high_urge_puts_quick_movement_first():
     ids = choose_activity_ids(make_check_in(contact_urge=9), CATALOG)
-    assert by_id(ids)[0]["category"] == "outdoor_movement"
+    first = by_id(ids)[0]
+    assert first["involves_movement"] and first["duration_minutes"] <= 20
+
+
+def test_strong_urge_prefers_movement_over_sitting_outside():
+    sit_outside = activity(30, "outdoor_movement", 5, "low")               # outdoors, but not movement
+    gentle_walk = activity(31, "outdoor_movement", 10, "low", moves=True)
+    calm_corner = activity(32, "mindfulness_rest", 5, "low")
+    catalog = [sit_outside, calm_corner, gentle_walk]                      # the walk is last in catalog order
+    ids = choose_activity_ids(make_check_in(energy_level="low", contact_urge=9), catalog)
+    assert ids[0] == 31
+
+
+def test_strong_urge_never_boosts_strenuous_exercise():
+    hard_sprint = activity(40, "outdoor_movement", 15, "high", moves=True)
+    gentle_walk = activity(41, "outdoor_movement", 15, "medium", moves=True)
+    ids = choose_activity_ids(make_check_in(energy_level="high", contact_urge=9), [hard_sprint, gentle_walk])
+    assert ids[0] == 41  # the gentle one wins, though the strenuous one comes first in catalog order
+    # And with low energy the strenuous one isn't eligible at all.
+    assert choose_activity_ids(make_check_in(energy_level="low", contact_urge=10), [hard_sprint]) == []
 
 
 def test_no_more_than_two_from_one_category():
@@ -96,30 +133,149 @@ def test_recent_activities_go_to_the_back():
 
 def test_recent_activities_come_back_when_nothing_else_fits():
     check_in = make_check_in(energy_level="low")
-    short_ids = {a["id"] for a in CATALOG if a["duration_minutes"] <= 15}
-    ids = choose_activity_ids(check_in, CATALOG, recent_activity_ids=short_ids)
+    ids = choose_activity_ids(check_in, CATALOG, recent_activity_ids=LOW_DEMAND)
     assert len(ids) == MAX_RECOMMENDATIONS
-    assert set(ids) <= short_ids  # still respects energy, even though all were recent
+    assert set(ids) <= LOW_DEMAND  # still respects energy, even though all were recent
 
 
-def test_saved_activities_come_first():
-    ids = choose_activity_ids(make_check_in(hardest_areas=["feeling_lonely"]), CATALOG, {3})
-    assert ids[0] == 3
+# ── Saved activities ("Save for later") ─────────────────────────────────
+
+def test_no_saved_activities_gives_three_regular_cards():
+    ids = choose_activity_ids(make_check_in(hardest_areas=["feeling_lonely"]), CATALOG, set())
+    assert len(ids) == len(set(ids)) == MAX_RECOMMENDATIONS
 
 
-def test_at_most_two_saved_activities_first():
-    ids = choose_activity_ids(
-        make_check_in(hardest_areas=["feeling_lonely"]), CATALOG, {3, 7, 8}
-    )
-    assert len(set(ids[:2]) & {3, 7, 8}) == 2
-    assert by_id(ids)[2]["category"] == "social_connection"  # the check-in still counts
+def test_matching_saved_activity_comes_last():
+    # Lonely → Social Connection. Saved #5 (Social Connection, 60 min) suits a high-energy day.
+    check_in = make_check_in(hardest_areas=["feeling_lonely"])
+    without = choose_activity_ids(check_in, CATALOG)
+    ids = choose_activity_ids(check_in, CATALOG, {5})
+    assert ids[-1] == 5 and 5 not in ids[:-1]
+    assert ids[:2] == [i for i in without if i != 5][:2]  # first two: today's check-in only
 
 
-def test_saved_activity_too_long_for_energy_is_not_forced_in():
-    ids = choose_activity_ids(make_check_in(energy_level="low"), CATALOG, {3})  # 3 is 120 min
+def test_saved_activity_is_never_first_even_if_it_is_the_best_fit():
+    check_in = make_check_in(hardest_areas=["feeling_lonely"])
+    best = choose_activity_ids(check_in, CATALOG)[0]
+    ids = choose_activity_ids(check_in, CATALOG, {best})
+    assert ids[0] != best and ids[-1] == best
+
+
+def test_at_most_one_saved_activity():
+    check_in = make_check_in(hardest_areas=["feeling_lonely"], feeling="hopeful")
+    saved = {3, 4, 5, 8}
+    ids = choose_activity_ids(check_in, CATALOG, saved)
+    assert len(set(ids) & saved) == 1
+    assert ids[-1] in saved
+
+
+def test_saved_activity_that_does_not_match_the_check_in_is_left_out():
+    # Heavy + wanting answers point to Mindfulness & Rest / Outdoor & Movement, never Solo Exploration.
+    check_in = make_check_in(feeling="heavy", hardest_areas=["wanting_answers"])
+    ids = choose_activity_ids(check_in, CATALOG, {8})  # 8 = Solo Exploration, 30 min
+    assert 8 not in ids
+    assert ids == choose_activity_ids(check_in, CATALOG)  # a regular card instead
+
+
+def test_saved_activity_above_todays_energy_is_not_forced_in():
+    check_in = make_check_in(energy_level="low", hardest_areas=["rebuilding_confidence"])
+    ids = choose_activity_ids(check_in, CATALOG, {3})  # 3 is Solo Exploration but high demand
     assert 3 not in ids
 
 
 def test_saved_activity_still_shows_even_if_recent():
+    # Saved #2 (Outdoor & Movement) suits "getting through"; recently shown doesn't stop it.
     ids = choose_activity_ids(make_check_in(), CATALOG, {2}, recent_activity_ids={2})
-    assert ids[0] == 2
+    assert ids[-1] == 2
+
+
+def test_strong_urge_keeps_quick_movement_first_with_saved_activities():
+    check_in = make_check_in(contact_urge=9, hardest_areas=["feeling_lonely"])
+    ids = choose_activity_ids(check_in, CATALOG, {5})
+    first = by_id(ids)[0]
+    assert first["involves_movement"] and first["duration_minutes"] <= 20
+    assert ids[-1] == 5
+
+
+def test_saved_activity_respects_variety():
+    # The first two are already both Social Connection, so a saved Social Connection can't be third.
+    check_in = make_check_in(hardest_areas=["feeling_lonely"], feeling="hopeful", energy_level="low")
+    catalog = CATALOG + [
+        activity(9, "social_connection", 5, "low"),
+        activity(10, "social_connection", 10, "low"),
+    ]
+    ids = choose_activity_ids(check_in, catalog, {10})
+    assert [a["category"] for a in by_id_in(catalog, ids[:2])] == ["social_connection"] * 2
+    assert 10 not in ids  # a third Social Connection would break the variety rule
+    assert len(ids) == 3 and by_id_in(catalog, ids)[2]["category"] != "social_connection"
+
+
+def test_limited_activities_saved_still_comes_after_every_regular_card():
+    # Low energy: only the low-demand #1 and #6 (Mindfulness & Rest) and #4 (Social Connection) fit.
+    check_in = make_check_in(energy_level="low", hardest_areas=["feeling_lonely"])
+    ids = choose_activity_ids(check_in, CATALOG, {4})
+    assert ids[-1] == 4
+    assert set(ids[:-1]) == {1, 6}
+
+
+def test_never_more_than_three_and_never_duplicates():
+    for saved in (set(), {1}, {2, 4}, {1, 2, 3, 4, 5, 6, 7, 8}):
+        for answers in ({}, {"energy_level": "low"}, {"contact_urge": 10},
+                        {"hardest_areas": ["feeling_lonely", "resisting_contact"]}):
+            ids = choose_activity_ids(make_check_in(**answers), CATALOG, saved, {1, 2})
+            assert len(ids) <= MAX_RECOMMENDATIONS
+            assert len(ids) == len(set(ids))
+            assert len(set(ids) & saved) <= 1
+
+
+def by_id_in(catalog, ids):
+    return [next(a for a in catalog if a["id"] == i) for i in ids]
+
+
+# ── Energy picks how demanding the activities are ───────────────────────
+
+def test_medium_energy_leans_towards_medium_demand():
+    ids = choose_activity_ids(make_check_in(energy_level="medium"), CATALOG)
+    activities = by_id(ids)
+    assert all(a["energy_level"] in ("low", "medium") for a in activities)
+    assert activities[0]["energy_level"] == "medium"
+
+
+def test_high_energy_leans_towards_fuller_activities():
+    high = by_id(choose_activity_ids(make_check_in(energy_level="high"), CATALOG))
+    medium = by_id(choose_activity_ids(make_check_in(energy_level="medium"), CATALOG))
+    assert sum(a["energy_level"] == "high" for a in high) >= 2
+    assert not any(a["energy_level"] == "high" for a in medium)
+
+
+def test_energy_changes_the_result_for_the_same_feelings():
+    answers = {"feeling": "hopeful", "hardest_areas": ["rebuilding_confidence"]}
+    results = {
+        level: choose_activity_ids(make_check_in(energy_level=level, **answers), CATALOG)
+        for level in ("low", "medium", "high")
+    }
+    assert results["low"] != results["medium"] != results["high"] != results["low"]
+
+
+def test_strong_urge_still_wins_over_high_energy():
+    ids = choose_activity_ids(make_check_in(energy_level="high", contact_urge=9), CATALOG)
+    first = by_id(ids)[0]
+    assert first["involves_movement"] and first["energy_level"] != "high"
+    assert first["duration_minutes"] <= 20
+
+
+def test_what_feels_hardest_still_picks_the_category_on_high_energy():
+    # Lonely: a Social Connection activity beats activities from other categories.
+    ids = choose_activity_ids(
+        make_check_in(energy_level="high", hardest_areas=["feeling_lonely"]), CATALOG
+    )
+    assert by_id(ids)[0]["category"] == "social_connection"
+
+
+def test_every_answer_can_change_the_cards():
+    base = {"feeling": "getting_through", "contact_urge": 3, "energy_level": "medium",
+            "hardest_areas": []}
+    baseline = choose_activity_ids(make_check_in(**base), CATALOG)
+    for change in ({"feeling": "heavy"}, {"contact_urge": 9}, {"energy_level": "low"},
+                   {"energy_level": "high"}, {"hardest_areas": ["feeling_lonely"]}):
+        assert choose_activity_ids(make_check_in(**{**base, **change}), CATALOG) != baseline, change

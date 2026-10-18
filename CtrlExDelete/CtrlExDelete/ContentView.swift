@@ -4,11 +4,13 @@ import SwiftUI
 /// plus the bottom tab bar on screens that use it.
 struct ContentView: View {
     #if DEBUG
-    @State private var router = AppRouter(start: AppRouter.debugStartScreen())
+    @State private var router = AppRouter(start: AppRouter.debugStartScreen() ?? .launch)
     #else
     @State private var router = AppRouter()
     #endif
     @State private var journey = JourneyStore()
+    @State private var session = AppSession()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,9 +33,26 @@ struct ContentView: View {
         .background(CEDColor.background.ignoresSafeArea())
         .environment(router)
         .environment(journey)
-        // The selected activity, memories and day count come from the backend,
-        // so they are the same after a restart.
-        .task { await journey.refresh() }
+        .environment(session)
+        // Startup, including after a force-close: ask the backend whether
+        // today's check-in exists and reload the activity in progress,
+        // memories and day count, then pick the screen (LaunchView meanwhile).
+        .task {
+            #if DEBUG
+            if AppRouter.debugStartScreen() != nil {
+                session.skipRestore()
+                await journey.refresh()
+                return
+            }
+            #endif
+            await session.start(journey: journey, router: router)
+        }
+        // Back from the background on a new local day: that day's check-in.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await session.returnedToForeground(journey: journey, router: router) }
+            }
+        }
         // The prototype is designed for light mode only. The healing room asks
         // for dark so the status bar text turns white over its teal header.
         .preferredColorScheme(router.current == .room ? .dark : .light)
@@ -42,6 +61,8 @@ struct ContentView: View {
     @ViewBuilder
     private var currentScreen: some View {
         switch router.current {
+        case .launch:
+            LaunchView()
         case .welcome:
             WelcomeView()
         case .checkIn:

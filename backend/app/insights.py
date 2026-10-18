@@ -16,18 +16,13 @@ from app.schemas import (
     CategoryShare,
     InsightsResponse,
     MoodCount,
+    MoodPoint,
     Takeaway,
     UrgePoint,
 )
 
 Period = Literal["week", "month"]
 
-CATEGORY_LABELS = {
-    "outdoor_movement": "Outdoor & movement",
-    "mindfulness_rest": "Mindfulness & rest",
-    "solo_exploration": "Solo exploration",
-    "social_connection": "Social connection",
-}
 MOOD_LABELS = {
     "worse": "Worse",
     "about_the_same": "About the same",
@@ -35,6 +30,17 @@ MOOD_LABELS = {
     "much_better": "Much better",
 }
 BETTER = {"a_little_better", "much_better"}
+
+# Internal scores for "How do you feel now compared to before?", used only to
+# size the bars of the mood chart (on a 1–10 scale, like the urge chart).
+# They are fixed so the same answers always draw the same bars. This is the
+# only place they are defined; the app just draws what it is sent.
+MOOD_SCORES = {
+    "worse": 2,
+    "about_the_same": 5,
+    "a_little_better": 7,
+    "much_better": 9,
+}
 
 # Smallest change in average urge (on the 1–10 scale) worth mentioning.
 URGE_TREND_THRESHOLD = 1.0
@@ -76,6 +82,9 @@ def _plural(n: int, word: str, plural: str | None = None) -> str:
 
 def build(period: Period, today: date, records: dict) -> InsightsResponse:
     start, end = period_bounds(period, today)
+    # Category names and order come from the database (activity_categories),
+    # the same names the activity cards show.
+    category_labels = {row["category"]: row["label"] for row in records["categories"]}
     in_period = f"this {period}"
 
     # ── Urges: average rating per bar; None = no check-in (urges are 1–10, never 0)
@@ -98,6 +107,25 @@ def build(period: Period, today: date, records: dict) -> InsightsResponse:
     mood_counts = Counter(row["mood_change"] for row in records["moods"])
     moods = [MoodCount(response=key, label=label, count=mood_counts[key]) for key, label in MOOD_LABELS.items()]
 
+    # ── Mood chart: per bar, the average score of the answers given on the
+    # day the activity was completed (its reflection's local date). Answers
+    # without a known score are skipped, never guessed; no answers = a gap.
+    answers_by_day: dict[date, list[str]] = defaultdict(list)
+    for row in records["moods"]:
+        if row["mood_change"] in MOOD_SCORES:
+            answers_by_day[row["local_date"]].append(row["mood_change"])
+    mood_points = []
+    for label, first, last in _buckets(period, start, end):
+        answers = [a for day in sorted(answers_by_day) if first <= day <= last for a in answers_by_day[day]]
+        scores = [MOOD_SCORES[a] for a in answers]
+        mood_points.append(MoodPoint(
+            label=label,
+            start=first,
+            end=last,
+            value=round(sum(scores) / len(scores), 1) if scores else None,
+            answers=answers,
+        ))
+
     # ── What you made time for: completed activities per category
     completed_counts = Counter(row["category"] for row in records["completed"])
     completed_total = sum(completed_counts.values())
@@ -108,7 +136,7 @@ def build(period: Period, today: date, records: dict) -> InsightsResponse:
             count=completed_counts[key],
             percent=round(100 * completed_counts[key] / completed_total) if completed_total else 0,
         )
-        for key, label in CATEGORY_LABELS.items()
+        for key, label in category_labels.items()
     ]
 
     # ── Urge trend: earlier check-in days vs later ones, in order
@@ -144,12 +172,12 @@ def build(period: Period, today: date, records: dict) -> InsightsResponse:
         observations.append(f"Your urge to reach out was higher in your later check-ins {in_period}. Urges can rise and fall, and that’s okay.")
     elif trend == "steady":
         observations.append(f"Your urge to reach out stayed fairly steady across your check-ins {in_period}.")
-    for key, label in CATEGORY_LABELS.items():
+    for key, label in category_labels.items():
         answers = moods_by_category.get(key, [])
         better = sum(1 for a in answers if a in BETTER)
         if len(answers) >= MIN_MOODS_PER_CATEGORY and better:
             observations.append(
-                f"You reported feeling better after {better} of {len(answers)} {label.lower()} activities."
+                f"You reported feeling better after {better} of {len(answers)} {label} activities."
             )
 
     # ── Main takeaway: the most notable supported fact, in this order
@@ -160,10 +188,10 @@ def build(period: Period, today: date, records: dict) -> InsightsResponse:
             body=f"Check in and finish an activity {in_period}, and what you notice will start to show up here.",
         )
     elif top and top[0][1] >= 2 and (len(top) == 1 or top[0][1] > top[1][1]):
-        label = CATEGORY_LABELS.get(top[0][0], top[0][0])
+        label = category_labels.get(top[0][0], top[0][0])
         takeaway = Takeaway(
             headline=f"{label} stood out.",
-            body=f"You completed {_plural(top[0][1], 'activity', 'activities')} in {label.lower()} {in_period}, more than any other kind.",
+            body=f"You completed {top[0][1]} {label} activities {in_period}, more than any other kind.",
         )
     elif trend == "lower":
         takeaway = Takeaway(
@@ -195,6 +223,7 @@ def build(period: Period, today: date, records: dict) -> InsightsResponse:
         completed=completed_total,
         urges=urges,
         moods=moods,
+        mood_points=mood_points,
         categories=categories,
         takeaway=takeaway,
         observations=observations,

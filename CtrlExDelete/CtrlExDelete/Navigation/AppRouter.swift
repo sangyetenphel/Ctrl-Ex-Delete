@@ -2,6 +2,8 @@ import SwiftUI
 
 /// Every screen in the prototype, in the order of the Figma Make flow.
 enum AppScreen: String, CaseIterable {
+    /// Restoring the session at startup (or the connection message if that fails).
+    case launch
     case welcome
     case checkIn
     case room
@@ -13,9 +15,9 @@ enum AppScreen: String, CaseIterable {
     case movingForward
     case finalGift
 
-    /// The welcome and check-in screens are full screen; the rest show the tab bar.
+    /// The launch, welcome and check-in screens are full screen; the rest show the tab bar.
     var showsBottomNav: Bool {
-        self != .welcome && self != .checkIn
+        self != .launch && self != .welcome && self != .checkIn
     }
 }
 
@@ -29,7 +31,7 @@ final class AppRouter {
     /// it can cover the whole screen, including the tab bar.
     var isSupportSheetPresented = false
 
-    init(start: AppScreen = .welcome) {
+    init(start: AppScreen = .launch) {
         current = start
     }
 
@@ -42,9 +44,10 @@ final class AppRouter {
     #if DEBUG
     /// Lets you open a specific screen when testing, e.g. launch argument
     /// `-CEDStartScreen checkIn` (Product ▸ Scheme ▸ Edit Scheme ▸ Arguments).
-    static func debugStartScreen() -> AppScreen {
+    /// nil without the argument: the app restores the session and decides.
+    static func debugStartScreen() -> AppScreen? {
         let name = UserDefaults.standard.string(forKey: "CEDStartScreen") ?? ""
-        return AppScreen(rawValue: name) ?? .welcome
+        return AppScreen(rawValue: name)
     }
     #endif
 }

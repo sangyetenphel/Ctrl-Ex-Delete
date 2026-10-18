@@ -14,7 +14,10 @@ backend/
 │   └── routes/                  # health, check_ins, recommendations
 ├── db/migrations/               # numbered .sql files that build the database
 ├── scripts/
-│   ├── migrate.py               # applies new migrations
+│   ├── migrate.py               # applies new migrations, then loads the catalog
+│   ├── catalog_data.py          # the 100-activity catalog and research sources
+│   ├── seed_catalog.py          # loads the catalog (never deletes user history)
+│   ├── reset_dev_data.py        # DEV ONLY: deletes all user data and test uploads
 │   └── reset_dev_db.py          # DEV ONLY: drops all CED tables
 └── tests/test_api.py            # end-to-end tests (pytest)
 ```
@@ -58,13 +61,29 @@ Replace the example line with the real Neon connection string. In the Neon conso
 python -m scripts.migrate
 ```
 
-This applies any files in `db/migrations/` that haven't run yet and records them in a `schema_migrations` table. It's safe to run again: it only applies new files. Check what's applied with `python -m scripts.migrate --status`.
+This applies any files in `db/migrations/` that haven't run yet and records them in a `schema_migrations` table, then loads the activity catalog (see below). It's safe to run again: it only applies new files, and the catalog load never duplicates anything or deletes user history (see below). Check what's applied with `python -m scripts.migrate --status` (changes nothing). `--no-seed` skips the catalog load.
+
+### The activity catalog
+
+The 100 activities (25 per category), their energy demand, duration, movement flag, wording and research sources live in `scripts/catalog_data.py`. Load or update them with:
+
+```bash
+python -m scripts.seed_catalog
+```
+
+It inserts or updates activities by `slug`. An activity that isn't in the file any more is deleted if nothing points at it; if someone was recommended, chose or saved it, it's **retired** instead (`is_active = false`: never recommended again, its history kept) and a warning is printed. On a database without old history (fresh, or after `reset_dev_data` below) the table holds exactly the catalog: 100 activities, all active. It runs automatically at the end of `python -m scripts.migrate`. To change the catalog, edit `catalog_data.py` and run it again. Research codes (M, B, E, N, S, K) link activities to broad research approaches in the `research_bases` table; they don't mean that specific activity was tested.
 
 | Migration | What it does |
 |---|---|
 | `001_baseline.sql` | `installations`, `check_ins`, `activities`, `activity_logs` (Alexa's original schema; skipped if the tables already exist) |
 | `002_recommendations.sql` | Adds card fields to `activities`; creates `recommendations` and `activity_selections` |
 | `003_seed_activities.sql` | Adds the three prototype activities to the catalog |
+| `009_neutral_why_it_fits.sql` | Rewords one activity's "why it fits" text so it doesn't assume an answer |
+| `010_single_reflection_note.sql` | One reflection text answer: moves `noticed` into `note`, drops `noticed` |
+| `011_category_labels.sql` | `activity_categories` defines each category's display name; `category_label` is kept in step by the database |
+| `012_activity_energy_and_research.sql` | Adds `energy_level`, `involves_movement`, `evidence_note`, and the `research_bases` / `activity_research_bases` tables. The catalog itself comes from `scripts/seed_catalog.py` |
+| `013_remove_legacy_activities.sql` | Deletes the 21 earlier activities the new catalog replaced, or retires the ones that have user history (the other 28 earlier activities are part of the catalog) |
+| `014_one_check_in_per_day.sql` | One check-in per installation per local day: a unique index on `(installation_id, local_date)`. Nothing is deleted: same-day duplicates from before keep their rows, and only the latest of them counts for the day (`counts_for_day`) |
 
 To change the database later, **add a new numbered file** (e.g. `004_add_something.sql`). Don't edit a migration that has already been applied.
 
@@ -89,13 +108,13 @@ The server runs at `http://127.0.0.1:8000` until you press **Ctrl + C**. `--relo
 pytest
 ```
 
-The tests use the database in `.env`. Each test makes its own random installation ID and deletes it (and all its rows) at the end, so other data isn't touched.
+The tests use the database in `.env`. Each test makes its own random installation ID and deletes it (and all its rows) at the end, so other data isn't touched. The exception is `tests/test_reset_dev_data.py`, which wipes all user data, so it is skipped unless `DATABASE_URL` points at a local database (localhost or a Unix socket).
 
 ## Using it from the app
 
 ### iOS Simulator
 
-Start the server as above, then run the app from Xcode. Debug builds call `http://127.0.0.1:8000` (set in `CtrlExDelete/CtrlExDelete/Networking/APIConfig.swift`). The Simulator shares your Mac's network, so nothing else is needed.
+Start the server as above, then run the app from Xcode. Debug builds in the Simulator call `http://127.0.0.1:8000` (`CtrlExDelete/Config/Debug.xcconfig`). The Simulator shares your Mac's network, so nothing else is needed.
 
 ### Physical iPhone (same Wi-Fi as your Mac)
 
@@ -105,12 +124,15 @@ Start the server as above, then run the app from Xcode. Debug builds call `http:
    ```bash
    uvicorn app.main:app --reload --host 0.0.0.0
    ```
-2. Find your Mac's local name: **System Settings ▸ General ▸ Sharing**, under "Local hostname" (e.g. `Your-Mac-Name.local`).
-3. In Xcode: **Product ▸ Scheme ▸ Edit Scheme ▸ Run ▸ Arguments ▸ Arguments Passed On Launch**, add:
+2. Find your Mac's local name: **System Settings ▸ General ▸ Sharing**, under "Local hostname" (e.g. `Your-Mac-Name.local`), or run `scutil --get LocalHostName` and add `.local`.
+3. Once per Mac: copy `CtrlExDelete/Config/DeveloperSettings.example.xcconfig` to `CtrlExDelete/Config/DeveloperSettings.xcconfig` (gitignored, so every developer keeps their own) and set
    ```
-   -CEDAPIBaseURL http://Your-Mac-Name.local:8000
+   CED_DEV_SERVER_HOST[sdk=iphoneos*] = Your-Mac-Name.local
    ```
-4. Run on the phone and tap **Allow** when iOS asks about devices on your local network.
+   The address is built into the Debug app, so it keeps working when the app is opened from the Home Screen or after a force-close, not only when Xcode starts it. (A `-CEDAPIBaseURL` launch argument only applies to runs started by Xcode; it still works for one-off tests.)
+4. Run on the phone from Xcode once after changing it, and tap **Allow** when iOS asks about devices on your local network.
+
+A phone reaches a backend on your Mac only while the Mac is awake, the server is running with `--host 0.0.0.0`, and both are on the same network (some guest or campus Wi-Fi blocks devices from reaching each other). If not, the app shows "We can't reach Ctrl+Ex+Delete right now" with Try again; nothing is reset.
 
 Debug builds include a narrow App Transport Security exception (`NSAllowsLocalNetworking`, in `CtrlExDelete/Config/Debug-Info.plist`) that allows plain `http` only to local-network addresses. Release builds don't have it.
 
@@ -118,16 +140,27 @@ Debug builds include a narrow App Transport Security exception (`NSAllowsLocalNe
 
 When the API is hosted somewhere, it must use `https://`. Put its URL in `APIConfig.releaseBaseURL`. Neon's `DATABASE_URL` goes in the host's environment variables, never in the app.
 
+## Clearing test data
+
+To start the app fresh while keeping the catalog. **This deletes all user data** in the database from `.env`: installations, check-ins, recommendations, selections, bookmarks, memories, photo records and `ced_usage`. It also deletes the app's photo uploads in S3 (keys matching `scrapbook/<32 hex>.jpg` or `installations/<id>/<id>.jpg`, including orphans, and old versions if the AWS user may list them). Everything else in the bucket, the catalog, research sources, schema and migration history stay.
+
+```bash
+python -m scripts.reset_dev_data                  # asks you to type RESET DATA
+python -m scripts.reset_dev_data --database-only  # if the AWS user can't delete objects
+```
+
+S3 files are deleted first and database rows last, only if every S3 deletion worked, so a failed run can be repeated. With `--database-only` the S3 files stay and are listed; a later full run removes them as orphans. Nothing else (server startup, `migrate`, `seed_catalog`) deletes user data. The app copes: its saved installation ID simply starts over with no history.
+
 ## Resetting the development database
 
-Only if the tables are broken or you want to start clean. **This deletes all CED data** in the database from `.env`:
+Only if the tables are broken. **This deletes all CED data** in the database from `.env`:
 
 ```bash
 python -m scripts.reset_dev_db   # asks you to type RESET
 python -m scripts.migrate
 ```
 
-It only drops this project's tables: `activity_bookmarks`, `reflections`, `scrapbook_photos`, `activity_selections`, `recommendations`, `check_ins`, `activities`, `installations`, `schema_migrations` (and the old `activity_logs`, if present).
+It only drops this project's tables: `activity_research_bases`, `research_bases`, `activity_bookmarks`, `reflections`, `scrapbook_photos`, `activity_selections`, `recommendations`, `check_ins`, `activities`, `activity_categories`, `installations`, `schema_migrations`. Other tables (for example a teammate's `ced_usage`) are left alone. Apart from `reset_dev_data` above, it's the only command that deletes user data; `migrate` and `seed_catalog` never do.
 
 ## Troubleshooting
 
