@@ -18,6 +18,29 @@ def installation_id():
 
 
 @pytest.fixture
+def other_installation_id():
+    """A second brand-new installation, for checking that data stays separate."""
+    test_id = str(uuid.uuid4())
+    yield test_id
+    with psycopg.connect(settings.database_url) as conn:
+        conn.execute("DELETE FROM installations WHERE id = %s", (test_id,))
+
+
+def upload_test_photo(client, installation_id: str, uploaded: dict) -> int:
+    """
+    Uploads a photo through the real flow (POST /scrapbook/photos, then
+    /complete) with S3 faked by `fake_s3`, and returns its id. Reflections
+    need one, like the app.
+    """
+    headers = {"X-Installation-ID": installation_id}
+    ticket = client.post("/scrapbook/photos", headers=headers).json()
+    uploaded[ticket["upload_url"].removeprefix("https://s3.example/put/")] = 1000
+    done = client.post(f"/scrapbook/photos/{ticket['id']}/complete", headers=headers)
+    assert done.status_code == 200
+    return ticket["id"]
+
+
+@pytest.fixture
 def fake_s3(monkeypatch):
     """
     Replaces S3 with an in-memory fake. Put a size in `uploaded[key]` to

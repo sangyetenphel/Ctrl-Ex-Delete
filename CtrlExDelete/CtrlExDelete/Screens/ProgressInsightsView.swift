@@ -6,8 +6,6 @@ import SwiftUI
 struct ProgressInsightsView: View {
     @Environment(AppRouter.self) private var router
     @State private var period = InsightsPeriod.week
-    @State private var tappedUrge: Int?
-    @State private var tappedMood: Int?
     @State private var loadState = LoadState.loading
 
     private enum LoadState {
@@ -82,36 +80,21 @@ struct ProgressInsightsView: View {
     private func cards(for data: InsightsData) -> some View {
         takeawayCard(data)
 
+        // Both charts look and behave the same; only their data differs.
         BarChartCard(
-            title: "Urges to reach out",
-            subtitle: "Rated 1\u{2013}10 at each check-in",
-            footnote: data.period == .week
-                ? "Tap a bar to see the rating. Gaps are days without a check-in."
-                : "Each bar is a week\u{2019}s average. Tap a bar to see it. Gaps are weeks without a check-in.",
+            title: "Urge to reach out",
+            subtitle: "Your daily urge to contact your ex. Lower bars mean a lower urge.",
+            emptyNote: data.hasUrges ? nil : "Your check-ins will appear here.",
             points: data.urges,
-            maxValue: 10,
-            valueText: { "\($0)" },
-            accessibilityValue: { "\($0) out of 10" },
-            barColor: CEDColor.hint,
-            tappedBarColor: CEDColor.foreground,
-            valueColor: CEDColor.primary,
-            tappedIndex: $tappedUrge
+            barColor: CEDColor.foreground
         )
 
         BarChartCard(
             title: "Mood after activities",
-            subtitle: "How you felt compared to before, after each activity",
-            footnote: data.moodTotal == 0
-                ? "Your answers will appear here after you finish an activity."
-                : "Each bar counts how often you chose that answer. Tap a bar to see the number.",
+            subtitle: "How you felt compared with before. Higher bars mean you reported feeling better.",
+            emptyNote: data.hasMoods ? nil : "Your answers will appear here after you finish an activity.",
             points: data.moods,
-            maxValue: max(1, data.moods.compactMap(\.value).max() ?? 1),
-            valueText: { "\($0)" },
-            accessibilityValue: { $0 == 1 ? "once" : "\($0) times" },
-            barColor: Color(hex: 0x6BA84A),
-            tappedBarColor: Color(hex: 0x4A8A30),
-            valueColor: Color(hex: 0x4A8A30),
-            tappedIndex: $tappedMood
+            barColor: Color(hex: 0x4A8A30)
         )
 
         breakdownCard(data)
@@ -143,8 +126,6 @@ struct ProgressInsightsView: View {
                     let isSelected = period == option
                     Button {
                         period = option
-                        tappedUrge = nil
-                        tappedMood = nil
                     } label: {
                         Text(option.label)
                             .cedTextStyle(.bodyBold)
@@ -264,31 +245,30 @@ struct ProgressInsightsView: View {
 
 // MARK: - Bar chart
 
-/// A simple bar chart where `maxValue` fills the full 100pt height. Tapping a
-/// bar shows its value above the label; nil values show a short grey stub.
+/// A bar chart on a fixed 0–10 scale: bars start at zero and 10 fills the
+/// full 100pt, so heights compare across weeks. Days without data are gaps
+/// (a short grey stub), never zero. The chart doesn't react to touch: no
+/// highlights or numbers. VoiceOver reads each bar's date and what was recorded.
 private struct BarChartCard: View {
     let title: String
     let subtitle: String
-    let footnote: String
+    let emptyNote: String?
     let points: [ChartPoint]
-    let maxValue: Int
-    let valueText: (Int) -> String
-    let accessibilityValue: (Int) -> String
     let barColor: Color
-    let tappedBarColor: Color
-    let valueColor: Color
-    @Binding var tappedIndex: Int?
 
     private let chartHeight: CGFloat = 100
+    private let scaleMaximum = 10.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
                 .cedTextStyle(.bodyBold)
                 .foregroundStyle(CEDColor.foreground)
+                .accessibilityAddTraits(.isHeader)
             Text(subtitle)
                 .cedTextStyle(.caption)
                 .foregroundStyle(CEDColor.mutedForeground)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 2)
                 .padding(.bottom, 20) // 16 below the subtitle + the prototype's empty 4pt row
 
@@ -299,28 +279,23 @@ private struct BarChartCard: View {
             }
             .frame(height: chartHeight)
 
-            HStack(alignment: .bottom, spacing: 6) {
-                ForEach(points.indices, id: \.self) { index in
-                    VStack(spacing: 2) {
-                        if tappedIndex == index, let value = points[index].value {
-                            Text(valueText(value))
-                                .cedTextStyle(.tinyBold)
-                                .foregroundStyle(valueColor)
-                        }
-                        Text(points[index].label)
-                            .cedTextStyle(.tiny)
-                            .foregroundStyle(CEDColor.mutedForeground)
-                    }
-                    .frame(maxWidth: .infinity)
+            HStack(spacing: 6) {
+                ForEach(points) { point in
+                    Text(point.label)
+                        .cedTextStyle(.tiny)
+                        .foregroundStyle(CEDColor.mutedForeground)
+                        .frame(maxWidth: .infinity)
                 }
             }
             .padding(.top, 6)
-            .accessibilityHidden(true)
+            .accessibilityHidden(true) // each bar already says its date
 
-            Text(footnote)
-                .cedTextStyle(.small)
-                .foregroundStyle(CEDColor.hint)
-                .padding(.top, 14)
+            if let emptyNote {
+                Text(emptyNote)
+                    .cedTextStyle(.small)
+                    .foregroundStyle(CEDColor.hint)
+                    .padding(.top, 14)
+            }
         }
         .cardStyle()
     }
@@ -329,24 +304,19 @@ private struct BarChartCard: View {
     private func bar(at index: Int) -> some View {
         let point = points[index]
         if let value = point.value {
-            Button {
-                tappedIndex = tappedIndex == index ? nil : index
-            } label: {
-                UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6)
-                    .fill(tappedIndex == index ? tappedBarColor : barColor)
-                    .frame(height: CGFloat(value) / CGFloat(max(maxValue, 1)) * chartHeight)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .contentShape(Rectangle())
-                    .animation(.easeOut(duration: 0.15), value: tappedIndex)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(point.label): \(accessibilityValue(value))")
+            UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6)
+                .fill(barColor)
+                .frame(height: CGFloat(min(max(value, 0), scaleMaximum) / scaleMaximum) * chartHeight)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .accessibilityElement()
+                .accessibilityLabel(point.accessibilityText)
         } else {
             UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6)
                 .fill(CEDColor.border)
                 .frame(height: 4)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .accessibilityLabel("\(point.label): nothing recorded")
+                .accessibilityElement()
+                .accessibilityLabel(point.accessibilityText)
         }
     }
 }

@@ -1,27 +1,46 @@
+import AVFoundation
 import PhotosUI
 import SwiftUI
 
-/// The reflection for the activity in progress: two questions, optional
-/// notes and an optional photo. Saving it completes the activity and adds
-/// the memory to the scrapbook. Opening this screen completes nothing.
+/// The reflection for the activity in progress: a photo, "What did you
+/// notice?" and two questions, all required. Saving it completes
+/// the activity and adds the memory to the scrapbook, with a short Ced
+/// transition on the way to Story. Opening this screen completes nothing.
 struct ReflectionView: View {
     @Environment(AppRouter.self) private var router
     @Environment(JourneyStore.self) private var journey
 
-    @State private var note = ""
+    @State private var note = ""        // "What did you notice?"
     @State private var thoughtAboutEx: ThoughtAboutEx?
     @State private var moodChange: MoodChange?
-    @State private var noticed = ""
+    /// Set when "Add to my scrapbook" is tapped with something missing; the
+    /// message then shows until everything is filled in.
+    @State private var triedIncomplete = false
 
     @State private var pickedItem: PhotosPickerItem?
+    @State private var isChoosingPhotoSource = false
+    @State private var isShowingLibrary = false
+    @State private var isShowingCamera = false
+    @State private var isCameraAccessOff = false
     @State private var photo: PickedPhoto?
     @State private var isLoadingPhoto = false
     @State private var photoError: String?
     /// Set once the picked photo is in S3, so a retried save doesn't upload it again.
     @State private var uploadedPhotoId: Int?
 
-    @State private var isSaving = false
+    @State private var phase = Phase.editing
     @State private var saveError: String?
+
+    /// Where the screen is in saving. Everything the user entered lives in
+    /// this view's state, so going back to `.editing` after a failure keeps it.
+    private enum Phase: Equatable {
+        case editing
+        case saving          // uploading the photo / saving the memory
+        case saved           // saved; loading Story before opening it
+        case storyNotLoaded  // saved, but Story couldn't be refreshed
+    }
+
+    private var isSaving: Bool { phase != .editing }
 
     private struct PickedPhoto {
         let preview: UIImage
@@ -30,22 +49,63 @@ struct ReflectionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if phase == .editing {
+                header
 
-            if let current = journey.selectedActivity {
-                form(for: current)
-            } else if !journey.hasLoaded {
-                ProgressView()
-                    .tint(CEDColor.primary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let current = journey.selectedActivity {
+                    form(for: current)
+                } else if !journey.hasLoaded {
+                    ProgressView()
+                        .tint(CEDColor.primary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    noActivityView
+                }
             } else {
-                noActivityView
+                // While saving and after, the activity is no longer "in
+                // progress", so this replaces the form instead of falling
+                // through to "Choose an activity first".
+                CedSavingView(
+                    state: phase == .saving ? .saving : phase == .saved ? .saved : .storyNotLoaded,
+                    onRetry: { Task { await openStory() } },
+                    onOpenStory: { router.go(to: .scrapbook) }
+                )
+                .transition(.opacity)
             }
         }
         .background(CEDColor.background)
         .onChange(of: pickedItem) { _, item in
             guard let item else { return }  // cancelled: keep the current photo
             Task { await loadPhoto(item) }
+        }
+        // Both photo sources end in usePhoto(_:), so they share the same
+        // preview, upload and save, linked to the activity in progress.
+        .confirmationDialog(photo == nil ? "Add a photo" : "Change photo",
+                            isPresented: $isChoosingPhotoSource, titleVisibility: .visible) {
+            Button("Take Photo", action: takePhoto)
+            Button("Choose from Library") { isShowingLibrary = true }
+            Button("Cancel", role: .cancel) {}
+        }
+        .photosPicker(isPresented: $isShowingLibrary, selection: $pickedItem,
+                      matching: .images, preferredItemEncoding: .compatible)
+        .fullScreenCover(isPresented: $isShowingCamera) {
+            // Cancelling keeps whatever photo was there before.
+            CameraPicker(onCapture: { image in
+                pickedItem = nil  // forget any library pick, so it can be chosen again
+                usePhoto(image)
+            }, onCancel: {})
+                .ignoresSafeArea()
+        }
+        .alert("Camera access is off", isPresented: $isCameraAccessOff) {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("Choose from Library") { isShowingLibrary = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("To take a photo for this memory, allow camera access for Ctrl+Ex+Delete in Settings. You can also choose one from your library.")
         }
     }
 
@@ -70,13 +130,17 @@ struct ReflectionView: View {
     }
 
     private func form(for current: SelectedActivity) -> some View {
+        ScrollViewReader { scroller in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     photoPicker
 
+                    // One text answer: it becomes the memory's quote in Story.
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("A short note about today").questionLabelStyle()
-                        CEDTextArea(text: $note, placeholder: "I felt calmer once I went outside\u{2026}", lines: 3)
+                        Text("What did you notice?").questionLabelStyle()
+                        CEDTextArea(text: $note,
+                                    placeholder: "A thought, a feeling, or a small moment from your activity\u{2026}",
+                                    lines: 3)
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
@@ -105,16 +169,27 @@ struct ReflectionView: View {
                         }
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("What did you notice?").questionLabelStyle()
-                        CEDTextArea(text: $noticed, placeholder: "I felt calmer once I went outside\u{2026}", lines: 2)
-                    }
-
                     VStack(spacing: 12) {
+                        // The one message for anything missing, right above the button.
+                        if showsMissingMessage {
+                            Text("Please add a photo and answer all questions above.")
+                                .cedTextStyle(.body)
+                                .foregroundStyle(CEDColor.rose)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                                .transition(.opacity)
+                        }
+
                         PrimaryButton(title: isSaving ? "Saving\u{2026}" : "Add to my scrapbook",
                                       isEnabled: !isSaving && !isLoadingPhoto) {
-                            save(current)
+                            if !save(current) {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    scroller.scrollTo(Self.submitArea, anchor: .bottom)
+                                }
+                            }
                         }
+
+                        // Upload and network problems, kept apart from missing inputs.
                         if let saveError {
                             Text(saveError)
                                 .cedTextStyle(.body)
@@ -122,13 +197,29 @@ struct ReflectionView: View {
                                 .multilineTextAlignment(.center)
                         }
                     }
+                    .id(Self.submitArea)
+                    .animation(.easeOut(duration: 0.2), value: showsMissingMessage)
                     .padding(.bottom, 8)
                 }
                 .padding(24)
             }
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
+        }
+        .onChange(of: isComplete) { _, complete in
+            if complete { triedIncomplete = false }  // clear the message once all is filled in
+        }
     }
+
+    private static let submitArea = "submitArea"
+
+    /// Every input is required: a photo, a non-blank note and both answers.
+    private var isComplete: Bool {
+        ReflectionDraft.isComplete(hasPhoto: photo != nil, note: note,
+                                   thoughtAboutEx: thoughtAboutEx, moodChange: moodChange)
+    }
+
+    private var showsMissingMessage: Bool { triedIncomplete && !isComplete }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -182,12 +273,12 @@ struct ReflectionView: View {
 
     // MARK: Photo
 
-    /// The prototype's dashed photo box, now opening the system photo picker.
-    /// The picker runs outside the app, so no photo-library permission is needed:
-    /// the app only receives the one photo the user picks.
+    /// The prototype's dashed photo box. Tapping it offers the camera or the
+    /// photo library. The library picker runs outside the app, so it needs no
+    /// permission; the camera asks for permission the first time it's used.
     private var photoPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            PhotosPicker(selection: $pickedItem, matching: .images, preferredItemEncoding: .compatible) {
+            Button(action: choosePhotoSource) {
                 photoBox
             }
             .buttonStyle(.plain)
@@ -243,7 +334,7 @@ struct ReflectionView: View {
                     Text("Add a photo")
                         .cedTextStyle(.bodySemibold)
                         .foregroundStyle(CEDColor.mutedForeground)
-                    Text("or continue without one")
+                    Text("Take one or choose from your library.")
                         .cedTextStyle(.caption)
                         .foregroundStyle(CEDColor.hint)
                 }
@@ -261,22 +352,64 @@ struct ReflectionView: View {
         .contentShape(shape)
     }
 
+    /// Without a camera (e.g. the Simulator), go straight to the library.
+    private func choosePhotoSource() {
+        photoError = nil
+        if CameraPicker.isAvailable {
+            isChoosingPhotoSource = true
+        } else {
+            isShowingLibrary = true
+        }
+    }
+
+    /// "Take Photo": opens the camera, asking for permission only if needed.
+    private func takePhoto() {
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        switch CameraRoute.route(isCameraAvailable: CameraPicker.isAvailable, status: status) {
+        case .open:
+            isShowingCamera = true
+        case .askPermission:
+            Task {
+                if await AVCaptureDevice.requestAccess(for: .video) {
+                    isShowingCamera = true
+                } else {
+                    isCameraAccessOff = true
+                }
+            }
+        case .denied:
+            isCameraAccessOff = true
+        case .unavailable:
+            photoError = "This device doesn\u{2019}t have a camera. Choose a photo from your library instead."
+        }
+    }
+
     private func loadPhoto(_ item: PhotosPickerItem) async {
         isLoadingPhoto = true
         photoError = nil
         defer { isLoadingPhoto = false }
         do {
             guard let data = try await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data),
-                  let jpeg = ImageCompressor.jpeg(from: image) else {
+                  let image = UIImage(data: data) else {
                 throw CocoaError(.fileReadCorruptFile)
             }
             guard item == pickedItem else { return }  // a newer pick replaced this one
-            photo = PickedPhoto(preview: image, jpeg: jpeg)
-            uploadedPhotoId = nil
+            usePhoto(image)
         } catch {
             photoError = "That photo couldn\u{2019}t be opened. Try another one."
         }
+    }
+
+    /// The one place a photo from either source becomes the memory's photo.
+    /// It's shrunk now and uploaded only when the memory is saved.
+    private func usePhoto(_ image: UIImage) {
+        guard let jpeg = ImageCompressor.jpeg(from: image) else {
+            photoError = "That photo couldn\u{2019}t be used. Try another one."
+            return
+        }
+        // Preview the shrunk copy, so a full-size camera photo isn't kept in memory.
+        photo = PickedPhoto(preview: UIImage(data: jpeg) ?? image, jpeg: jpeg)
+        uploadedPhotoId = nil  // a new photo needs a new upload
+        photoError = nil
     }
 
     private func removePhoto() {
@@ -294,26 +427,32 @@ struct ReflectionView: View {
         }
     }
 
-    /// Checks the two questions, uploads the photo (if any) only now, then
-    /// saves the memory, which completes the activity.
-    private func save(_ current: SelectedActivity) {
-        guard !isSaving else { return }
-        guard let thoughtAboutEx, let moodChange else {
-            saveError = "Please answer both questions above before saving."
-            return
+    /// Checks every input first, then uploads the photo, then saves the memory,
+    /// which completes the activity. Nothing is uploaded or saved while
+    /// anything is missing. Returns false if something was missing.
+    @discardableResult
+    private func save(_ current: SelectedActivity) -> Bool {
+        guard phase == .editing else { return true }  // no double submits
+        guard isComplete, let photo, let note = ReflectionDraft.trimmedNote(note),
+              let thoughtAboutEx, let moodChange else {
+            triedIncomplete = true
+            AccessibilityNotification.Announcement("Please add a photo and answer all questions above.").post()
+            return false
         }
-        isSaving = true
+        triedIncomplete = false
         saveError = nil
+        withAnimation(.easeInOut(duration: 0.25)) { phase = .saving }
 
         Task {
-            defer { isSaving = false }
-            var photoId = uploadedPhotoId
-            if let photo, photoId == nil {
+            let photoId: Int
+            if let alreadyUploaded = uploadedPhotoId {
+                photoId = alreadyUploaded  // a retry doesn't upload it again
+            } else {
                 do {
                     photoId = try await journey.uploadPhoto(jpeg: photo.jpeg)
                     uploadedPhotoId = photoId
                 } catch {
-                    saveError = "Your photo wasn\u{2019}t uploaded, so nothing was saved yet. \(error.localizedDescription)"
+                    backToForm(error: "Your photo wasn\u{2019}t uploaded, so nothing was saved yet. \(error.localizedDescription)")
                     return
                 }
             }
@@ -323,23 +462,56 @@ struct ReflectionView: View {
                     activitySelectionId: current.selectionId,
                     thoughtAboutEx: thoughtAboutEx,
                     moodChange: moodChange,
-                    note: note.trimmedOrNil,
-                    noticed: noticed.trimmedOrNil,
+                    note: note,
                     photoId: photoId,
                     localDate: CheckInAnswers.localDateText(for: .now)
                 ))
-                router.go(to: .scrapbook)
             } catch {
-                saveError = "Your memory wasn\u{2019}t saved. \(error.localizedDescription)"
+                // A photo the server no longer has (404) is uploaded again on retry.
+                if case APIError.server(status: 404, _) = error { uploadedPhotoId = nil }
+                backToForm(error: "Your memory wasn\u{2019}t saved. \(error.localizedDescription) Your answers and photo are still here, so you can try again.")
+                return
+            }
+
+            // Saved: only now show the success message.
+            withAnimation(.easeInOut(duration: 0.3)) { phase = .saved }
+            AccessibilityNotification.Announcement("You showed up. One small step deserves a place in your story.").post()
+            await openStory()
+        }
+        return true
+    }
+
+    private func backToForm(error message: String) {
+        saveError = message
+        withAnimation(.easeInOut(duration: 0.25)) { phase = .editing }
+    }
+
+    /// After a successful save: refresh Story (retrying a few times), keep
+    /// the success message up long enough to read, then open Story with the
+    /// new memory. Never saves again, so a failed refresh can't duplicate it.
+    private func openStory() async {
+        if phase == .storyNotLoaded {
+            withAnimation(.easeInOut(duration: 0.25)) { phase = .saved }
+        }
+        let shownAt = ContinuousClock.now
+        var loaded = false
+        for attempt in 1...3 {
+            do {
+                try await journey.reloadStory()
+                loaded = true
+                break
+            } catch {
+                if attempt < 3 { try? await Task.sleep(for: .seconds(attempt)) }
             }
         }
-    }
-}
-
-private extension String {
-    var trimmedOrNil: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        guard loaded else {
+            withAnimation(.easeInOut(duration: 0.25)) { phase = .storyNotLoaded }
+            return
+        }
+        let minimum = Duration.milliseconds(1800)
+        let elapsed = ContinuousClock.now - shownAt
+        if elapsed < minimum { try? await Task.sleep(for: minimum - elapsed) }
+        router.go(to: .scrapbook)
     }
 }
 

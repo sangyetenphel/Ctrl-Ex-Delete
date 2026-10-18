@@ -3,8 +3,9 @@ Applies the SQL files in db/migrations/ to the database in DATABASE_URL.
 
 Run from the backend/ folder (with the venv active):
 
-    python -m scripts.migrate           # apply any new migrations
-    python -m scripts.migrate --status  # list which ones are applied
+    python -m scripts.migrate            # apply new migrations, then load the activity catalog
+    python -m scripts.migrate --no-seed  # apply new migrations only
+    python -m scripts.migrate --status   # list which ones are applied (changes nothing)
 
 Each file runs once, in filename order, inside its own transaction.
 Applied files are recorded in the schema_migrations table, so running this
@@ -17,6 +18,7 @@ from pathlib import Path
 import psycopg
 
 from app.config import settings
+from scripts import seed_catalog
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "db" / "migrations"
 
@@ -62,6 +64,10 @@ def main() -> None:
             print("done")
 
     print("Database is up to date." if not show_status_only else "")
+
+    # The catalog seed is safe to repeat (see scripts/seed_catalog.py).
+    if not show_status_only and "--no-seed" not in sys.argv:
+        seed_catalog.main()
 
 
 if __name__ == "__main__":

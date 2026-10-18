@@ -16,6 +16,8 @@ __pycache__/
 **/xcuserdata/
 DerivedData/
 *.xcuserstate
+# Each developer's own Mac address for Debug builds (see Config/DeveloperSettings.example.xcconfig)
+CtrlExDelete/Config/DeveloperSettings.xcconfig
 
 # Local Figma reference exports (not committed)
 /CtrlExDelete/CED-Figma-Reference/

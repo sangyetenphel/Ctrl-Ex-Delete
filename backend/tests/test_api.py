@@ -60,6 +60,7 @@ def test_no_check_in_means_no_recommendations(installation_id):
     assert response.json() == {
         "check_in_id": None,
         "check_in_local_date": None,
+        "check_in": None,
         "recommendations": [],
     }
 
@@ -67,17 +68,21 @@ def test_no_check_in_means_no_recommendations(installation_id):
 def test_recommendations_follow_latest_check_in(installation_id):
     first = client.post("/check-ins", json=CHECK_IN, headers=headers(installation_id)).json()
     earlier = client.get("/recommendations/latest", headers=headers(installation_id)).json()
-    second = client.post("/check-ins", json=CHECK_IN, headers=headers(installation_id)).json()
+    # One check-in per day, so the next one is tomorrow's.
+    second = client.post("/check-ins", json={**CHECK_IN, "local_date": "2026-10-05"},
+                         headers=headers(installation_id)).json()
 
     body = client.get("/recommendations/latest", headers=headers(installation_id)).json()
     assert body["check_in_id"] == second["id"] != first["id"]
+    # The answers the cards were chosen from come back with them.
+    assert body["check_in"] == {k: CHECK_IN[k] for k in body["check_in"]}
     assert [r["position"] for r in body["recommendations"]] == [1, 2, 3]
     first_card = body["recommendations"][0]
     # Resisting contact + missing them makes outdoor movement the best fit.
     assert first_card["activity"]["category"] == "outdoor_movement"
     assert first_card["selected_at"] is None
-    # Medium energy: nothing longer than 45 minutes.
-    assert all(r["activity"]["duration_minutes"] <= 45 for r in body["recommendations"])
+    # Medium energy: only low- and medium-demand activities.
+    assert all(r["activity"]["energy_level"] in ("low", "medium") for r in body["recommendations"])
     # Same answers again still gives new cards: recent ones wait their turn.
     shown_before = {r["activity"]["id"] for r in earlier["recommendations"]}
     assert shown_before.isdisjoint(r["activity"]["id"] for r in body["recommendations"])

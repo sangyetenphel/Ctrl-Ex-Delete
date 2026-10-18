@@ -92,7 +92,9 @@ The UI text can change freely. Only the values sent to the API need to stay the 
 
 Saving a check-in also creates its activity recommendations (same database transaction), so they're ready for `GET /recommendations/latest`.
 
-**Response `201 Created`**: the saved check-in, with three server-generated fields added:
+**One check-in per local calendar day.** `local_date` is the user's own calendar day: the app's current date in the phone's current time zone (midnight to midnight). The server never uses its own clock, UTC or a rolling 24 hours. If this installation already has a check-in for that `local_date`, nothing is saved and no new recommendations are made: the response is **`200 OK`** with the day's existing check-in (its original answers). This covers a repeated tap, a retry after a lost response, and two requests at the same moment (the database's unique index lets exactly one through). An activity in progress from an earlier day stays in progress.
+
+**Response `201 Created`** (or `200 OK` with the existing one, see above): the saved check-in, with three server-generated fields added:
 ```json
 {
   "feeling": "missing_them",
@@ -105,6 +107,23 @@ Saving a check-in also creates its activity recommendations (same database trans
   "created_at": "2026-09-28T03:35:34.053814Z"
 }
 ```
+
+---
+
+## `GET /check-ins/today?local_date=YYYY-MM-DD`
+
+Has the user checked in on their local day? The app asks on every start (including after a force-close) and when it returns on a new day, before choosing the welcome, check-in or room screen. Changes nothing.
+
+**Headers:** `X-Installation-ID` (required)
+
+**Response `200`**
+```json
+{"local_date": "2026-10-17", "check_in": null, "has_any_check_in": true}
+```
+- `check_in`: that day's check-in (same shape as above), or `null` if there isn't one yet.
+- `has_any_check_in`: `false` for someone who has never checked in (the app shows the welcome screen).
+
+If this request fails, the app shows a connection message with Try again. It never treats a failure as "hasn't checked in".
 
 ---
 
@@ -129,6 +148,12 @@ Activity cards for this installation's **most recent** check-in. Called when the
 {
   "check_in_id": 12,
   "check_in_local_date": "2026-10-04",
+  "check_in": {
+    "feeling": "heavy",
+    "contact_urge": 8,
+    "energy_level": "low",
+    "hardest_areas": ["wanting_answers"]
+  },
   "recommendations": [
     {
       "id": 31,
@@ -139,24 +164,50 @@ Activity cards for this installation's **most recent** check-in. Called when the
         "slug": "sit_in_sunlight",
         "title": "Sit somewhere with sunlight.",
         "category": "mindfulness_rest",
-        "category_label": "Gentle Reset",
+        "category_label": "Mindfulness & Rest",
         "duration_minutes": 10,
         "instructions": "No productivity needed. ...",
-        "why_it_fits": "Your energy is low and ..."
+        "why_it_fits": "A few quiet minutes in natural light ..."
       }
     }
   ]
 }
 ```
 
-- `recommendations` is in card order (`position` 1, 2, 3...).
+- `recommendations` is in card order (`position` 1, 2, 3), never more than 3, and never the same activity twice.
 - `id` is the **recommendation** id. Use it to record a selection.
 - `status`: `null` (not chosen, or the attempt was abandoned), `in_progress` or `completed`. `selected_at` and `completed_at` go with it.
-- `is_saved`: bookmarked with **Save for later**. Saved activities are placed first when the next check-in's cards are made.
-- `category` is one of `outdoor_movement`, `mindfulness_rest`, `solo_exploration`, `social_connection`. The app picks the card's icon and colors from it.
-- **No check-ins yet:** `200` with `"check_in_id": null`, `"check_in_local_date": null`, `"recommendations": []`. The app shows "Check in first".
+- `is_saved`: bookmarked with **Save for later**. A saved activity can only be the **last** card of a later check-in, and only if it suits that check-in (see below).
+- `energy_level` (`low`, `medium`, `high`): the activity's overall demand, separate from `duration_minutes`. Both are editorial estimates.
+- **Retired activities** (no longer in the catalog) aren't recommended or offered. A card from an older check-in whose activity was retired is left out of this list unless it was already chosen (in progress or completed), so history still shows and an activity in progress can still be finished. Choosing an unchosen retired card answers `409`.
+- `category` is one of `outdoor_movement`, `mindfulness_rest`, `solo_exploration`, `social_connection`: the stable key. The app picks the card's icon and colors from it; never show it.
+- `category_label` is the category's display name, the same everywhere (cards, reflections, Story, bookmarks, Insights). It is stored on each activity and kept in step by the database (migration `011`): the names are defined once in the `activity_categories` table, a trigger fills `category_label` on every insert or update, and a foreign key on (`category`, `category_label`) rejects any mismatched pair. To rename a category, update its row in `activity_categories`; the change cascades to every activity.
 
-**Current recommendation rule:** every active activity, in catalog order, up to 3, which is the same as the prototype. The check-in answers don't change the result yet. The rule lives in `backend/app/recommendation_rules.py`.
+  | `category` | `category_label` |
+  |---|---|
+  | `mindfulness_rest` | Mindfulness & Rest |
+  | `outdoor_movement` | Outdoor & Movement |
+  | `solo_exploration` | Solo Exploration |
+  | `social_connection` | Social Connection |
+- `check_in`: the answers these cards were chosen from. The app uses `feeling` for the page heading.
+- **No check-ins yet:** `200` with `"check_in_id": null`, `"check_in_local_date": null`, `"check_in": null`, `"recommendations": []`. The app shows "Check in first".
+
+**How the cards are chosen** (`backend/app/recommendation_rules.py`, run when the check-in is saved):
+
+| Answer | Effect |
+|---|---|
+| `energy_level` | Decides which activities are eligible, by each activity's own `energy_level` (its overall physical, cognitive, social and preparation demand, separate from its duration). Low: low-demand only. Medium: low or medium. High: any. An activity whose demand matches today's energy gets a small bonus. Nothing above today's allowance is added to fill the deck, so it can have fewer than 3 cards. |
+| `feeling` | Pushes categories up: heavy → Mindfulness & Rest; getting through → Outdoor & Movement; missing them → Outdoor & Movement, then Mindfulness & Rest; hopeful → Solo Exploration and Social Connection. |
+| `hardest_areas` | Each one pushes categories up (strongest signal): feeling lonely → Social Connection; missing the relationship → Solo Exploration; wanting answers → Mindfulness & Rest; resisting contact → Outdoor & Movement; rebuilding confidence → Solo Exploration. |
+| `contact_urge` | 7 or more: quick, gentle movement comes first: activities marked as movement (`involves_movement`, e.g. a short walk or dance; sitting outside doesn't count), 20 min or less, and not high demand. Other activities of 20 min or less get a smaller boost. A strong urge never boosts strenuous activities. Below 7 it doesn't change the cards. |
+
+**Card order:**
+
+1. At most **3** unique cards. Only activities short enough for today's energy are suitable; nothing too long is added just to fill the deck, so a low-energy day can get fewer.
+2. Every card but the last comes from today's answers only (best score first, at most 2 cards per category). Saved activities are never picked here.
+3. The last card may be **one** saved activity, if it fits today's energy **and** today's feeling, hardest areas or a strong urge point to its category. A saved activity completed in the last 3 days isn't offered. Otherwise the last card is the next regular recommendation.
+
+Activities from the last 5 check-ins or completed in the last 7 days go to the back of the line. Ties keep catalog order. Which activities were chosen is saved with the check-in, so the same cards come back every time the screen opens.
 
 ---
 
@@ -220,14 +271,13 @@ The photo becomes part of a memory through `POST /reflections`. `DELETE /scrapbo
 
 ## `POST /reflections`
 
-**Add to my scrapbook.** Saves the memory and **completes** the activity in progress, in one transaction. `activity_selection_id`, `thought_about_ex` and `mood_change` are **required**; the notes and photo are optional. Upload the photo first (above) and pass its `id`.
+**Add to my scrapbook.** Saves the memory and **completes** the activity in progress, in one transaction. **Every field is required**: `activity_selection_id`, `thought_about_ex`, `mood_change`, a non-blank `note` ("What did you notice?"; whitespace-only counts as blank, and it is saved trimmed) and `photo_id`. Upload the photo first (above) and pass its `id`. Anything missing or invalid is rejected with **`422`** before anything is saved, so the activity stays in progress.
 
 ```json
 {
   "activity_selection_id": 15,
   "photo_id": 10,
   "note": "The walk cleared my head",
-  "noticed": null,
   "thought_about_ex": "a_little",
   "mood_change": "a_little_better",
   "local_date": "2026-10-13"
@@ -237,8 +287,10 @@ The photo becomes part of a memory through `POST /reflections`. `DELETE /scrapbo
 | Field | Allowed values |
 |---|---|
 | `thought_about_ex` | `not_really`, `a_little`, `a_lot` |
-| `mood_change` | `worse`, `about_the_same`, `a_little_better`, `much_better` (stored as chosen, never as a score) |
-| `note`, `noticed` | up to 1000 characters |
+| `mood_change` | `worse`, `about_the_same`, `a_little_better`, `much_better` (stored as chosen; the mood chart derives fixed internal scores from it, see `GET /insights`) |
+| `note` | **required**, not blank. The one text answer, "What did you notice?". Up to 1000 characters; shown as the memory's quote |
+| `photo_id` | **required**. A photo of **this installation** that finished uploading (`POST /scrapbook/photos` → PUT → `/complete`) and isn't in another memory. Another installation's or an unknown photo: `404`; not uploaded yet or already used: `409` |
+| `noticed` | **deprecated.** Older app builds sent a second text answer here. It is still accepted (up to 1000 characters) and joined into `note`, so it isn't lost. Migration `010` did the same for saved memories and removed the column |
 
 
 **Response `201 Created`**, or **`200 OK`** if that selection already has a reflection (the first one is returned unchanged, so retries never duplicate):
@@ -248,7 +300,6 @@ The photo becomes part of a memory through `POST /reflections`. `DELETE /scrapbo
   "activity_selection_id": 15,
   "activity": { "id": 2, "slug": "walk_without_social_media", "…": "…" },
   "note": "The walk cleared my head",
-  "noticed": null,
   "thought_about_ex": "a_little",
   "mood_change": "a_little_better",
   "local_date": "2026-10-13",
@@ -302,15 +353,18 @@ The Progress screen, calculated from this installation's records. `today` is the
   "has_data": true, "check_in_days": 1, "completed": 2,
   "urges": [ { "label": "Mon", "start": "2026-10-12", "end": "2026-10-12", "value": 6, "check_ins": 2 } ],
   "moods": [ { "response": "worse", "label": "Worse", "count": 0 } ],
-  "categories": [ { "category": "outdoor_movement", "label": "Outdoor & movement", "count": 1, "percent": 50 } ],
+  "mood_points": [ { "label": "Mon", "start": "2026-10-12", "end": "2026-10-12", "value": 4.5,
+                     "answers": ["worse", "a_little_better"] } ],
+  "categories": [ { "category": "outdoor_movement", "label": "Outdoor & Movement", "count": 1, "percent": 50 } ],
   "takeaway": { "headline": "…", "body": "…" },
   "observations": [ "You completed 2 activities this week." ]
 }
 ```
 
 - **urges:** one bar per day (week) or per week of the month (`W1` = days 1–7 … `W5`). `value` is the average `contact_urge` (1–10) of that bar's check-ins; `null` = no check-in (urges are never 0).
-- **moods:** how many times each answer to "How do you feel now compared to before?" was given by completed activities in the period. Counted, never converted to scores.
-- **categories:** completed activities only (by `completed_on`). Bookmarked, abandoned and in-progress activities never count, and each activity counts once.
+- **moods:** how many times each answer to "How do you feel now compared to before?" was given by completed activities in the period.
+- **mood_points:** the "Mood after activities" chart, one bar per day (week) or per week of the month, like `urges`. Only completed activities with a saved answer count, grouped by the day the reflection was saved (`local_date`), not the day the activity was chosen. `value` is the average of the answers' fixed internal scores (`worse` 2, `about_the_same` 5, `a_little_better` 7, `much_better` 9; defined once in `backend/app/insights.py` as `MOOD_SCORES`), rounded to one decimal. It only sizes the bar on a 0–10 scale; it is **not** a rating the user entered, so the app never shows it. `answers` lists the answers behind the bar for accessibility. `null` = no answers that day (a gap, never 0). Unrecognized answers are skipped, never guessed.
+- **categories:** completed activities only (by `completed_on`), grouped by the `category` key and named (and ordered) from `activity_categories`, so `label` matches the activity cards. Bookmarked, abandoned and in-progress activities never count, and each activity counts once.
 - **takeaway / observations:** generated by `backend/app/insights.py` from these numbers only; they describe what happened, never why. With no records, `has_data` is false and the takeaway is a gentle empty state.
 
 ---

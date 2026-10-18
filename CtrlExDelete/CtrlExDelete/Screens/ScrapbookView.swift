@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// "Your Journey": a celebration, recent memories, a button to add a memory
-/// and a timeline of milestones.
+/// "Your Journey": a celebration, recent memories (one row you swipe
+/// through) and a timeline of milestones.
 struct ScrapbookView: View {
     @Environment(AppRouter.self) private var router
     @Environment(JourneyStore.self) private var journey
@@ -21,7 +21,6 @@ struct ScrapbookView: View {
                         celebrationCard
                     }
                     recentMemories
-                    captureButton
                     timeline
 
                     Button("View your insights \u{2192}") {
@@ -116,20 +115,36 @@ struct ScrapbookView: View {
                     .foregroundStyle(CEDColor.mutedForeground)
             }
 
-            // Two cards per row; cards in the same row share the same height.
-            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-                ForEach(Array(stride(from: 0, to: journey.memories.count, by: 2)), id: \.self) { start in
-                    GridRow {
-                        memoryCard(journey.memories[start])
-                        if start + 1 < journey.memories.count {
-                            memoryCard(journey.memories[start + 1])
-                        } else {
-                            Color.clear
-                        }
-                    }
-                }
+            if !journey.memories.isEmpty {
+                memoriesRow
             }
         }
+    }
+
+    /// Every memory in one row, newest first. About two cards fit on screen
+    /// and the next one peeks in; swipe to see older ones. Cards share the
+    /// height of the tallest one.
+    private var memoriesRow: some View {
+        ScrollView(.horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(journey.memories) { memory in
+                    memoryCard(memory)
+                        .containerRelativeFrame(.horizontal) { width, _ in
+                            (width - 12) / 2.15
+                        }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .scrollTargetLayout()
+        }
+        .scrollIndicators(.hidden)
+        .scrollTargetBehavior(.viewAligned)
+        // Run edge to edge, so cards scroll under the screen's side margins.
+        .contentMargins(.horizontal, 24, for: .scrollContent)
+        .padding(.horizontal, -24)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Recent memories, newest first")
     }
 
     /// Long-press a memory for "Delete memory".
@@ -158,20 +173,6 @@ struct ScrapbookView: View {
         if !journey.hasLoaded { return "Loading your memories\u{2026}" }
         if let error = journey.loadError { return "Your memories couldn\u{2019}t be loaded. \(error)" }
         return "Your memories will show up here after your first reflection."
-    }
-
-    private var captureButton: some View {
-        VStack(spacing: 8) {
-            // The reflection for the activity in progress, or the activities
-            // to choose one first.
-            PrimaryButton(title: "+ Capture an activity") {
-                router.go(to: journey.selectedActivity == nil ? .activities : .reflection)
-            }
-            Text("Add a photo and reflection from an activity you completed.")
-                .cedTextStyle(.caption)
-                .foregroundStyle(CEDColor.mutedForeground)
-                .multilineTextAlignment(.center)
-        }
     }
 
     private var timeline: some View {

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
+from tests.conftest import upload_test_photo
 
 client = TestClient(app)
 
@@ -22,6 +23,18 @@ CHECK_IN = {
     "local_date": "2026-10-04",
 }
 ANSWERS = {"thought_about_ex": "a_little", "mood_change": "a_little_better"}
+
+# Filled by the autouse fixture below: the fake S3 "uploads".
+UPLOADED: dict = {}  # replaced by fake_s3's dict for each test
+
+
+@pytest.fixture(autouse=True)
+def _photos_upload_to_fake_s3(fake_s3):
+    """Every reflection needs an uploaded photo; S3 is faked for all tests here."""
+    # Share fake_s3's own dict: its fake "S3" reads the uploads from it.
+    global UPLOADED
+    UPLOADED = fake_s3[0]
+    yield
 
 
 def headers(installation_id: str) -> dict:
@@ -57,7 +70,12 @@ def abandon(installation_id: str, selection_id: int):
 
 
 def reflect(installation_id: str, selection_id: int, **fields):
-    body = {"activity_selection_id": selection_id, "local_date": "2026-10-05", **ANSWERS, **fields}
+    """A complete reflection unless `fields` override (or remove, with None) a part."""
+    body = {"activity_selection_id": selection_id, "local_date": "2026-10-05",
+            "note": "A quiet moment", **ANSWERS, **fields}
+    if "photo_id" not in fields:
+        body["photo_id"] = upload_photo(installation_id, UPLOADED)
+    body = {key: value for key, value in body.items() if value is not None}
     return client.post("/reflections", json=body, headers=headers(installation_id))
 
 
@@ -66,11 +84,7 @@ def summary(installation_id: str) -> dict:
 
 
 def upload_photo(installation_id: str, uploaded: dict) -> int:
-    ticket = client.post("/scrapbook/photos", headers=headers(installation_id)).json()
-    uploaded[ticket["upload_url"].removeprefix("https://s3.example/put/")] = 1000
-    done = client.post(f"/scrapbook/photos/{ticket['id']}/complete", headers=headers(installation_id))
-    assert done.status_code == 200
-    return ticket["id"]
+    return upload_test_photo(client, installation_id, uploaded)
 
 
 # ── Selecting ────────────────────────────────
@@ -166,13 +180,15 @@ def test_reflection_completes_the_activity(installation_id):
     cards = check_in_and_list(installation_id)
     selection = select(installation_id, cards[1]["id"]).json()
 
-    saved = reflect(installation_id, selection["id"], note="I felt calmer outside", noticed="Birds")
+    saved = reflect(installation_id, selection["id"], note="I felt calmer outside")
     assert saved.status_code == 201
     memory = saved.json()
+    assert memory["note"] == "I felt calmer outside"
+    assert "noticed" not in memory  # one text answer now
     assert memory["activity"]["slug"] == cards[1]["activity"]["slug"]
     assert memory["mood_change"] == "a_little_better"
     assert memory["thought_about_ex"] == "a_little"
-    assert memory["image_url"] is None
+    assert memory["image_url"].startswith("https://s3.example/get/scrapbook/")
 
     assert current(installation_id) is None
     cards_after = latest(installation_id)
@@ -196,16 +212,37 @@ def test_submitting_twice_returns_the_first_memory(installation_id):
     assert len(client.get("/reflections", headers=headers(installation_id)).json()) == 1
 
 
-def test_reflection_requires_the_questions(installation_id):
+def test_reflection_requires_every_part(installation_id):
     cards = check_in_and_list(installation_id)
     selection = select(installation_id, cards[0]["id"]).json()
     body = {"activity_selection_id": selection["id"], "local_date": "2026-10-05"}
+    photo_id = upload_photo(installation_id, UPLOADED)
 
     assert client.post("/reflections", json=body, headers=headers(installation_id)).status_code == 422
     assert reflect(installation_id, selection["id"], mood_change="great").status_code == 422
     assert reflect(installation_id, selection["id"], thought_about_ex="sometimes").status_code == 422
-    no_activity = {"local_date": "2026-10-05", **ANSWERS}
+    # Each of the four inputs is required.
+    assert reflect(installation_id, selection["id"], photo_id=None).status_code == 422
+    assert reflect(installation_id, selection["id"], photo_id=photo_id, note=None).status_code == 422
+    assert reflect(installation_id, selection["id"], photo_id=photo_id, note="   \n\t ").status_code == 422
+    assert reflect(installation_id, selection["id"], photo_id=photo_id, thought_about_ex=None).status_code == 422
+    assert reflect(installation_id, selection["id"], photo_id=photo_id, mood_change=None).status_code == 422
+    no_activity = {"local_date": "2026-10-05", "note": "x", "photo_id": photo_id, **ANSWERS}
     assert client.post("/reflections", json=no_activity, headers=headers(installation_id)).status_code == 422
+
+    # Nothing was saved or completed, and the photo is still free to use.
+    assert current(installation_id) is not None  # still in progress
+    assert client.get("/reflections", headers=headers(installation_id)).json() == []
+    assert summary(installation_id)["activities_completed"] == 0
+    assert reflect(installation_id, selection["id"], photo_id=photo_id, note="  Calm  ").json()["note"] == "Calm"
+
+
+def test_reflection_photo_must_be_this_installations_uploaded_photo(installation_id, other_installation_id):
+    cards = check_in_and_list(installation_id)
+    selection = select(installation_id, cards[0]["id"]).json()
+    theirs = upload_photo(other_installation_id, UPLOADED)
+    assert reflect(installation_id, selection["id"], photo_id=theirs).status_code == 404
+    assert reflect(installation_id, selection["id"], photo_id=999_999_999).status_code == 404
     assert current(installation_id) is not None  # still in progress
 
 
@@ -255,7 +292,7 @@ def test_other_installations_cannot_touch_my_activity(installation_id):
     cards = check_in_and_list(installation_id)
     selection = select(installation_id, cards[0]["id"]).json()
     stranger = str(uuid.uuid4())
-    assert reflect(stranger, selection["id"]).status_code == 404
+    assert reflect(stranger, selection["id"], photo_id=999_999_999).status_code == 404
     assert abandon(stranger, selection["id"]).status_code == 404
     assert current(stranger) is None
 
@@ -312,3 +349,15 @@ def test_progress_summary(installation_id, fake_s3):
     assert reached["Completed a first activity"] == "2026-10-05"
     assert reached["Added a first photo memory"] == "2026-10-05"
     assert reached["5 activities milestone"] is None
+
+
+def test_older_apps_noticed_answer_is_kept_in_the_note(installation_id):
+    # Builds from before the form had one text field sent a second "noticed".
+    cards = check_in_and_list(installation_id)
+    first = select(installation_id, cards[0]["id"]).json()
+    memory = reflect(installation_id, first["id"], note="Calmer outside", noticed="Birds").json()
+    assert memory["note"] == "Calmer outside\n\nBirds"
+
+    second = select(installation_id, cards[1]["id"]).json()
+    only_noticed = reflect(installation_id, second["id"], note=None, noticed="  Birds  ").json()
+    assert only_noticed["note"] == "Birds"

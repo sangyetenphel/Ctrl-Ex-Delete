@@ -16,7 +16,9 @@ from app.schemas import (
     ActivitySelection,
     Bookmark,
     CheckIn,
+    CheckInAnswers,
     CheckInCreate,
+    CheckInStatus,
     Milestone,
     ProgressSummary,
     Recommendation,
@@ -39,8 +41,10 @@ CHECK_IN_COLUMNS = """
     hardest_areas, local_date, created_at
 """
 
+# category_label is kept in step with activity_categories by the database
+# (migration 011), so it's the same name everywhere.
 ACTIVITY_COLUMNS = """
-    a.id, a.slug, a.title, a.category, a.category_label,
+    a.id, a.slug, a.title, a.category, a.category_label, a.energy_level,
     a.duration_minutes, a.instructions, a.why_it_fits
 """
 
@@ -68,10 +72,16 @@ def _ensure_installation(conn: psycopg.Connection, installation_id: UUID) -> Non
 # Check-ins
 # ─────────────────────────────────────────────
 
-def create_check_in(installation_id: UUID, data: CheckInCreate) -> CheckIn:
+def create_check_in(installation_id: UUID, data: CheckInCreate) -> tuple[CheckIn, bool]:
     """
     Saves the check-in AND its recommendations in one transaction, so a saved
     check-in always has its recommendations ready for the Activities screen.
+
+    One check-in per local calendar day (migration 014): if this installation
+    already checked in on data.local_date, nothing is added and that check-in
+    is returned instead. This also covers a repeated tap, a retry after a lost
+    response, and two requests at once (the second waits on the unique index,
+    then finds the first). Returns (check_in, created).
     """
     with _connect() as conn:
         _ensure_installation(conn, installation_id)
@@ -81,6 +91,7 @@ def create_check_in(installation_id: UUID, data: CheckInCreate) -> CheckIn:
                 (installation_id, feeling, contact_urge, energy_level,
                  hardest_areas, local_date)
             VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (installation_id, local_date) WHERE counts_for_day DO NOTHING
             RETURNING {CHECK_IN_COLUMNS}
             """,
             (
@@ -92,9 +103,32 @@ def create_check_in(installation_id: UUID, data: CheckInCreate) -> CheckIn:
                 data.local_date,
             ),
         ).fetchone()
+        if row is None:
+            return _check_in_for_day(conn, installation_id, data.local_date), False
         check_in = CheckIn(**row)
         _create_recommendations(conn, check_in)
-    return check_in
+    return check_in, True
+
+
+def _check_in_for_day(conn: psycopg.Connection, installation_id: UUID, local_date: date) -> CheckIn | None:
+    row = conn.execute(
+        f"""
+        SELECT {CHECK_IN_COLUMNS} FROM check_ins
+        WHERE installation_id = %s AND local_date = %s AND counts_for_day
+        """,
+        (installation_id, local_date),
+    ).fetchone()
+    return CheckIn(**row) if row else None
+
+
+def get_check_in_status(installation_id: UUID, local_date: date) -> CheckInStatus:
+    """Whether this installation already checked in on its local day `local_date`."""
+    with _connect() as conn:
+        check_in = _check_in_for_day(conn, installation_id, local_date)
+        has_any = check_in is not None or conn.execute(
+            "SELECT EXISTS (SELECT 1 FROM check_ins WHERE installation_id = %s)", (installation_id,)
+        ).fetchone()["exists"]
+    return CheckInStatus(local_date=local_date, check_in=check_in, has_any_check_in=has_any)
 
 
 def list_check_ins(installation_id: UUID) -> list[CheckIn]:
@@ -120,7 +154,8 @@ def _create_recommendations(conn: psycopg.Connection, check_in: CheckIn) -> None
         "SELECT * FROM activities WHERE is_active ORDER BY sort_order, id"
     ).fetchall()
     # Saved activities, except ones completed in the last few days: those wait
-    # a bit before jumping to the front again.
+    # a bit before they can be offered again (as the last card, if they suit
+    # today's check-in).
     saved_ids = {
         row["activity_id"]
         for row in conn.execute(
@@ -198,7 +233,7 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
     with _connect() as conn:
         latest = conn.execute(
             """
-            SELECT id, local_date
+            SELECT id, local_date, feeling, contact_urge, energy_level, hardest_areas
             FROM check_ins
             WHERE installation_id = %s
             ORDER BY created_at DESC, id DESC
@@ -226,9 +261,12 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
             LEFT JOIN activity_bookmarks b
                    ON b.installation_id = r.installation_id AND b.activity_id = r.activity_id
             WHERE r.check_in_id = %s AND r.installation_id = %s
+              -- A retired activity is only shown if it was already chosen.
+              AND (a.is_active OR s.status IS NOT NULL)
             ORDER BY r.position
+            LIMIT %s
             """,
-            (latest["id"], installation_id),
+            (latest["id"], installation_id, recommendation_rules.MAX_RECOMMENDATIONS),
         ).fetchall()
 
     recommendations = [
@@ -246,6 +284,12 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
     return RecommendationsResponse(
         check_in_id=latest["id"],
         check_in_local_date=latest["local_date"],
+        check_in=CheckInAnswers(
+            feeling=latest["feeling"],
+            contact_urge=latest["contact_urge"],
+            energy_level=latest["energy_level"],
+            hardest_areas=latest["hardest_areas"],
+        ),
         recommendations=recommendations,
     )
 
@@ -275,7 +319,11 @@ def select_recommendation(
     """
     with _connect() as conn:
         owned = conn.execute(
-            "SELECT 1 FROM recommendations WHERE id = %s AND installation_id = %s",
+            """
+            SELECT a.is_active
+            FROM recommendations r JOIN activities a ON a.id = r.activity_id
+            WHERE r.id = %s AND r.installation_id = %s
+            """,
             (recommendation_id, installation_id),
         ).fetchone()
         if owned is None:
@@ -302,6 +350,10 @@ def select_recommendation(
                 "You already have an activity in progress. "
                 "Finish its reflection or change activity first."
             )
+
+        # A retired activity can still be finished (above), but not started.
+        if not owned["is_active"]:
+            raise Conflict("This activity is no longer offered. Check in again for new ideas.")
 
         try:
             with conn.transaction():  # savepoint, so we can look around after a clash
@@ -529,7 +581,7 @@ def take_orphan_photo_keys(installation_id: UUID) -> list[str]:
 # ─────────────────────────────────────────────
 
 REFLECTION_QUERY = """
-    SELECT rf.id, rf.activity_selection_id, rf.note, rf.noticed,
+    SELECT rf.id, rf.activity_selection_id, rf.note,
            rf.thought_about_ex, rf.mood_change, rf.local_date, rf.created_at,
            rf.photo_id, p.object_key AS photo_key,
            CASE WHEN a.id IS NULL THEN NULL ELSE to_jsonb(a) END AS activity
@@ -590,14 +642,14 @@ def create_reflection(installation_id: UUID, data: ReflectionCreate) -> tuple[di
             inserted = conn.execute(
                 """
                 INSERT INTO reflections
-                    (installation_id, activity_selection_id, photo_id, note, noticed,
+                    (installation_id, activity_selection_id, photo_id, note,
                      thought_about_ex, mood_change, local_date)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id, created_at
                 """,
                 (
                     installation_id, data.activity_selection_id, data.photo_id,
-                    data.note, data.noticed, data.thought_about_ex,
+                    data.note, data.thought_about_ex,
                     data.mood_change, data.local_date,
                 ),
             ).fetchone()
@@ -731,6 +783,7 @@ def get_insight_records(installation_id: UUID, start: date, end: date) -> dict:
       check_ins:   [{local_date, contact_urge}]
       completed:   [{completed_on, category}]            (status completed only)
       moods:       [{local_date, mood_change, category}] (reflections of completed activities)
+      categories:  [{category, label}]                   (every category, in display order)
     """
     with _connect() as conn:
         check_ins = conn.execute(
@@ -763,7 +816,11 @@ def get_insight_records(installation_id: UUID, start: date, end: date) -> dict:
             WHERE rf.installation_id = %s AND s.status = 'completed'
               AND rf.mood_change IS NOT NULL
               AND rf.local_date BETWEEN %s AND %s
+            ORDER BY rf.local_date, rf.created_at
             """,
             (installation_id, start, end),
         ).fetchall()
-    return {"check_ins": check_ins, "completed": completed, "moods": moods}
+        categories = conn.execute(
+            "SELECT category, label FROM activity_categories ORDER BY sort_order, category"
+        ).fetchall()
+    return {"check_ins": check_ins, "completed": completed, "moods": moods, "categories": categories}

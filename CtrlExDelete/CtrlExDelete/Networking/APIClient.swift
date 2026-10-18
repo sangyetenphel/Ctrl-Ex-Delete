@@ -22,9 +22,17 @@ struct APIClient {
 
     // MARK: Endpoints
 
-    /// `POST /check-ins`: saves today's check-in.
+    /// `POST /check-ins`: saves today's check-in. One per local day: if there
+    /// already is one for `localDate` (a second tap, a retry), the server
+    /// returns that one instead of adding another.
     func submitCheckIn(_ checkIn: CheckInRequest) async throws -> CheckInResponse {
         try await send("POST", "check-ins", body: try encoder.encode(checkIn))
+    }
+
+    /// `GET /check-ins/today`: whether the user has checked in on `localDate`
+    /// ("YYYY-MM-DD", their own calendar day).
+    func checkInStatus(localDate: String) async throws -> CheckInStatusDTO {
+        try await send("GET", "check-ins/today", query: [URLQueryItem(name: "local_date", value: localDate)])
     }
 
     /// `GET /recommendations/latest`: activity cards for the latest check-in.
@@ -125,7 +133,7 @@ struct APIClient {
         if !query.isEmpty { url.append(queryItems: query) }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue(InstallationID.current.uuidString, forHTTPHeaderField: "X-Installation-ID")
+        request.setValue(try InstallationID.current().uuidString, forHTTPHeaderField: "X-Installation-ID")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             request.httpBody = body
@@ -182,7 +190,10 @@ enum APIError: LocalizedError {
             return "You seem to be offline. Check your connection and try again."
         case .cannotReachServer:
             #if DEBUG
-            return "Couldn\u{2019}t reach the server at \(APIConfig.baseURL.absoluteString). Is the backend running?"
+            if APIConfig.isMisconfiguredForDevice {
+                return "This iPhone is set to reach the server at \(APIConfig.baseURL.absoluteString), which is the phone itself. Set your Mac\u{2019}s address in Config/DeveloperSettings.xcconfig and run again from Xcode."
+            }
+            return "Couldn\u{2019}t reach the server at \(APIConfig.baseURL.absoluteString). Is the backend running, and is this device on the same network as the Mac?"
             #else
             return "We couldn\u{2019}t reach the server. Please try again in a moment."
             #endif

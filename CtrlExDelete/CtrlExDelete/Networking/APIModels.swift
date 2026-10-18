@@ -16,7 +16,7 @@ struct CheckInRequest: Encodable {
 }
 
 /// Response of `POST /check-ins` (201): the saved check-in.
-struct CheckInResponse: Decodable {
+struct CheckInResponse: Codable {
     let id: Int
     let installationId: UUID
     let feeling: String
@@ -29,12 +29,28 @@ struct CheckInResponse: Decodable {
 
 // MARK: - Recommendations
 
+/// Response of `GET /check-ins/today`: has the user checked in on their local day?
+struct CheckInStatusDTO: Decodable {
+    let localDate: String
+    let checkIn: CheckInResponse?   // nil = not yet today
+    let hasAnyCheckIn: Bool         // false for someone who has never checked in
+}
+
 /// Response of `GET /recommendations/latest`.
-/// `checkInId` is nil when this installation hasn't checked in yet.
+/// `checkInId` and `checkIn` are nil when this installation hasn't checked in yet.
 struct RecommendationsResponse: Decodable {
     let checkInId: Int?
     let checkInLocalDate: String?
+    let checkIn: CheckInAnswersDTO?     // the answers these cards were chosen from
     let recommendations: [RecommendationDTO]
+}
+
+/// The check-in answers behind a set of recommendations.
+struct CheckInAnswersDTO: Decodable {
+    let feeling: Emotion
+    let contactUrge: Int
+    let energyLevel: EnergyLevel
+    let hardestAreas: [HardestArea]
 }
 
 struct RecommendationDTO: Decodable {
@@ -55,12 +71,12 @@ enum SelectionStatus: String, Decodable {
     case abandoned
 }
 
-struct ActivityDTO: Decodable {
+struct ActivityDTO: Codable {
     let id: Int
     let slug: String
     let title: String
     let category: String        // e.g. "mindfulness_rest"
-    let categoryLabel: String   // e.g. "Gentle Reset"
+    let categoryLabel: String   // e.g. "Mindfulness & Rest"
     let durationMinutes: Int
     let instructions: String
     let whyItFits: String
@@ -84,7 +100,7 @@ struct CurrentSelectionResponse: Decodable {
 }
 
 /// The activity in progress.
-struct SelectedActivityDTO: Decodable {
+struct SelectedActivityDTO: Codable {
     let selectionId: Int
     let recommendationId: Int
     let checkInId: Int
@@ -110,24 +126,23 @@ struct ScrapbookPhotoDTO: Decodable, Identifiable {
 // MARK: - Reflections (scrapbook memories)
 
 /// Body of `POST /reflections` ("Add to my scrapbook"): completes the activity
-/// in progress. Both questions are required; nil notes/photo are left out.
+/// in progress. Everything is required: both answers, the note ("What did
+/// you notice?", not blank) and the id of a photo already uploaded to S3.
 struct ReflectionRequest: Encodable {
     let activitySelectionId: Int
     let thoughtAboutEx: ThoughtAboutEx
     let moodChange: MoodChange
-    let note: String?
-    let noticed: String?
-    let photoId: Int?
+    let note: String
+    let photoId: Int
     let localDate: String
 }
 
 /// One saved memory. `imageUrl` is temporary (about an hour), so don't store it.
-struct ReflectionDTO: Decodable, Identifiable {
+struct ReflectionDTO: Codable, Identifiable {
     let id: Int
     let activitySelectionId: Int?
     let activity: ActivityDTO?
-    let note: String?
-    let noticed: String?
+    let note: String?           // the answer to "What did you notice?"
     let thoughtAboutEx: ThoughtAboutEx?
     let moodChange: MoodChange?
     let localDate: String
@@ -147,7 +162,7 @@ struct BookmarkDTO: Decodable {
 // MARK: - Progress
 
 /// Response of `GET /progress/summary`.
-struct ProgressSummaryDTO: Decodable {
+struct ProgressSummaryDTO: Codable {
     let journeyStartedOn: String?   // "YYYY-MM-DD" of the first check-in
     let checkIns: Int
     let activitiesSelected: Int
@@ -157,7 +172,7 @@ struct ProgressSummaryDTO: Decodable {
     let milestones: [MilestoneDTO]
 }
 
-struct MilestoneDTO: Decodable {
+struct MilestoneDTO: Codable {
     let label: String
     let reachedOn: String?          // nil = not reached yet
 }
@@ -175,6 +190,7 @@ struct InsightsDTO: Decodable {
     let completed: Int
     let urges: [UrgePointDTO]
     let moods: [MoodCountDTO]
+    let moodPoints: [MoodPointDTO]?     // the mood chart; nil from an older backend
     let categories: [CategoryShareDTO]
     let takeaway: TakeawayDTO
     let observations: [String]
@@ -182,8 +198,19 @@ struct InsightsDTO: Decodable {
 
 struct UrgePointDTO: Decodable {
     let label: String       // "Mon" or "W1"
+    let start: String       // "YYYY-MM-DD", the bar's first day
     let value: Int?         // average urge 1–10; nil = no check-in
     let checkIns: Int
+}
+
+/// One bar of "Mood after activities". `value` is the backend's average of
+/// fixed internal scores, used only for the bar's height; it is not a rating
+/// the user gave, so the app never shows it. nil = a gap (no answers).
+struct MoodPointDTO: Decodable {
+    let label: String       // "Mon" or "W1"
+    let start: String       // "YYYY-MM-DD"
+    let value: Double?      // 1–10
+    let answers: [MoodChange]
 }
 
 struct MoodCountDTO: Decodable {
