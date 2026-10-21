@@ -339,12 +339,6 @@ def test_reason_never_mentions_an_answer_the_user_did_not_give():
                 assert not any(FEELING_REASONS[o] in text for o in other_feelings)
 
 
-def test_saved_card_reason_says_it_was_saved():
-    check_in = make_check_in(feeling="heavy")
-    text = reason(activity(1, "mindfulness_rest", 10, "low"), check_in, is_saved=True)
-    assert text.startswith("You saved this for later. Today feels heavy")
-
-
 def test_second_card_of_a_kind_gets_a_different_true_reason():
     check_in = make_check_in(feeling="heavy", hardest_areas=["wanting_answers"])
     first = reason(activity(1, "mindfulness_rest", 10, "low"), check_in)

@@ -224,7 +224,6 @@ ENERGY_REASONS = {
     "medium": "It fits the medium energy you have today.",
     "high": "It makes good use of the energy you have today.",
 }
-SAVED_PREFIX = "You saved this for later. "
 
 
 def reasons(activity: dict, check_in: CheckIn) -> list[str]:
@@ -256,7 +255,6 @@ def reasons(activity: dict, check_in: CheckIn) -> list[str]:
 def reason(
     activity: dict,
     check_in: CheckIn,
-    is_saved: bool = False,
     already_used: set[str] = frozenset(),
 ) -> str | None:
     """
@@ -269,5 +267,4 @@ def reason(
     options = reasons(activity, check_in)
     if not options:
         return None
-    sentence = next((text for text in options if text not in already_used), options[0])
-    return SAVED_PREFIX + sentence if is_saved else sentence
+    return next((text for text in options if text not in already_used), options[0])

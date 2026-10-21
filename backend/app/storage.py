@@ -220,11 +220,9 @@ def _create_recommendations(conn: psycopg.Connection, check_in: CheckIn) -> None
     by_id = {activity["id"]: activity for activity in active_activities}
     used_reasons: set[str] = set()
     for position, activity_id in enumerate(activity_ids, start=1):
-        reason = recommendation_rules.reason(
-            by_id[activity_id], check_in, activity_id in saved_ids, used_reasons
-        )
+        reason = recommendation_rules.reason(by_id[activity_id], check_in, used_reasons)
         if reason:
-            used_reasons.add(reason.removeprefix(recommendation_rules.SAVED_PREFIX))
+            used_reasons.add(reason)
         conn.execute(
             """
             INSERT INTO recommendations
@@ -289,9 +287,9 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
     used_reasons: set[str] = set()
     for row in rows:
         if row["reason"] is None:
-            row["reason"] = recommendation_rules.reason(row, answers, row["is_saved"], used_reasons)
+            row["reason"] = recommendation_rules.reason(row, answers, used_reasons)
         if row["reason"]:
-            used_reasons.add(row["reason"].removeprefix(recommendation_rules.SAVED_PREFIX))
+            used_reasons.add(row["reason"])
         del row["involves_movement"]
 
     recommendations = [
