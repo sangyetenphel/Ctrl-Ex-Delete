@@ -259,7 +259,8 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
             SELECT r.id AS recommendation_id, r.position, r.reason,
                    s.status, s.selected_at,
                    CASE WHEN s.status = 'completed' THEN s.ended_at END AS completed_at,
-                   (b.activity_id IS NOT NULL) AS is_saved, {ACTIVITY_COLUMNS}
+                   (b.activity_id IS NOT NULL) AS is_saved, a.involves_movement,
+                   {ACTIVITY_COLUMNS}
             FROM recommendations r
             JOIN activities a ON a.id = r.activity_id
             -- At most one attempt per card that wasn't abandoned.
@@ -275,6 +276,23 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
             """,
             (latest["id"], installation_id, recommendation_rules.MAX_RECOMMENDATIONS),
         ).fetchall()
+
+    answers = CheckInAnswers(
+        feeling=latest["feeling"],
+        contact_urge=latest["contact_urge"],
+        energy_level=latest["energy_level"],
+        hardest_areas=latest["hardest_areas"],
+    )
+    # Cards made before migration 015 have no saved reason. Work it out from
+    # the same check-in answers (the result never changes for a given card),
+    # so a check-in made earlier today still gets personal reasons.
+    used_reasons: set[str] = set()
+    for row in rows:
+        if row["reason"] is None:
+            row["reason"] = recommendation_rules.reason(row, answers, row["is_saved"], used_reasons)
+        if row["reason"]:
+            used_reasons.add(row["reason"].removeprefix(recommendation_rules.SAVED_PREFIX))
+        del row["involves_movement"]
 
     recommendations = [
         Recommendation(
@@ -292,12 +310,7 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
     return RecommendationsResponse(
         check_in_id=latest["id"],
         check_in_local_date=latest["local_date"],
-        check_in=CheckInAnswers(
-            feeling=latest["feeling"],
-            contact_urge=latest["contact_urge"],
-            energy_level=latest["energy_level"],
-            hardest_areas=latest["hardest_areas"],
-        ),
+        check_in=answers,
         recommendations=recommendations,
     )
 

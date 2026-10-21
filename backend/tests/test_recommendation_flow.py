@@ -144,3 +144,12 @@ def test_cards_carry_a_reason_from_todays_answers(installation_id):
     # Loading the cards again shows the same saved text.
     again = client.get("/recommendations/latest", headers=headers(installation_id)).json()
     assert [r["reason"] for r in again["recommendations"]] == reasons
+
+
+def test_cards_made_before_reasons_existed_still_get_one(installation_id):
+    body = check_in_and_get_cards(installation_id, LOW_ENERGY_DAY)
+    # Like a card saved before migration 015: no stored reason.
+    with psycopg.connect(settings.database_url) as conn:
+        conn.execute("UPDATE recommendations SET reason = NULL WHERE check_in_id = %s", (body["check_in_id"],))
+    again = client.get("/recommendations/latest", headers=headers(installation_id)).json()
+    assert [r["reason"] for r in again["recommendations"]] == [r["reason"] for r in body["recommendations"]]
