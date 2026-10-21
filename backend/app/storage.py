@@ -217,14 +217,21 @@ def _create_recommendations(conn: psycopg.Connection, check_in: CheckIn) -> None
         check_in, active_activities, saved_ids, recent_ids
     )
 
+    by_id = {activity["id"]: activity for activity in active_activities}
+    used_reasons: set[str] = set()
     for position, activity_id in enumerate(activity_ids, start=1):
+        reason = recommendation_rules.reason(
+            by_id[activity_id], check_in, activity_id in saved_ids, used_reasons
+        )
+        if reason:
+            used_reasons.add(reason.removeprefix(recommendation_rules.SAVED_PREFIX))
         conn.execute(
             """
             INSERT INTO recommendations
-                (installation_id, check_in_id, activity_id, position)
-            VALUES (%s, %s, %s, %s)
+                (installation_id, check_in_id, activity_id, position, reason)
+            VALUES (%s, %s, %s, %s, %s)
             """,
-            (check_in.installation_id, check_in.id, activity_id, position),
+            (check_in.installation_id, check_in.id, activity_id, position, reason),
         )
 
 
@@ -249,7 +256,7 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
 
         rows = conn.execute(
             f"""
-            SELECT r.id AS recommendation_id, r.position,
+            SELECT r.id AS recommendation_id, r.position, r.reason,
                    s.status, s.selected_at,
                    CASE WHEN s.status = 'completed' THEN s.ended_at END AS completed_at,
                    (b.activity_id IS NOT NULL) AS is_saved, {ACTIVITY_COLUMNS}
@@ -273,6 +280,7 @@ def get_latest_recommendations(installation_id: UUID) -> RecommendationsResponse
         Recommendation(
             id=row.pop("recommendation_id"),
             position=row.pop("position"),
+            reason=row.pop("reason"),
             status=row.pop("status"),
             is_saved=row.pop("is_saved"),
             selected_at=row.pop("selected_at"),
@@ -784,6 +792,7 @@ def get_insight_records(installation_id: UUID, start: date, end: date) -> dict:
       completed:   [{completed_on, category}]            (status completed only)
       moods:       [{local_date, mood_change, category}] (reflections of completed activities)
       categories:  [{category, label}]                   (every category, in display order)
+      journey_started_on: the first check-in's local_date ever (None if none)
     """
     with _connect() as conn:
         check_ins = conn.execute(
@@ -823,4 +832,14 @@ def get_insight_records(installation_id: UUID, start: date, end: date) -> dict:
         categories = conn.execute(
             "SELECT category, label FROM activity_categories ORDER BY sort_order, category"
         ).fetchall()
-    return {"check_ins": check_ins, "completed": completed, "moods": moods, "categories": categories}
+        journey_started_on = conn.execute(
+            "SELECT min(local_date) AS first FROM check_ins WHERE installation_id = %s",
+            (installation_id,),
+        ).fetchone()["first"]
+    return {
+        "check_ins": check_ins,
+        "completed": completed,
+        "moods": moods,
+        "categories": categories,
+        "journey_started_on": journey_started_on,
+    }

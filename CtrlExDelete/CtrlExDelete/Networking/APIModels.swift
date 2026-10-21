@@ -57,6 +57,7 @@ struct RecommendationDTO: Decodable {
     let id: Int
     let position: Int
     let activity: ActivityDTO
+    let reason: String?         // why it fits this user's check-in; nil on older cards
     let isSaved: Bool           // bookmarked with "Save for later"
     let status: SelectionStatus?  // nil = not chosen (or the attempt was abandoned)
     let selectedAt: String?
@@ -197,7 +198,7 @@ struct InsightsDTO: Decodable {
 }
 
 struct UrgePointDTO: Decodable {
-    let label: String       // "Mon" or "W1"
+    let label: String       // "Mon", or the week's first day ("Oct 15")
     let start: String       // "YYYY-MM-DD", the bar's first day
     let value: Int?         // average urge 1–10; nil = no check-in
     let checkIns: Int
@@ -207,7 +208,7 @@ struct UrgePointDTO: Decodable {
 /// fixed internal scores, used only for the bar's height; it is not a rating
 /// the user gave, so the app never shows it. nil = a gap (no answers).
 struct MoodPointDTO: Decodable {
-    let label: String       // "Mon" or "W1"
+    let label: String       // "Mon", or the week's first day ("Oct 15")
     let start: String       // "YYYY-MM-DD"
     let value: Double?      // 1–10
     let answers: [MoodChange]

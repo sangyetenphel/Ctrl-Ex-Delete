@@ -190,3 +190,84 @@ def choose_activity_ids(
         fill_up_to(MAX_RECOMMENDATIONS)
 
     return [activity["id"] for activity in chosen]
+
+
+# ── Reasons ("Why this fits today") ─────────────
+# Each reason names one answer from today's check-in, then what the card's
+# category offers. Only answers that gave the activity points are used.
+
+FEELING_REASONS = {
+    "heavy": "Today feels heavy",
+    "getting_through": "You\u2019re getting through today",
+    "missing_them": "You\u2019re missing them today",
+    "hopeful": "You\u2019re feeling a little hopeful today",
+}
+
+HARDEST_AREA_REASONS = {
+    "feeling_lonely": "You said feeling lonely is one of the hardest parts right now",
+    "missing_relationship": "You said missing the relationship is one of the hardest parts right now",
+    "wanting_answers": "You said wanting answers is one of the hardest parts right now",
+    "resisting_contact": "You said not reaching out is one of the hardest parts right now",
+    "rebuilding_confidence": "You said rebuilding your confidence is one of the hardest parts right now",
+}
+
+CATEGORY_REASONS = {
+    "outdoor_movement": "getting outside or moving a little might help",
+    "mindfulness_rest": "something calm and quiet might help",
+    "solo_exploration": "doing something just for you might help",
+    "social_connection": "a small, low-pressure moment with someone might help",
+}
+
+HIGH_URGE_REASON = "Your urge to reach out is strong today, so a few minutes of gentle movement might help it pass."
+ENERGY_REASONS = {
+    "low": "It\u2019s gentle enough for the low energy you have today.",
+    "medium": "It fits the medium energy you have today.",
+    "high": "It makes good use of the energy you have today.",
+}
+SAVED_PREFIX = "You saved this for later. "
+
+
+def reasons(activity: dict, check_in: CheckIn) -> list[str]:
+    """
+    Every sentence that honestly explains this card, best first: the answers
+    that gave it points, most points first (ties: a strong urge, then the
+    hardest areas in the order given, then the feeling). With no such answer,
+    the energy match, if any. Empty if nothing in today's answers points to it.
+    """
+    category = activity["category"]
+    candidates = []  # (points, sentence)
+    if check_in.contact_urge >= HIGH_URGE and is_quick_gentle_movement(activity):
+        candidates.append((GENTLE_MOVEMENT_POINTS, HIGH_URGE_REASON))
+    for area in check_in.hardest_areas:
+        points = HARDEST_AREA_WEIGHTS[area].get(category, 0)
+        if points:
+            candidates.append((points, f"{HARDEST_AREA_REASONS[area]}, so {CATEGORY_REASONS[category]}."))
+    points = FEELING_WEIGHTS[check_in.feeling].get(category, 0)
+    if points:
+        candidates.append((points, f"{FEELING_REASONS[check_in.feeling]}, so {CATEGORY_REASONS[category]}."))
+    if candidates:
+        # sorted() is stable, so equal points keep the order above.
+        return [text for _, text in sorted(candidates, key=lambda c: c[0], reverse=True)]
+    if activity["energy_level"] == check_in.energy_level:
+        return [ENERGY_REASONS[check_in.energy_level]]
+    return []
+
+
+def reason(
+    activity: dict,
+    check_in: CheckIn,
+    is_saved: bool = False,
+    already_used: set[str] = frozenset(),
+) -> str | None:
+    """
+    One sentence on why this card fits today's check-in. Prefers a sentence
+    no earlier card used, so two cards of the same kind don't repeat each
+    other; repeats only when there's nothing else true to say. None if
+    nothing in today's answers points to it (the app then shows only the
+    activity's own why_it_fits).
+    """
+    options = reasons(activity, check_in)
+    if not options:
+        return None
+    sentence = next((text for text in options if text not in already_used), options[0])
+    return SAVED_PREFIX + sentence if is_saved else sentence

@@ -7,7 +7,14 @@ these call choose_activity_ids directly with made-up activity rows.
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from app.recommendation_rules import MAX_RECOMMENDATIONS, choose_activity_ids
+from app.recommendation_rules import (
+    FEELING_REASONS,
+    HARDEST_AREA_REASONS,
+    MAX_RECOMMENDATIONS,
+    choose_activity_ids,
+    reason,
+    reasons,
+)
 from app.schemas import CheckIn
 
 
@@ -279,3 +286,73 @@ def test_every_answer_can_change_the_cards():
     for change in ({"feeling": "heavy"}, {"contact_urge": 9}, {"energy_level": "low"},
                    {"energy_level": "high"}, {"hardest_areas": ["feeling_lonely"]}):
         assert choose_activity_ids(make_check_in(**{**base, **change}), CATALOG) != baseline, change
+
+
+# ── Reasons ("Why this fits today") ─────────────
+
+def test_reason_names_the_hardest_area_that_picked_the_card():
+    check_in = make_check_in(hardest_areas=["resisting_contact"])
+    text = reason(activity(2, "outdoor_movement", 20, "medium", moves=True), check_in)
+    assert text.startswith("You said not reaching out is one of the hardest parts right now")
+    assert "getting outside or moving a little" in text
+
+
+def test_reason_uses_the_feeling_when_no_hardest_area_points_to_it():
+    check_in = make_check_in(feeling="heavy", hardest_areas=["feeling_lonely"])
+    text = reason(activity(1, "mindfulness_rest", 10, "low"), check_in)
+    assert text == "Today feels heavy, so something calm and quiet might help."
+
+
+def test_reason_prefers_the_answer_with_more_points():
+    # feeling_lonely gives social_connection 3 points, hopeful gives it 1.
+    check_in = make_check_in(feeling="hopeful", hardest_areas=["feeling_lonely"])
+    text = reason(activity(4, "social_connection", 15, "low"), check_in)
+    assert text.startswith("You said feeling lonely")
+
+
+def test_strong_urge_reason_only_for_quick_gentle_movement():
+    check_in = make_check_in(contact_urge=9)
+    walk = activity(2, "outdoor_movement", 20, "medium", moves=True)
+    long_walk = activity(7, "outdoor_movement", 45, "medium", moves=True)
+    assert reason(walk, check_in).startswith("Your urge to reach out is strong today")
+    assert not (reason(long_walk, check_in) or "").startswith("Your urge")
+
+
+def test_reason_falls_back_to_energy_then_nothing():
+    check_in = make_check_in(feeling="getting_through", energy_level="medium")
+    solo = activity(8, "solo_exploration", 30, "medium")   # no answer points to it
+    assert reason(solo, check_in) == "It fits the medium energy you have today."
+    assert reason(activity(3, "solo_exploration", 120, "high"), check_in) is None
+
+
+def test_reason_never_mentions_an_answer_the_user_did_not_give():
+    for feeling in ("heavy", "getting_through", "missing_them", "hopeful"):
+        for area in ("feeling_lonely", "missing_relationship", "wanting_answers",
+                     "resisting_contact", "rebuilding_confidence"):
+            check_in = make_check_in(feeling=feeling, hardest_areas=[area], contact_urge=2)
+            for a in CATALOG:
+                text = reason(a, check_in) or ""
+                assert "urge" not in text
+                other_areas = set(HARDEST_AREA_REASONS) - {area}
+                assert not any(HARDEST_AREA_REASONS[o] in text for o in other_areas)
+                other_feelings = set(FEELING_REASONS) - {feeling}
+                assert not any(FEELING_REASONS[o] in text for o in other_feelings)
+
+
+def test_saved_card_reason_says_it_was_saved():
+    check_in = make_check_in(feeling="heavy")
+    text = reason(activity(1, "mindfulness_rest", 10, "low"), check_in, is_saved=True)
+    assert text.startswith("You saved this for later. Today feels heavy")
+
+
+def test_second_card_of_a_kind_gets_a_different_true_reason():
+    check_in = make_check_in(feeling="heavy", hardest_areas=["wanting_answers"])
+    first = reason(activity(1, "mindfulness_rest", 10, "low"), check_in)
+    second = reason(activity(6, "mindfulness_rest", 5, "low"), check_in, already_used={first})
+    assert first != second
+    assert {first, second} == set(reasons(activity(1, "mindfulness_rest", 10, "low"), check_in))
+    # With only one true thing to say, it is repeated rather than invented.
+    only = make_check_in(feeling="getting_through")
+    walk = activity(2, "outdoor_movement", 20, "medium", moves=True)
+    text = reason(walk, only)
+    assert reason(walk, only, already_used={text}) == text

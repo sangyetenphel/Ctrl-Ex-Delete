@@ -128,3 +128,19 @@ def test_card_text_never_assumes_the_users_answers():
             """
         ).fetchall()
     assert rows == []
+
+
+def test_cards_carry_a_reason_from_todays_answers(installation_id):
+    body = check_in_and_get_cards(installation_id, {
+        "feeling": "missing_them",
+        "contact_urge": 3,
+        "energy_level": "medium",
+        "hardest_areas": ["resisting_contact"],
+        "local_date": "2026-10-15",
+    })
+    reasons = [r["reason"] for r in body["recommendations"]]
+    assert reasons and all(reasons)
+    assert any("not reaching out" in r or "missing them" in r for r in reasons)
+    # Loading the cards again shows the same saved text.
+    again = client.get("/recommendations/latest", headers=headers(installation_id)).json()
+    assert [r["reason"] for r in again["recommendations"]] == reasons

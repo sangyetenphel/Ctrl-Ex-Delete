@@ -158,6 +158,7 @@ Activity cards for this installation's **most recent** check-in. Called when the
     {
       "id": 31,
       "position": 1,
+      "reason": "You said wanting answers is one of the hardest parts right now, so something calm and quiet might help.",
       "selected_at": null,
       "activity": {
         "id": 1,
@@ -176,6 +177,7 @@ Activity cards for this installation's **most recent** check-in. Called when the
 
 - `recommendations` is in card order (`position` 1, 2, 3), never more than 3, and never the same activity twice.
 - `id` is the **recommendation** id. Use it to record a selection.
+- `reason`: one sentence on why this card fits **this user's** check-in, naming the answer that picked it (a hardest area, the feeling, a strong urge, or, if none of those, the energy match). Built by `reason()` in `backend/app/recommendation_rules.py` from the same weights as the scoring, so it never mentions an answer the user didn't give. Saved with the card (migration `015`), so it doesn't change on reload. When two cards would say the same thing, the second uses its next true reason if it has one. A saved card starts with "You saved this for later." `null` for cards made before migration 015, or when nothing in the answers points to the card: show only `activity.why_it_fits` then. The app shows `reason` followed by `why_it_fits` under "Why this fits today".
 - `status`: `null` (not chosen, or the attempt was abandoned), `in_progress` or `completed`. `selected_at` and `completed_at` go with it.
 - `is_saved`: bookmarked with **Save for later**. A saved activity can only be the **last** card of a later check-in, and only if it suits that check-in (see below).
 - `energy_level` (`low`, `medium`, `high`): the activity's overall demand, separate from `duration_minutes`. Both are editorial estimates.
@@ -361,7 +363,7 @@ The Progress screen, calculated from this installation's records. `today` is the
 }
 ```
 
-- **urges:** one bar per day (week) or per week of the month (`W1` = days 1–7 … `W5`). `value` is the average `contact_urge` (1–10) of that bar's check-ins; `null` = no check-in (urges are never 0).
+- **urges:** one bar per day (week, labelled `Mon` … `Sun`) or per week of the month (days 1–7, 8–14, …, labelled with the bar's first day, e.g. `Oct 15`). In the month view, weeks that ended before the user's **first check-in ever** are left out and the week it falls in starts that day, so a new user doesn't see empty weeks before they started (someone who started Oct 18 sees `Oct 18`, `Oct 22`, `Oct 29`). The week view always has 7 bars. `value` is the average `contact_urge` (1–10) of that bar's check-ins; `null` = no check-in (urges are never 0).
 - **moods:** how many times each answer to "How do you feel now compared to before?" was given by completed activities in the period.
 - **mood_points:** the "Mood after activities" chart, one bar per day (week) or per week of the month, like `urges`. Only completed activities with a saved answer count, grouped by the day the reflection was saved (`local_date`), not the day the activity was chosen. `value` is the average of the answers' fixed internal scores (`worse` 2, `about_the_same` 5, `a_little_better` 7, `much_better` 9; defined once in `backend/app/insights.py` as `MOOD_SCORES`), rounded to one decimal. It only sizes the bar on a 0–10 scale; it is **not** a rating the user entered, so the app never shows it. `answers` lists the answers behind the bar for accessibility. `null` = no answers that day (a gap, never 0). Unrecognized answers are skipped, never guessed.
 - **categories:** completed activities only (by `completed_on`), grouped by the `category` key and named (and ordered) from `activity_categories`, so `label` matches the activity cards. Bookmarked, abandoned and in-progress activities never count, and each activity counts once.

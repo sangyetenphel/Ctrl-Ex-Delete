@@ -30,8 +30,9 @@ CATEGORIES = [
 ]
 
 
-def records(check_ins=(), completed=(), moods=()):
+def records(check_ins=(), completed=(), moods=(), journey_started_on=None):
     return {
+        "journey_started_on": journey_started_on,
         "check_ins": [{"local_date": d, "contact_urge": u} for d, u in check_ins],
         "completed": [{"completed_on": d, "category": c} for d, c in completed],
         "moods": [{"local_date": d, "mood_change": m, "category": c} for d, m, c in moods],
@@ -73,9 +74,31 @@ def test_urges_average_per_day_and_gaps_stay_empty():
 
 def test_month_has_one_bar_per_week_of_the_month():
     result = insights.build("month", TODAY, records(check_ins=[(date(2026, 10, 3), 8), (date(2026, 10, 30), 3)]))
-    assert [p.label for p in result.urges] == ["W1", "W2", "W3", "W4", "W5"]
+    assert [p.label for p in result.urges] == ["Oct 1", "Oct 8", "Oct 15", "Oct 22", "Oct 29"]
     assert (result.urges[4].start, result.urges[4].end) == (date(2026, 10, 29), date(2026, 10, 31))
     assert [p.value for p in result.urges] == [8, None, None, None, 3]
+
+
+def test_month_starts_at_the_first_check_in():
+    # Started on Oct 18: no empty weeks before it, and the first bar starts that day.
+    result = insights.build("month", date(2026, 10, 25), records(
+        check_ins=[(date(2026, 10, 18), 6), (date(2026, 10, 23), 4)],
+        journey_started_on=date(2026, 10, 18),
+    ))
+    assert [p.label for p in result.urges] == ["Oct 18", "Oct 22", "Oct 29"]
+    assert (result.urges[0].start, result.urges[0].end) == (date(2026, 10, 18), date(2026, 10, 21))
+    assert [p.value for p in result.urges] == [6, 4, None]
+    assert [p.label for p in result.mood_points] == ["Oct 18", "Oct 22", "Oct 29"]
+
+
+def test_month_keeps_every_week_for_someone_who_started_earlier():
+    result = insights.build("month", TODAY, records(journey_started_on=date(2026, 9, 20)))
+    assert [p.label for p in result.urges] == ["Oct 1", "Oct 8", "Oct 15", "Oct 22", "Oct 29"]
+
+
+def test_week_view_is_never_trimmed():
+    result = insights.build("week", TODAY, records(journey_started_on=date(2026, 10, 14)))
+    assert [p.label for p in result.urges] == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def test_categories_count_completed_only_with_percentages():
@@ -153,7 +176,7 @@ def test_mood_chart_month_view_averages_each_week():
         (date(2026, 10, 2), "worse", "outdoor_movement"),
         (date(2026, 10, 5), "much_better", "outdoor_movement"),
     ]))
-    assert result.mood_points[0].label == "W1"
+    assert result.mood_points[0].label == "Oct 1"
     assert result.mood_points[0].value == 5.5
     assert all(p.value is None for p in result.mood_points[1:])
 
@@ -268,6 +291,14 @@ def test_api_week_and_month_use_their_own_boundaries(installation_id):
     assert week["check_in_days"] == 1
     assert month["check_in_days"] == 2
     assert [p["value"] for p in month["urges"]][:2] == [9, 3]
+
+
+def test_api_month_starts_at_the_first_check_in(installation_id):
+    check_in(installation_id, "2026-10-13", 4)
+    month = get_insights(installation_id, "month")
+    assert [p["label"] for p in month["urges"]] == ["Oct 13", "Oct 15", "Oct 22", "Oct 29"]
+    assert (month["urges"][0]["start"], month["urges"][0]["end"]) == ("2026-10-13", "2026-10-14")
+    assert month["urges"][0]["value"] == 4
 
 
 def test_api_deleting_a_memory_keeps_the_completion(installation_id):

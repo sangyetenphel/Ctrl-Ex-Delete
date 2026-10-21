@@ -81,6 +81,10 @@ class Recommendation(BaseModel):
     id: int
     position: int
     activity: Activity
+    # Why this card fits today's check-in, naming the answer behind it
+    # (recommendation_rules.reason). null for older cards or when no answer
+    # points to it; the app then shows only activity.why_it_fits.
+    reason: str | None = None
     is_saved: bool = False                 # bookmarked with "Save for later"
     status: SelectionStatus | None = None  # null = not chosen (or abandoned)
     selected_at: datetime | None = None
@@ -231,7 +235,7 @@ class ProgressSummary(BaseModel):
 
 class UrgePoint(BaseModel):
     """One bar: a day (week view) or a week of the month (month view)."""
-    label: str                 # "Mon" … "Sun", or "W1" … "W5"
+    label: str                 # "Mon" … "Sun", or the week's first day ("Oct 15")
     start: date
     end: date
     value: int | None          # average urge (1–10); null = no check-in
@@ -245,7 +249,7 @@ class MoodPoint(BaseModel):
     answers given then (see insights.MOOD_SCORES), only for sizing the bar;
     it is not a rating the user entered. null = no completed activity.
     """
-    label: str                 # "Mon" … "Sun", or "W1" … "W5"
+    label: str                 # "Mon" … "Sun", or the week's first day ("Oct 15")
     start: date
     end: date
     value: float | None        # 1–10 scale, one decimal; null = gap

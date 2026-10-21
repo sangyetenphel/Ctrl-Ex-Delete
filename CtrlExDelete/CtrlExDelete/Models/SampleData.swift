@@ -160,11 +160,15 @@ struct Activity: Identifiable {
     init(recommendation: RecommendationDTO) {
         self.init(activity: recommendation.activity,
                   recommendationId: recommendation.id,
+                  reason: recommendation.reason,
                   isCompleted: recommendation.status == .completed,
                   isSaved: recommendation.isSaved)
     }
 
-    init(activity: ActivityDTO, recommendationId: Int, isCompleted: Bool = false, isSaved: Bool = false) {
+    /// `reason` (from the user's own check-in) comes first, then the
+    /// activity's general description.
+    init(activity: ActivityDTO, recommendationId: Int, reason: String? = nil,
+         isCompleted: Bool = false, isSaved: Bool = false) {
         self.recommendationId = recommendationId
         self.isCompleted = isCompleted
         self.isSaved = isSaved
@@ -172,7 +176,7 @@ struct Activity: Identifiable {
         category = "\(activity.categoryLabel) · \(Self.durationText(minutes: activity.durationMinutes))"
         title = activity.title
         instructions = activity.instructions
-        whyItFits = activity.whyItFits
+        whyItFits = [reason, activity.whyItFits].compactMap { $0 }.joined(separator: " ")
         (icon, background, accent) = Self.palette(for: activity.category)
     }
 
