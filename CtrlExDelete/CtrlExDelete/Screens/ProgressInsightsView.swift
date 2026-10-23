@@ -44,7 +44,9 @@ struct ProgressInsightsView: View {
                         cards(for: data)
                     }
 
-                    OutlineButton(title: "Moving-forward check-in \u{2192}") {
+                    // The only way into the farewell flow: always the readiness
+                    // questions first, even after an earlier scrapbook.
+                    OutlineButton(title: "Ready to move forward?") {
                         router.go(to: .movingForward)
                     }
                 }

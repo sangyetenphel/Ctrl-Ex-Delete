@@ -23,6 +23,14 @@ MoodChange = Literal["worse", "about_the_same", "a_little_better", "much_better"
 # An "I'll try this" choice: in progress until its reflection is saved
 # (completed) or the user picks "Change activity" (abandoned).
 SelectionStatus = Literal["in_progress", "completed", "abandoned"]
+# The moving-forward reflection questions, in the order the app shows them.
+MovingForwardQuestion = Literal[
+    "without_overwhelm",     # Can you think about the relationship without feeling overwhelmed?
+    "own_routines",          # Are you building routines that don't include your ex?
+    "urge_manageable",       # Has the urge to contact them become manageable?
+    "connected_to_self",     # Do you feel more connected to yourself?
+    "ready_not_pressured",   # Are you choosing to move forward because you feel ready, not pressured?
+]
 
 
 # ─────────────────────────────────────────────
@@ -284,3 +292,78 @@ class InsightsResponse(BaseModel):
     categories: list[CategoryShare]
     takeaway: Takeaway
     observations: list[str]
+
+
+# ─────────────────────────────────────────────
+# Moving forward and the farewell scrapbook
+# ─────────────────────────────────────────────
+
+class MovingForwardSave(BaseModel):
+    """
+    What the app SENDS when the user chooses "I'm ready to move forward".
+    All five readiness questions must be ticked, like the app requires.
+    """
+    reflected_on: list[MovingForwardQuestion]
+    local_date: date                     # the user's calendar day
+
+    @model_validator(mode="after")
+    def all_questions_ticked(self):
+        order = list(MovingForwardQuestion.__args__)
+        missing = [question for question in order if question not in self.reflected_on]
+        if missing:
+            raise ValueError(f"All five readiness questions must be ticked (missing: {', '.join(missing)}).")
+        self.reflected_on = order        # each once, in the app's order
+        return self
+
+
+class MovingForward(BaseModel):
+    reflected_on: list[MovingForwardQuestion]
+    moved_forward_on: date        # the day they first chose to move forward
+    updated_at: datetime
+
+
+class MovingForwardResponse(BaseModel):
+    moving_forward: MovingForward | None   # null = not chosen yet
+
+
+class FarewellMemory(BaseModel):
+    """A saved reflection, as written. image_url is temporary (about 1 hour)."""
+    id: int
+    note: str | None
+    thought_about_ex: ThoughtAboutEx | None
+    mood_change: MoodChange | None
+    local_date: date
+    created_at: datetime
+    photo_id: int | None
+    image_url: str | None
+
+
+class FarewellActivity(BaseModel):
+    """A completed activity, with its memory if one is still saved."""
+    selection_id: int
+    activity: Activity
+    completed_on: date
+    memory: FarewellMemory | None
+
+
+class FarewellCheckIn(BaseModel):
+    id: int
+    local_date: date
+    feeling: Feeling
+    contact_urge: int
+    energy_level: EnergyLevel
+    hardest_areas: list[HardestArea]
+
+
+class FarewellScrapbook(BaseModel):
+    """
+    GET /farewell-scrapbook: the installation's whole saved journey, oldest
+    first, for the keepsake PDF the app makes. Nothing is summarised or left
+    out here; the app lets the user exclude entries from their copy.
+    """
+    journey_started_on: date | None    # first check-in
+    journey_last_on: date | None       # latest dated record of any kind
+    check_ins: list[FarewellCheckIn]
+    completed_activities: list[FarewellActivity]
+    other_memories: list[FarewellMemory]   # memories not tied to a completed activity
+    moving_forward: MovingForward | None

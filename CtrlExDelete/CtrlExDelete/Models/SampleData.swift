@@ -240,17 +240,24 @@ struct ActivityDeck {
 /// Answers for today's check-in, kept on screen until they're sent to the backend.
 struct CheckInAnswers {
     var emotion: Emotion?
-    var urge = 4
-    var hasAnsweredUrge = false
+    /// Starts at 1 ("Not at all"), which is a real answer: leaving the slider
+    /// alone sends 1. Moving it only changes the value, never whether the
+    /// check-in can be sent.
+    var urge = SampleData.urgeRange.lowerBound
+    /// Only for the progress bar: the urge step lights up once the user
+    /// moves the slider or carries on to the next questions.
+    var hasTouchedUrge = false
     var energy: EnergyLevel?
     var hardestThings: Set<HardestArea> = []
 
     /// One flag per question, used by the four-part progress bar.
     var answeredSteps: [Bool] {
-        [emotion != nil, hasAnsweredUrge, energy != nil, !hardestThings.isEmpty]
+        [emotion != nil, hasTouchedUrge || energy != nil || !hardestThings.isEmpty,
+         energy != nil, !hardestThings.isEmpty]
     }
 
-    var isComplete: Bool { answeredSteps.allSatisfy { $0 } }
+    /// The urge always has a value, so it never holds the check-in back.
+    var isComplete: Bool { emotion != nil && energy != nil && !hardestThings.isEmpty }
 
     mutating func toggleHardestThing(_ item: HardestArea) {
         if hardestThings.contains(item) {

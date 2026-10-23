@@ -84,6 +84,8 @@ It inserts or updates activities by `slug`. An activity that isn't in the file a
 | `012_activity_energy_and_research.sql` | Adds `energy_level`, `involves_movement`, `evidence_note`, and the `research_bases` / `activity_research_bases` tables. The catalog itself comes from `scripts/seed_catalog.py` |
 | `013_remove_legacy_activities.sql` | Deletes the 21 earlier activities the new catalog replaced, or retires the ones that have user history (the other 28 earlier activities are part of the catalog) |
 | `014_one_check_in_per_day.sql` | One check-in per installation per local day: a unique index on `(installation_id, local_date)`. Nothing is deleted: same-day duplicates from before keep their rows, and only the latest of them counts for the day (`counts_for_day`) |
+| `015_moving_forward.sql` | `moving_forward_check_ins`: one moving-forward reflection per installation (ticked questions, optional note, the day it was chosen). Nothing else changes |
+| `016_moving_forward_readiness_only.sql` | Drops the moving-forward `note` column: the check-in is now the five readiness questions only, and the API requires all five |
 
 To change the database later, **add a new numbered file** (e.g. `004_add_something.sql`). Don't edit a migration that has already been applied.
 

@@ -121,3 +121,17 @@ def test_earlier_duplicates_from_before_the_rule_are_kept_but_dont_count(install
     assert status(installation_id)["check_in"]["id"] == counted["id"]
     assert check_in(installation_id).json()["id"] == counted["id"]
     assert rows(installation_id)[0] == 2
+
+
+def test_the_urge_is_saved_exactly_as_sent(installation_id, other_installation_id):
+    # The app's slider starts at 1: an untouched slider sends 1, and 1 is saved.
+    assert check_in(installation_id, contact_urge=1).json()["contact_urge"] == 1
+    assert check_in(other_installation_id, contact_urge=7).json()["contact_urge"] == 7
+    with psycopg.connect(settings.database_url) as conn:
+        saved = dict(conn.execute("SELECT installation_id::text, contact_urge FROM check_ins WHERE installation_id IN (%s, %s)",
+                                  (installation_id, other_installation_id)).fetchall())
+    assert saved == {installation_id: 1, other_installation_id: 7}
+    # Nothing fills in a missing urge: the app must always send it.
+    body = {k: v for k, v in ANSWERS.items() if k != "contact_urge"}
+    response = client.post("/check-ins", json={**body, "local_date": "2026-10-18"}, headers=headers(installation_id))
+    assert response.status_code == 422

@@ -69,7 +69,7 @@ Saves a check-in. Called when the user taps **Enter my room**.
 | Field | Type | Required | Allowed values |
 |---|---|---|---|
 | `feeling` | string | yes | `heavy`, `getting_through`, `missing_them`, `hopeful` |
-| `contact_urge` | integer | yes | `1` to `10` |
+| `contact_urge` | integer | yes | `1` to `10` (the app's slider starts at `1`, so an untouched slider sends `1`; there's no server default) |
 | `energy_level` | string | yes | `low`, `medium`, `high` |
 | `hardest_areas` | array of strings | no (defaults to `[]`) | `feeling_lonely`, `missing_relationship`, `wanting_answers`, `resisting_contact`, `rebuilding_confidence` |
 | `local_date` | string (date) | yes | `"YYYY-MM-DD"` |
@@ -369,6 +369,54 @@ The Progress screen, calculated from this installation's records. `today` is the
 
 ---
 
+## Moving forward (`/moving-forward`)
+
+Saved when the user chooses **I'm ready to move forward**, which the app only allows with all five readiness questions ticked. The app then makes a fresh farewell scrapbook every time. Moving forward deletes nothing and locks nothing; the app keeps working as before, and the questionnaire can be done again later.
+
+### `GET /moving-forward`
+`200`: `{"moving_forward": null}` until it's chosen, otherwise:
+```json
+{"moving_forward": {"reflected_on": ["without_overwhelm", "own_routines", "urge_manageable", "connected_to_self", "ready_not_pressured"], "moved_forward_on": "2026-10-20", "updated_at": "2026-10-20T19:02:11Z"}}
+```
+
+### `PUT /moving-forward`
+```json
+{"reflected_on": ["without_overwhelm", "own_routines", "urge_manageable", "connected_to_self", "ready_not_pressured"], "local_date": "2026-10-20"}
+```
+- `reflected_on`: **all five** readiness questions, in any order (stored in this order). Anything missing answers `422`, and nothing is saved.
+- One per installation: the first save answers **`201`**, any later one (a repeated tap, a retry, a later attempt) **`200`** and updates the same record. `moved_forward_on` stays the first day it was chosen. It also marks the "Moving forward check-in" milestone in `GET /progress/summary`.
+
+---
+
+## `GET /farewell-scrapbook`
+
+Everything the keepsake PDF is made from, for this installation only, **oldest first**. The app draws the PDF itself and includes all of it; nothing here is summarised or left out, and reading it changes nothing.
+
+```json
+{
+  "journey_started_on": "2026-10-12",
+  "journey_last_on": "2026-10-20",
+  "check_ins": [{"id": 1, "local_date": "2026-10-12", "feeling": "heavy", "contact_urge": 9, "energy_level": "low", "hardest_areas": ["feeling_lonely"]}],
+  "completed_activities": [{
+    "selection_id": 7, "activity": {"...": "same shape as in recommendations"}, "completed_on": "2026-10-12",
+    "memory": {"id": 3, "note": "...", "thought_about_ex": "a_lot", "mood_change": "about_the_same", "local_date": "2026-10-12",
+               "created_at": "...", "photo_id": 12, "image_url": "https://... (about 1 hour)"}
+  }],
+  "other_memories": [],
+  "moving_forward": null
+}
+```
+- `check_ins`: one per day (migration 014's counting check-ins).
+- `completed_activities[].memory`: `null` if the user deleted that memory (the activity still counts as completed).
+- `journey_last_on`: the latest date of any record, including `moved_forward_on`.
+- `image_url`s are fresh private links on every request; the bucket stays private.
+
+## `GET /scrapbook/photos/{id}`
+
+A fresh private link (about an hour) for one of this installation's uploaded photos, e.g. when an older link has expired. `404` for anyone else's photo or one that was never uploaded.
+
+---
+
 ## Errors
 
 | Code | Meaning | Common cause |
@@ -412,5 +460,4 @@ These are already implemented in `CtrlExDelete/CtrlExDelete/Networking/`:
 
 ## Coming later
 
-- Saving activities for later (the Save button is local-only for now)
-- Ced chat, the no-contact companion and the moving-forward check-in
+- Ced chat and the no-contact companion

@@ -45,6 +45,7 @@ DATABASE_ONLY_FLAG = "--database-only"
 # User data, children first. Every table with a foreign key to installations
 # must be here; reset() refuses to run if it finds one that isn't.
 USER_TABLES = [
+    "moving_forward_check_ins",
     "reflections",
     "scrapbook_photos",
     "activity_bookmarks",

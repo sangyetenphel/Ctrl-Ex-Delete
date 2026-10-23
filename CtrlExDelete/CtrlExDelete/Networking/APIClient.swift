@@ -121,6 +121,35 @@ struct APIClient {
         try await send("GET", "progress/summary")
     }
 
+    /// `PUT /moving-forward`: one per user; saving again updates it.
+    func saveMovingForward(_ request: MovingForwardRequest) async throws -> MovingForwardDTO {
+        try await send("PUT", "moving-forward", body: try encoder.encode(request))
+    }
+
+    /// `GET /farewell-scrapbook`: everything the keepsake PDF is made from.
+    func farewellScrapbook() async throws -> FarewellScrapbookDTO {
+        try await send("GET", "farewell-scrapbook")
+    }
+
+    /// `GET /scrapbook/photos/{id}`: a fresh private link for one photo.
+    func scrapbookPhoto(id: Int) async throws -> ScrapbookPhotoDTO {
+        try await send("GET", "scrapbook/photos/\(id)")
+    }
+
+    /// The bytes behind a temporary photo link (no installation header:
+    /// the link itself is the permission, like AsyncImage).
+    func downloadPhoto(from url: URL) async throws -> Data {
+        do {
+            let (data, response) = try await session.data(from: url)
+            guard (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else {
+                throw APIError.unexpectedResponse
+            }
+            return data
+        } catch let error as URLError {
+            throw APIError(urlError: error)
+        }
+    }
+
     // MARK: Shared request code
 
     private func send<Response: Decodable>(

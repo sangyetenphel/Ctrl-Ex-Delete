@@ -10,6 +10,7 @@ from app.routes import (
     check_ins,
     health,
     insights,
+    moving_forward,
     progress,
     recommendations,
     reflections,
@@ -28,6 +29,7 @@ app.include_router(scrapbook.router)
 app.include_router(reflections.router)
 app.include_router(progress.router)
 app.include_router(insights.router)
+app.include_router(moving_forward.router)
 
 
 @app.exception_handler(psycopg.OperationalError)

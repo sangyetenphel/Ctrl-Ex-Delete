@@ -49,6 +49,12 @@
             ReferencedContainer = "container:CtrlExDelete.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "-CEDAPIBaseURL http://152.13.60.145:8000 "
+            isEnabled = "YES">
+         </CommandLineArgument>
+      </CommandLineArguments>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
