@@ -86,6 +86,7 @@ It inserts or updates activities by `slug`. An activity that isn't in the file a
 | `014_one_check_in_per_day.sql` | One check-in per installation per local day: a unique index on `(installation_id, local_date)`. Nothing is deleted: same-day duplicates from before keep their rows, and only the latest of them counts for the day (`counts_for_day`) |
 | `015_moving_forward.sql` | `moving_forward_check_ins`: one moving-forward reflection per installation (ticked questions, optional note, the day it was chosen). Nothing else changes |
 | `016_moving_forward_readiness_only.sql` | Drops the moving-forward `note` column: the check-in is now the five readiness questions only, and the API requires all five |
+| `017_affirmations.sql` | The Grow with Kindness catalog: `affirmation_themes`, `affirmations` (stable id, text, theme, language, active, timestamps), `affirmation_sources`, `affirmation_theme_sources` (principle and rationale per source) and `affirmation_notes` (editorial, never shown). Filled by `scripts/seed_affirmations.py`, which `migrate` runs; it never deletes, only retires. After changing `scripts/affirmation_data.py`, also run `python -m scripts.export_affirmations` to update the app's bundled copy |
 
 To change the database later, **add a new numbered file** (e.g. `004_add_something.sql`). Don't edit a migration that has already been applied.
 

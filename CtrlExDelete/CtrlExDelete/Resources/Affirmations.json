@@ -1,0 +1,185 @@
+{
+  "language": "en",
+  "affirmations": [
+    {
+      "id": "kindness-01",
+      "text": "I can be gentle with myself today.",
+      "theme": "self_kindness",
+      "theme_label": "Self-kindness"
+    },
+    {
+      "id": "kindness-02",
+      "text": "I can treat myself like someone I care about.",
+      "theme": "self_kindness",
+      "theme_label": "Self-kindness"
+    },
+    {
+      "id": "kindness-03",
+      "text": "I can rest without having to earn it.",
+      "theme": "self_kindness",
+      "theme_label": "Self-kindness"
+    },
+    {
+      "id": "kindness-04",
+      "text": "I can make mistakes and still be kind to myself.",
+      "theme": "self_kindness",
+      "theme_label": "Self-kindness"
+    },
+    {
+      "id": "kindness-05",
+      "text": "I am learning to speak to myself with care.",
+      "theme": "self_kindness",
+      "theme_label": "Self-kindness"
+    },
+    {
+      "id": "kindness-06",
+      "text": "I can be patient with how I feel.",
+      "theme": "self_kindness",
+      "theme_label": "Self-kindness"
+    },
+    {
+      "id": "values-01",
+      "text": "I can rediscover what matters to me.",
+      "theme": "identity_values",
+      "theme_label": "Identity and personal values"
+    },
+    {
+      "id": "values-02",
+      "text": "I am more than one relationship.",
+      "theme": "identity_values",
+      "theme_label": "Identity and personal values"
+    },
+    {
+      "id": "values-03",
+      "text": "I can make room for the things I love.",
+      "theme": "identity_values",
+      "theme_label": "Identity and personal values"
+    },
+    {
+      "id": "values-04",
+      "text": "I am learning who I am on my own.",
+      "theme": "identity_values",
+      "theme_label": "Identity and personal values"
+    },
+    {
+      "id": "values-05",
+      "text": "My values can guide my next choice.",
+      "theme": "identity_values",
+      "theme_label": "Identity and personal values"
+    },
+    {
+      "id": "values-06",
+      "text": "I can lean on people who care about me.",
+      "theme": "identity_values",
+      "theme_label": "Identity and personal values"
+    },
+    {
+      "id": "steps-01",
+      "text": "I can take this one step at a time.",
+      "theme": "small_steps",
+      "theme_label": "Confidence and small steps"
+    },
+    {
+      "id": "steps-02",
+      "text": "One small step still counts.",
+      "theme": "small_steps",
+      "theme_label": "Confidence and small steps"
+    },
+    {
+      "id": "steps-03",
+      "text": "I can try one new thing today.",
+      "theme": "small_steps",
+      "theme_label": "Confidence and small steps"
+    },
+    {
+      "id": "steps-04",
+      "text": "I am learning that I can handle hard things.",
+      "theme": "small_steps",
+      "theme_label": "Confidence and small steps"
+    },
+    {
+      "id": "steps-05",
+      "text": "I can begin before I feel ready.",
+      "theme": "small_steps",
+      "theme_label": "Confidence and small steps"
+    },
+    {
+      "id": "steps-06",
+      "text": "I can be proud of showing up today.",
+      "theme": "small_steps",
+      "theme_label": "Confidence and small steps"
+    },
+    {
+      "id": "boundaries-01",
+      "text": "I can give myself permission to pause before I reply.",
+      "theme": "boundaries",
+      "theme_label": "Boundaries"
+    },
+    {
+      "id": "boundaries-02",
+      "text": "I can choose what I look at and when.",
+      "theme": "boundaries",
+      "theme_label": "Boundaries"
+    },
+    {
+      "id": "boundaries-03",
+      "text": "I can protect my peace.",
+      "theme": "boundaries",
+      "theme_label": "Boundaries"
+    },
+    {
+      "id": "boundaries-04",
+      "text": "I can say no to what doesn’t feel right.",
+      "theme": "boundaries",
+      "theme_label": "Boundaries"
+    },
+    {
+      "id": "boundaries-05",
+      "text": "I can give myself space when I need it.",
+      "theme": "boundaries",
+      "theme_label": "Boundaries"
+    },
+    {
+      "id": "boundaries-06",
+      "text": "My needs are worth respecting.",
+      "theme": "boundaries",
+      "theme_label": "Boundaries"
+    },
+    {
+      "id": "acceptance-01",
+      "text": "I can miss someone and still move forward.",
+      "theme": "acceptance",
+      "theme_label": "Acceptance and moving forward"
+    },
+    {
+      "id": "acceptance-02",
+      "text": "I can let my feelings come and go.",
+      "theme": "acceptance",
+      "theme_label": "Acceptance and moving forward"
+    },
+    {
+      "id": "acceptance-03",
+      "text": "I can accept today as it is.",
+      "theme": "acceptance",
+      "theme_label": "Acceptance and moving forward"
+    },
+    {
+      "id": "acceptance-04",
+      "text": "I can give myself permission to grieve.",
+      "theme": "acceptance",
+      "theme_label": "Acceptance and moving forward"
+    },
+    {
+      "id": "acceptance-05",
+      "text": "I can carry what I learned into what comes next.",
+      "theme": "acceptance",
+      "theme_label": "Acceptance and moving forward"
+    },
+    {
+      "id": "acceptance-06",
+      "text": "I can move forward at my own pace.",
+      "theme": "acceptance",
+      "theme_label": "Acceptance and moving forward"
+    }
+  ]
+}

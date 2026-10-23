@@ -83,6 +83,8 @@ struct ContentView: View {
             MovingForwardView()
         case .finalGift:
             FinalGiftView()
+        case .growWithKindness:
+            GrowWithKindnessView()
         }
     }
 }

@@ -19,6 +19,8 @@ from app.schemas import (
     CheckInAnswers,
     CheckInCreate,
     CheckInStatus,
+    Bookshelf,
+    ShelfBook,
     MovingForward,
     MovingForwardSave,
     Milestone,
@@ -720,6 +722,36 @@ def list_reflections(installation_id: UUID) -> list[dict]:
 MILESTONE_ACTIVITY_COUNT = 5
 
 
+BOOKSHELF_CAPACITY = 32   # 4 shelves × 8 books in the room
+
+
+def get_bookshelf(installation_id: UUID) -> Bookshelf:
+    """
+    One book per completed activity (its reflection was saved), earliest
+    first, so a book's place never changes. Only completion counts: choosing
+    "I'll try this", saving for later or checking in never adds a book, and a
+    repeated submission completes nothing new. A deleted memory keeps its book
+    (the activity stays completed).
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT s.id AS selection_id, a.category, s.completed_on,
+                   count(*) OVER () AS total
+            FROM activity_selections s
+            JOIN recommendations r ON r.id = s.recommendation_id
+            JOIN activities a ON a.id = r.activity_id
+            WHERE s.installation_id = %s AND s.status = 'completed'
+            ORDER BY s.ended_at, s.id
+            """,
+            (installation_id,),
+        ).fetchall()
+    total = rows[0]["total"] if rows else 0
+    books = [ShelfBook(selection_id=r["selection_id"], category=r["category"], completed_on=r["completed_on"])
+             for r in rows[:BOOKSHELF_CAPACITY]]
+    return Bookshelf(capacity=BOOKSHELF_CAPACITY, total_completed=total, books=books)
+
+
 def get_progress_summary(installation_id: UUID) -> ProgressSummary:
     with _connect() as conn:
         row = conn.execute(
@@ -924,3 +956,21 @@ def get_insight_records(installation_id: UUID, start: date, end: date) -> dict:
             "SELECT category, label FROM activity_categories ORDER BY sort_order, category"
         ).fetchall()
     return {"check_ins": check_ins, "completed": completed, "moods": moods, "categories": categories}
+
+# ─────────────────────────────────────────────
+# Affirmations
+# ─────────────────────────────────────────────
+
+def list_affirmations(language: str) -> list[dict]:
+    """Active affirmations in catalog order (no notes, no sources)."""
+    with _connect() as conn:
+        return conn.execute(
+            """
+            SELECT a.id, a.text, a.theme, t.label AS theme_label
+            FROM affirmations a
+            JOIN affirmation_themes t ON t.code = a.theme
+            WHERE a.is_active AND a.language = %s
+            ORDER BY a.sort_order, a.id
+            """,
+            (language,),
+        ).fetchall()

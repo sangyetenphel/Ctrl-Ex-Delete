@@ -14,6 +14,7 @@ enum JourneyCache {
         var selection: SelectedActivityDTO?
         var reflections: [ReflectionDTO]
         var summary: ProgressSummaryDTO
+        var books: [ShelfBookDTO]?      // nil in copies saved before the bookshelf
     }
 
     private static var fileURL: URL? {
@@ -22,10 +23,11 @@ enum JourneyCache {
             .appending(path: "journey-cache.json")
     }
 
-    static func save(selection: SelectedActivityDTO?, reflections: [ReflectionDTO], summary: ProgressSummaryDTO) {
+    static func save(selection: SelectedActivityDTO?, reflections: [ReflectionDTO], summary: ProgressSummaryDTO,
+                     books: [ShelfBookDTO]) {
         guard let fileURL, let id = try? InstallationID.current() else { return }
         let snapshot = Snapshot(installationID: id, savedAt: .now, selection: selection,
-                                reflections: reflections, summary: summary)
+                                reflections: reflections, summary: summary, books: books)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }

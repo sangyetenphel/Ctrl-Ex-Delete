@@ -60,6 +60,9 @@ final class JourneyStore {
     /// Newest first.
     private(set) var memories: [ScrapbookMemory] = []
     private(set) var summary: ProgressSummaryDTO?
+    /// The room's books: one per completed activity, earliest first (≤ 32).
+    /// Never emptied by a failed request; kept on the phone between launches.
+    private(set) var books: [ShelfBookDTO] = []
     private(set) var hasLoaded = false
     private(set) var loadError: String?
     /// When the progress on screen was last confirmed by the backend, if it
@@ -107,6 +110,10 @@ final class JourneyStore {
         let currentSelection = try await APIClient.shared.currentSelection()
         let savedReflections = try await APIClient.shared.reflections()
         let progress = try await APIClient.shared.progressSummary()
+        // The shelf is extra: if it can't load, the books already shown stay.
+        if let shelf = try? await APIClient.shared.bookshelf() {
+            books = shelf.books
+        }
 
         selectedActivity = currentSelection.map(SelectedActivity.init)
         memories = savedReflections.map(ScrapbookMemory.init)
@@ -114,7 +121,7 @@ final class JourneyStore {
         loadError = nil
         hasLoaded = true
         cachedAt = nil
-        JourneyCache.save(selection: currentSelection, reflections: savedReflections, summary: progress)
+        JourneyCache.save(selection: currentSelection, reflections: savedReflections, summary: progress, books: books)
     }
 
     // MARK: Startup
@@ -137,6 +144,7 @@ final class JourneyStore {
         selectedActivity = cache.selection.map(SelectedActivity.init)
         memories = cache.reflections.map(ScrapbookMemory.init)
         summary = cache.summary
+        if books.isEmpty { books = cache.books ?? [] }
         cachedAt = cache.savedAt
         hasLoaded = true
         return true
