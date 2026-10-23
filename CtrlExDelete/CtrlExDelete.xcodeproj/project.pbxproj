@@ -253,6 +253,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 0000000000000000000000C1 /* Config/Debug.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9F2KBUT6J7;
@@ -295,6 +296,7 @@
 		000000000000000112000000 /* Release configuration for PBXNativeTarget "CtrlExDelete" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9F2KBUT6J7;

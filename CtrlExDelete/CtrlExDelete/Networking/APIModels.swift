@@ -238,3 +238,78 @@ struct EmptyResponse: Decodable {}
 struct APIErrorBody: Decodable {
     let detail: String
 }
+
+// MARK: - Moving forward and the farewell scrapbook
+
+/// The moving-forward reflection questions. Raw values are what the API
+/// stores (see docs/api.md); the order is the order on screen.
+enum MovingForwardQuestion: String, CaseIterable, Identifiable, Codable {
+    case withoutOverwhelm = "without_overwhelm"
+    case ownRoutines = "own_routines"
+    case urgeManageable = "urge_manageable"
+    case connectedToSelf = "connected_to_self"
+    case readyNotPressured = "ready_not_pressured"
+
+    var id: String { rawValue }
+
+    var text: String {
+        switch self {
+        case .withoutOverwhelm: "Can you think about the relationship without feeling overwhelmed?"
+        case .ownRoutines: "Are you building routines that don\u{2019}t include your ex?"
+        case .urgeManageable: "Has the urge to contact them become manageable?"
+        case .connectedToSelf: "Do you feel more connected to yourself?"
+        case .readyNotPressured: "Are you choosing to move forward because you feel ready\u{2014}not pressured?"
+        }
+    }
+}
+
+/// `PUT /moving-forward`: saved when the user chooses "I'm ready to move
+/// forward", which needs all five questions ticked (the backend checks too).
+struct MovingForwardRequest: Encodable {
+    let reflectedOn: [MovingForwardQuestion]
+    let localDate: String
+}
+
+struct MovingForwardDTO: Codable, Equatable {
+    let reflectedOn: [MovingForwardQuestion]
+    let movedForwardOn: String      // "YYYY-MM-DD", the day they first chose it
+    let updatedAt: String
+}
+
+/// `GET /farewell-scrapbook`: the whole saved journey, oldest first.
+struct FarewellScrapbookDTO: Decodable {
+    let journeyStartedOn: String?
+    let journeyLastOn: String?
+    let checkIns: [FarewellCheckInDTO]
+    let completedActivities: [FarewellActivityDTO]
+    let otherMemories: [FarewellMemoryDTO]
+    let movingForward: MovingForwardDTO?
+}
+
+struct FarewellCheckInDTO: Decodable, Identifiable {
+    let id: Int
+    let localDate: String
+    let feeling: Emotion
+    let contactUrge: Int
+    let energyLevel: EnergyLevel
+    let hardestAreas: [HardestArea]
+}
+
+struct FarewellActivityDTO: Decodable, Identifiable {
+    let selectionId: Int
+    let activity: ActivityDTO
+    let completedOn: String
+    let memory: FarewellMemoryDTO?
+    var id: Int { selectionId }
+}
+
+struct FarewellMemoryDTO: Decodable, Identifiable {
+    let id: Int
+    let note: String?
+    let thoughtAboutEx: ThoughtAboutEx?
+    let moodChange: MoodChange?
+    let localDate: String
+    let createdAt: String
+    let photoId: Int?
+    let imageUrl: URL?          // temporary; refresh with `scrapbookPhoto(id:)`
+}

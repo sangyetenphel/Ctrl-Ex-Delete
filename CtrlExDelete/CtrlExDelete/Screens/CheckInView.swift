@@ -209,7 +209,7 @@ struct CheckInView: View {
             .padding(.bottom, 4)
 
             UrgeSlider(value: $answers.urge, range: SampleData.urgeRange) {
-                answers.hasAnsweredUrge = true
+                answers.hasTouchedUrge = true
             }
 
             HStack(spacing: 0) {

@@ -1,0 +1,24 @@
+<!--
+  Ctrl+Ex+Delete app icon source (1024 x 1024, square, opaque; iOS adds the corner shape).
+  Ced is the `Ghost` mascot from the Figma Make prototype (App.tsx, viewBox 0 0 80 92),
+  copied unchanged and only scaled/positioned by the transform. Background: CEDColor.primary.
+  The mascot's faint ground-shadow ellipse is left out here: on the blue it reads as a smudge
+  at Home Screen sizes. Ced himself is unchanged.
+  The PNG in Assets.xcassets/AppIcon.appiconset is rendered from this file.
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" fill="#35677D" />
+  <!-- Scale 9.2; Ced's body (x 12 to 68, y 6 to 82) centred: x 512 - 40*9.2, y 512 - 44*9.2 -->
+  <g transform="translate(144 107.2) scale(9.2)">
+    <ellipse cx="40" cy="36" rx="28" ry="30" fill="#F0EEFF" />
+    <rect x="12" y="36" width="56" height="34" fill="#F0EEFF" />
+    <path d="M12 70 Q18 82 24 70 Q30 58 36 70 Q42 82 48 70 Q54 58 60 70 Q64 65 68 70 L68 67 L12 67 Z" fill="#F0EEFF" />
+    <ellipse cx="28" cy="32" rx="6" ry="7" fill="#3D2B1F" />
+    <ellipse cx="52" cy="32" rx="6" ry="7" fill="#3D2B1F" />
+    <ellipse cx="30" cy="28" rx="2.5" ry="2.5" fill="white" />
+    <ellipse cx="54" cy="28" rx="2.5" ry="2.5" fill="white" />
+    <ellipse cx="17" cy="41" rx="7" ry="5" fill="#F09090" opacity="0.5" />
+    <ellipse cx="63" cy="41" rx="7" ry="5" fill="#F09090" opacity="0.5" />
+    <path d="M30 46 Q40 55 50 46" fill="none" stroke="#3D2B1F" stroke-width="2.5" stroke-linecap="round" />
+  </g>
+</svg>

@@ -19,6 +19,8 @@ from app.schemas import (
     CheckInAnswers,
     CheckInCreate,
     CheckInStatus,
+    MovingForward,
+    MovingForwardSave,
     Milestone,
     ProgressSummary,
     Recommendation,
@@ -745,7 +747,9 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
                 (SELECT local_date FROM completed WHERE n = 1)         AS first_activity_on,
                 (SELECT local_date FROM completed WHERE n = %(goal)s)  AS goal_reached_on,
                 (SELECT min(local_date) FROM memories
-                 WHERE photo_id IS NOT NULL)                           AS first_photo_on
+                 WHERE photo_id IS NOT NULL)                           AS first_photo_on,
+                (SELECT moved_forward_on FROM moving_forward_check_ins
+                 WHERE installation_id = %(id)s)                       AS moved_forward_on
             """,
             {"id": installation_id, "goal": MILESTONE_ACTIVITY_COUNT},
         ).fetchone()
@@ -758,8 +762,8 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
             label=f"{MILESTONE_ACTIVITY_COUNT} activities milestone",
             reached_on=row["goal_reached_on"],
         ),
-        # Reached once the moving-forward check-in is saved (not stored yet).
-        Milestone(label="Moving forward check-in", reached_on=None),
+        # Reached once the user chose "I'm ready to move forward".
+        Milestone(label="Moving forward check-in", reached_on=row["moved_forward_on"]),
     ]
     return ProgressSummary(
         journey_started_on=row["journey_started_on"],
@@ -770,6 +774,102 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
         photos=row["photos"],
         milestones=milestones,
     )
+
+
+# ─────────────────────────────────────────────
+# Moving forward and the farewell scrapbook
+# ─────────────────────────────────────────────
+
+MOVING_FORWARD_COLUMNS = "reflected_on, moved_forward_on, updated_at"
+
+
+def get_moving_forward(installation_id: UUID) -> MovingForward | None:
+    with _connect() as conn:
+        return _moving_forward(conn, installation_id)
+
+
+def _moving_forward(conn: psycopg.Connection, installation_id: UUID) -> MovingForward | None:
+    row = conn.execute(
+        f"SELECT {MOVING_FORWARD_COLUMNS} FROM moving_forward_check_ins WHERE installation_id = %s",
+        (installation_id,),
+    ).fetchone()
+    return MovingForward(**row) if row else None
+
+
+def save_moving_forward(installation_id: UUID, data: MovingForwardSave) -> tuple[MovingForward, bool]:
+    """
+    One per installation: the first save creates it, later saves (a repeated
+    tap, a retry, an edit) update the answers and keep moved_forward_on.
+    Returns (saved, created). Never deletes or changes anything else.
+    """
+    with _connect() as conn:
+        _ensure_installation(conn, installation_id)
+        row = conn.execute(
+            f"""
+            INSERT INTO moving_forward_check_ins (installation_id, reflected_on, moved_forward_on)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (installation_id) DO UPDATE SET
+                reflected_on = EXCLUDED.reflected_on,
+                updated_at = now()
+            RETURNING {MOVING_FORWARD_COLUMNS}, (xmax = 0) AS created
+            """,
+            (installation_id, data.reflected_on, data.local_date),
+        ).fetchone()
+    created = row.pop("created")
+    return MovingForward(**row), created
+
+
+def get_farewell_records(installation_id: UUID) -> dict:
+    """
+    Raw rows for the farewell scrapbook, oldest first, all scoped to this
+    installation. Memories come with their photo's object key (or None).
+    """
+    with _connect() as conn:
+        check_ins = conn.execute(
+            """
+            SELECT id, local_date, feeling, contact_urge, energy_level, hardest_areas
+            FROM check_ins
+            WHERE installation_id = %s AND counts_for_day
+            ORDER BY local_date, created_at, id
+            """,
+            (installation_id,),
+        ).fetchall()
+        memories = conn.execute(
+            """
+            SELECT rf.id, rf.activity_selection_id, rf.note, rf.thought_about_ex, rf.mood_change,
+                   rf.local_date, rf.created_at, rf.photo_id, p.object_key AS photo_key
+            FROM reflections rf
+            LEFT JOIN scrapbook_photos p ON p.id = rf.photo_id AND p.uploaded_at IS NOT NULL
+            WHERE rf.installation_id = %s
+            ORDER BY rf.local_date, rf.created_at, rf.id
+            """,
+            (installation_id,),
+        ).fetchall()
+        completed = conn.execute(
+            f"""
+            SELECT s.id AS selection_id, s.completed_on, {ACTIVITY_COLUMNS}
+            FROM activity_selections s
+            JOIN recommendations r ON r.id = s.recommendation_id
+            JOIN activities a ON a.id = r.activity_id
+            WHERE s.installation_id = %s AND s.status = 'completed'
+            ORDER BY s.completed_on, s.ended_at, s.id
+            """,
+            (installation_id,),
+        ).fetchall()
+        moving_forward = _moving_forward(conn, installation_id)
+    return {"check_ins": check_ins, "memories": memories, "completed": completed,
+            "moving_forward": moving_forward}
+
+
+def get_uploaded_photo_key(installation_id: UUID, photo_id: int) -> tuple[str, dict] | None:
+    """(object key, row) for one of this installation's uploaded photos, or None."""
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT id, created_at, object_key FROM scrapbook_photos
+               WHERE id = %s AND installation_id = %s AND uploaded_at IS NOT NULL""",
+            (photo_id, installation_id),
+        ).fetchone()
+    return (row.pop("object_key"), row) if row else None
 
 
 # ─────────────────────────────────────────────

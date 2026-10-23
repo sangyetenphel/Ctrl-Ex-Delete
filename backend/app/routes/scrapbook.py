@@ -60,6 +60,16 @@ def complete_upload(photo_id: int, x_installation_id: InstallationId):
     return ScrapbookPhoto(**row, image_url=media.download_url(key))
 
 
+@router.get("/photos/{photo_id}", response_model=ScrapbookPhoto)
+def get_photo(photo_id: int, x_installation_id: InstallationId):
+    """A fresh private link (about 1 hour) for one of this installation's photos."""
+    found = storage.get_uploaded_photo_key(x_installation_id, photo_id)
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Photo not found.")
+    key, row = found
+    return ScrapbookPhoto(**row, image_url=media.download_url(key))
+
+
 @router.delete("/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_photo(photo_id: int, x_installation_id: InstallationId):
     key = storage.get_scrapbook_key(x_installation_id, photo_id)

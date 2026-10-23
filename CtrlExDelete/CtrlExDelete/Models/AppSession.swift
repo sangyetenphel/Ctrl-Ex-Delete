@@ -60,8 +60,8 @@ final class AppSession {
         defer { isRestoring = false }
         guard let status = try? await journey.restoreSession(today: today) else { return }
         restoredDay = today
-        // Don't pull someone out of a reflection they're writing.
-        let busyScreens: Set<AppScreen> = [.reflection, .checkIn, .welcome]
+        // Don't pull someone out of something they're in the middle of.
+        let busyScreens: Set<AppScreen> = [.reflection, .checkIn, .welcome, .movingForward, .finalGift]
         if status.checkIn == nil, !busyScreens.contains(router.current) {
             router.go(to: Self.startScreen(for: status))
         }
@@ -69,6 +69,9 @@ final class AppSession {
 
     #if DEBUG
     /// `-CEDStartScreen` runs skip the startup routing.
-    func skipRestore() { phase = .ready }
+    func skipRestore() {
+        phase = .ready
+        restoredDay = LocalDate.text()
+    }
     #endif
 }
