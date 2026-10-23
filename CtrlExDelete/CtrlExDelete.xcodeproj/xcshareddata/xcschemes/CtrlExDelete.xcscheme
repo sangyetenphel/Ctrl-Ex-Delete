@@ -51,12 +51,8 @@
       </BuildableProductRunnable>
       <CommandLineArguments>
          <CommandLineArgument
-            argument = "-CEDAPIBaseURL http://152.13.60.145:8000 "
-            isEnabled = "YES">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "-CEDAPIBaseURL http://152.13.61.30:8000 "
-            isEnabled = "YES">
+            argument = "-CEDAPIBaseURL http://Your-Mac-Name.local:8000"
+            isEnabled = "NO">
          </CommandLineArgument>
       </CommandLineArguments>
    </LaunchAction>
