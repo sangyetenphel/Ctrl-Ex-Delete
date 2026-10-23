@@ -974,3 +974,24 @@ def list_affirmations(language: str) -> list[dict]:
             """,
             (language,),
         ).fetchall()
+
+
+# ─────────────────────────────────────────────
+# Ced usage (a count only; no conversation text is ever stored)
+# ─────────────────────────────────────────────
+
+def count_ced_message(installation_id: UUID) -> int:
+    """Adds one message to today's (UTC) count and returns the new total."""
+    with _connect() as conn:
+        _ensure_installation(conn, installation_id)
+        row = conn.execute(
+            """
+            INSERT INTO ced_usage (installation_id, usage_date, messages)
+            VALUES (%s, (now() AT TIME ZONE 'UTC')::date, 1)
+            ON CONFLICT (installation_id, usage_date)
+            DO UPDATE SET messages = ced_usage.messages + 1
+            RETURNING messages
+            """,
+            (installation_id,),
+        ).fetchone()
+    return row["messages"]

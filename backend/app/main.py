@@ -8,6 +8,7 @@ from app.routes import (
     activity_selections,
     affirmations,
     bookmarks,
+    ced,
     check_ins,
     health,
     insights,
@@ -32,6 +33,7 @@ app.include_router(reflections.router)
 app.include_router(progress.router)
 app.include_router(insights.router)
 app.include_router(moving_forward.router)
+app.include_router(ced.router)
 
 
 @app.exception_handler(psycopg.OperationalError)

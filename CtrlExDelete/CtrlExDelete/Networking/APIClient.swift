@@ -126,6 +126,12 @@ struct APIClient {
         try await send("GET", "progress/bookshelf")
     }
 
+    /// `POST /ced/messages`: Ced's reply to the conversation so far.
+    /// AI replies can take a while, so this waits longer than other requests.
+    func cedReply(_ request: CedChatRequest) async throws -> CedChatResponse {
+        try await send("POST", "ced/messages", body: try encoder.encode(request), timeout: 45)
+    }
+
     /// `GET /progress/summary`: journey start, counts and milestones.
     func progressSummary() async throws -> ProgressSummaryDTO {
         try await send("GET", "progress/summary")
@@ -166,11 +172,13 @@ struct APIClient {
         _ method: String,
         _ path: String,
         query: [URLQueryItem] = [],
-        body: Data? = nil
+        body: Data? = nil,
+        timeout: TimeInterval? = nil
     ) async throws -> Response {
         var url = APIConfig.baseURL.appending(path: path)
         if !query.isEmpty { url.append(queryItems: query) }
         var request = URLRequest(url: url)
+        if let timeout { request.timeoutInterval = timeout }
         request.httpMethod = method
         request.setValue(try InstallationID.current().uuidString, forHTTPHeaderField: "X-Installation-ID")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -239,10 +247,9 @@ enum APIError: LocalizedError {
         case .timedOut:
             return "The server is taking too long to respond. Please try again."
         case .server(let status, let detail):
-            if status == 503, let detail { return detail }
+            // These details are written for people, e.g. "Ced needs a short pause."
+            if [404, 409, 429, 502, 503, 504].contains(status), let detail { return detail }
             if status >= 500 { return "Something went wrong on our side. Please try again." }
-            // 404/409 details are written for people, e.g. "You already have an activity in progress."
-            if status == 404 || status == 409, let detail { return detail }
             return "That request wasn\u{2019}t accepted (error \(status)). Please try again."
         case .unexpectedResponse:
             return "The server sent an unexpected response. Please try again."

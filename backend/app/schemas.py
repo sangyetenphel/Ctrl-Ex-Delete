@@ -405,3 +405,42 @@ class Affirmation(BaseModel):
 class AffirmationsResponse(BaseModel):
     language: str
     affirmations: list[Affirmation]
+
+
+# ─────────────────────────────────────────────
+# Ced (AI chat). Nothing here is stored.
+# ─────────────────────────────────────────────
+
+class CedTurn(BaseModel):
+    """One message of the conversation the app is showing."""
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class CedChatRequest(BaseModel):
+    """
+    The conversation so far, ending with the user's new message. The app
+    keeps it in memory only while the chat is open; the server never stores
+    it. "unsent_message": the first message was written on the "Say it here
+    first" screen (words for the ex that were NOT sent).
+    """
+    messages: list[CedTurn] = Field(min_length=1, max_length=40)
+    mode: Literal["chat", "unsent_message"] = "chat"
+
+
+class CedChatResponse(BaseModel):
+    """
+    Ced's reply as 1–3 chat bubbles, shown in order.
+
+    risk: how serious the latest message was (patterns and the model's own
+      read combined; the more serious wins).
+    support: crisis resources to show right under the reply. "crisis" = 988
+      first (911 for immediate danger), "danger" = 911 first. The app shows
+      them in the chat and never opens anything by itself.
+    source: "ai" (written by the model) or "fallback" (a fixed, human-written
+      reply used when the model couldn't be reached for a crisis message).
+    """
+    messages: list[str] = Field(min_length=1, max_length=3)
+    risk: Literal["none", "distress", "harm_to_others", "self_harm", "in_danger", "violence"]
+    support: Literal["crisis", "danger"] | None
+    source: Literal["ai", "fallback"]

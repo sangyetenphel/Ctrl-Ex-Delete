@@ -3,7 +3,7 @@
 This is the contract between the iOS app and the FastAPI backend.
 **Field names and allowed values must match exactly.** If something here needs to change, update this doc in the same pull request as the code.
 
-- **Status:** check-ins, recommendations, activity status (one in progress), bookmarks, scrapbook photos, reflections (completion), progress summary, insights
+- **Status:** check-ins, recommendations, activity status (one in progress), bookmarks, scrapbook photos, reflections (completion), progress summary, insights, Ced chat, Ced voice calls
 - **Local base URL:** `http://127.0.0.1:8000` (works from the iOS Simulator on the same Mac)
 - **Interactive docs:** `http://127.0.0.1:8000/docs` (while the backend is running)
 
@@ -445,6 +445,56 @@ A fresh private link (about an hour) for one of this installation's uploaded pho
 
 ---
 
+## `POST /ced/messages`
+
+Ced's reply to the conversation so far. **Nothing is stored:** the app keeps the conversation in memory while the chat is open, sends the recent turns each time, and forgets them when the user ends the chat. Only a per-day message count is kept (`ced_usage`), for limits.
+
+```json
+{ "messages": [ { "role": "user", "content": "Can we talk? I keep thinking about us." } ],
+  "mode": "unsent_message" }
+```
+- `messages`: 1–40 turns, roles `user` / `assistant`, each 1–2000 characters, ending with `user`. The server sends at most the last 12 (≈6,000 characters) to the AI, plus Ced's instructions. No check-ins, scrapbook or other app data is ever included.
+- `mode`: `chat`, or `unsent_message` when the first message was written on **Say it here first** (words for the ex that were not sent; nothing is ever sent to anyone).
+
+**Response `200`:** Ced's reply as 1–3 short chat bubbles, in order.
+```json
+{ "messages": ["I'm really sorry you're feeling like this right now.", "Are you safe where you are at this moment?"],
+  "risk": "self_harm", "support": "crisis", "source": "ai" }
+```
+- `risk`: `none`, `distress`, `harm_to_others`, `self_harm`, `in_danger` or `violence`. Two independent reads are combined and the more serious wins: backend patterns (`app/ced/safety.py`) and the model's own rating of the message (it replies in JSON with a `risk` field), which catches indirect wording.
+- `support`: crisis resources the app shows **directly under the reply**: `crisis` (self-harm: Call/Text 988, 911 for immediate danger) or `danger` (in danger / violence: Call 911 first), else `null`. The app never opens a call, text, browser or sheet by itself.
+- Self-harm and in-danger replies always include a direct "are you safe right now?" question (added by the backend if the model leaves it out). A pattern hit is passed to the model as a safety note; stalking/harassment gets a reply that doesn't help and encourages stopping, without crisis resources.
+- `source`: `ai`, or `fallback` when a crisis message couldn't reach the AI (no key, limits, provider error): a short human-written reply plus the resources. Crisis messages are always answered.
+- Replies that claim to be a therapist, diagnose, give medication advice or promise outcomes are replaced with a safe fallback.
+
+| Status | When | Body `detail` (shown to the user) |
+|---|---|---|
+| `429` | Per-installation (8/min, 60/day) or server-wide (25/min) limit, or the provider's own limit. `Retry-After` header. | "Ced needs a short pause…" / "…today's limit…" |
+| `503` | `GROQ_API_KEY` not set, or rejected | "Ced isn't available right now…" |
+| `504` / `502` | Provider timeout (20 s) / other provider error | "Ced is taking too long…" / "Ced couldn't answer just now…" |
+
+Crisis replies work even without a key and past the limits. Provider and model are set in `.env` (`AI_PROVIDER`, `AI_MODEL`); the app is unaffected by a switch.
+
+---
+
+## `WebSocket /ced/voice`: voice calls with Ced
+
+The app streams microphone audio here; the backend relays it to **Gemini Live** (`GEMINI_LIVE_MODEL`, default `gemini-3.8-live`, voice `GEMINI_VOICE`, default `Vindemiatrix`). The Gemini key never reaches the app. Header: `X-Installation-ID`. Full message format: `backend/app/ced/voice.py`.
+
+- **App → server:** binary PCM 16-bit LE, **16 kHz**, mono (≈100 ms chunks); JSON `{"type":"mute"}`, `{"type":"unmute"}`, `{"type":"end"}`.
+- **Server → app:** binary PCM 16-bit LE, **24 kHz**, mono (Ced's voice, streamed); JSON `ready`, `state` (`listening` / `thinking` / `speaking` / `reconnecting`), `interrupted` (stop playback: the user talked over Ced), `safety` (`support`: `crisis` / `danger`), `ended` (`time_limit`), `error` (`unavailable` / `busy` / `limit` / `dropped`, with a `message` for the user).
+- **Turn-taking:** Gemini's automatic voice-activity detection (700 ms of silence ends a turn); users can interrupt Ced. Long calls use context compression. States follow Gemini's own speech start/end events.
+- **Never stuck:** Gemini doesn't answer everything it hears (an "um", a cough, a half sentence). If no reply starts within 7 s of the user stopping, the call returns to `listening` (and the safety checks still run on what was said). If Ced's audio stalls for 10 s mid-reply, the same happens.
+- **Dropped or expired Gemini connections** (a connection lasts about 10 minutes): the backend reconnects up to 3 times per call, sending `state: reconnecting`. It resumes the same conversation with Gemini's session-resumption handle; if Gemini refuses the handle, it starts a fresh session where Ced briefly says it's back. Only after that does the app get `error`/`dropped`.
+- **App side:** a WebSocket ping every 10 s detects a dead connection, and a 25 s watchdog ends a call that hears nothing from the server while waiting on Ced. Ended calls offer **Call again**.
+- **Voice:** `GEMINI_VOICE` is checked against Gemini's 30 voices (case-insensitive); an unknown name logs a warning and uses the default, because Gemini would otherwise silently pick its own.
+- **Safety:** each finished user turn's transcript is checked by the backend patterns and by an independent Groq classifier. Self-harm or danger → a `safety` event (the app shows 988 / 911 on the call screen; nothing is dialled automatically) and a note to the voice model so its next words address safety. Stalking/harassment → a note only.
+- **Limits:** one call per installation, `CED_VOICE_MAX_CONCURRENT` calls server-wide (3), `CED_VOICE_MAX_MINUTES` per call (15); each call counts as one message toward the daily Ced limit.
+- **Privacy:** audio and transcripts pass through memory only; nothing is stored or logged.
+- Without `GEMINI_API_KEY` the server sends `error`/`unavailable`. Debug builds of the app then fall back to a clearly labelled practice mock (`-CEDMockVoice YES` forces it; `-CEDMockVoiceCrisis YES` also simulates a crisis).
+
+---
+
 ## Errors
 
 | Code | Meaning | Common cause |
@@ -476,7 +526,7 @@ Example `422` body:
 
 These are already implemented in `CtrlExDelete/CtrlExDelete/Networking/`:
 
-- **Base URL:** `APIConfig.swift` is the only place it's set. Debug uses `http://127.0.0.1:8000` (Simulator); override it with the launch argument `-CEDAPIBaseURL http://Your-Mac-Name.local:8000` for a physical iPhone. Release must be an `https://` URL.
+- **Base URL:** `APIConfig.swift` is the only place it's set. Debug uses `http://127.0.0.1:8000` (Simulator); a physical iPhone uses the Mac address from `CtrlExDelete/Config/DeveloperSettings.xcconfig` (gitignored, one per Mac; copy `DeveloperSettings.example.xcconfig`). The launch argument `-CEDAPIBaseURL http://Your-Mac-Name.local:8000` still overrides it for runs started from Xcode. Voice calls use the same address (`ws://…/ced/voice`). Release must be an `https://` URL.
 - **Installation ID:** `InstallationID.swift` creates the UUID once, stores it in the Keychain, and `APIClient` sends it on every request.
 - **Key names:** `APIClient` uses `.convertToSnakeCase` / `.convertFromSnakeCase`, so Swift's `contactUrge` maps to `contact_urge` automatically.
 - **Enums:** `Emotion`, `EnergyLevel` and `HardestArea` (in `Models/SampleData.swift`) have raw values matching the tables above. The UI labels can change freely; the raw values can't.
@@ -484,8 +534,3 @@ These are already implemented in `CtrlExDelete/CtrlExDelete/Networking/`:
 - **Plain HTTP:** the Simulator reaches `127.0.0.1` without any exception. Debug builds add `NSAllowsLocalNetworking` (in `CtrlExDelete/Config/Debug-Info.plist`) so a physical phone can reach `http://*.local`. Release builds have no exception.
 - **Neon's `DATABASE_URL` is not the API URL** and must never be in the app.
 
----
-
-## Coming later
-
-- Ced chat and the no-contact companion
