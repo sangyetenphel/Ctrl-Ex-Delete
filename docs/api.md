@@ -343,6 +343,34 @@ Every memory, newest first, in the same shape. The Scrapbook's "Recent Memories"
 
 ---
 
+## `GET /affirmations`
+
+The curated catalog for the **Grow with Kindness** plant game: the active affirmations in catalog order. The same for everyone (`X-Installation-ID` isn't needed). Editorial notes and research sources are never included.
+
+```json
+{"language": "en",
+ "affirmations": [{"id": "kindness-01", "text": "I can be gentle with myself today.", "theme": "self_kindness", "theme_label": "Self-kindness"}]}
+```
+- `id`s are stable; the app bundles the same catalog (`Resources/Affirmations.json`) and caches the last successful fetch, so the game never waits for this request and works offline.
+- `?language=` defaults to `en`; other languages return an empty list for now.
+- The game saves nothing: no audio, transcripts or progress reach the backend.
+
+---
+
+## `GET /progress/bookshelf`
+
+The healing room's bookshelf: **one book per completed activity** (an activity counts as completed once its reflection is saved), earliest first, so each book keeps its place. Read-only.
+
+```json
+{"capacity": 32, "total_completed": 3,
+ "books": [{"selection_id": 7, "category": "mindfulness_rest", "completed_on": "2026-10-12"}]}
+```
+- Only completions count: "I'll try this", "Save for later" and check-ins never add a book. Repeating a reflection submission returns the first one, so it adds nothing; the same activity completed again on another day is a new book.
+- Deleting a memory keeps its book (the activity stays completed). Abandoned activities have none.
+- `books` holds at most `capacity` (the first 32 completions); `total_completed` keeps counting. Nothing else depends on it (the moving-forward check-in doesn't).
+
+---
+
 ## `GET /insights?period=week|month&today=YYYY-MM-DD`
 
 The Progress screen, calculated from this installation's records. `today` is the user's **local** calendar day, so the week (Monday–Sunday) and month boundaries follow their time zone, like `local_date` everywhere else.

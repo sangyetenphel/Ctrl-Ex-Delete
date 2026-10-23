@@ -14,10 +14,12 @@ enum AppScreen: String, CaseIterable {
     case progress
     case movingForward
     case finalGift
+    /// The plant mini game, opened from the room's big plant.
+    case growWithKindness
 
-    /// The launch, welcome and check-in screens are full screen; the rest show the tab bar.
+    /// The launch, welcome, check-in and plant-game screens are full screen; the rest show the tab bar.
     var showsBottomNav: Bool {
-        self != .launch && self != .welcome && self != .checkIn
+        self != .launch && self != .welcome && self != .checkIn && self != .growWithKindness
     }
 }
 

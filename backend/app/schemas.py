@@ -223,6 +223,24 @@ class Milestone(BaseModel):
     reached_on: date | None   # null = not reached yet
 
 
+class ShelfBook(BaseModel):
+    """One book on the room's bookshelf: one completed activity."""
+    selection_id: int
+    category: ActivityCategory     # colours the book
+    completed_on: date
+
+
+class Bookshelf(BaseModel):
+    """
+    GET /progress/bookshelf: the user's completed activities, earliest first,
+    one book each (at most `capacity`). total_completed keeps counting past
+    the shelf's size; nothing else depends on it.
+    """
+    capacity: int
+    total_completed: int
+    books: list[ShelfBook]
+
+
 class ProgressSummary(BaseModel):
     journey_started_on: date | None   # local date of the first check-in
     check_ins: int
@@ -367,3 +385,23 @@ class FarewellScrapbook(BaseModel):
     completed_activities: list[FarewellActivity]
     other_memories: list[FarewellMemory]   # memories not tied to a completed activity
     moving_forward: MovingForward | None
+
+
+# ─────────────────────────────────────────────
+# Affirmations ("Grow with Kindness" plant game)
+# ─────────────────────────────────────────────
+
+AffirmationTheme = Literal["self_kindness", "identity_values", "small_steps", "boundaries", "acceptance"]
+
+
+class Affirmation(BaseModel):
+    """One sentence the game shows. Editorial notes and sources stay out of this."""
+    id: str                      # stable; the app bundles the same ids
+    text: str
+    theme: AffirmationTheme
+    theme_label: str
+
+
+class AffirmationsResponse(BaseModel):
+    language: str
+    affirmations: list[Affirmation]

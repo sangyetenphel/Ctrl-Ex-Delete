@@ -1,12 +1,16 @@
 import SwiftUI
 
 /// The healing room: the app's home screen. Tap Ced for today's activity,
-/// the scrapbook on the desk for your story, or the telephone to talk instead.
+/// the scrapbook on the desk for your story, the telephone to talk instead,
+/// or the big plant for "Grow with Kindness".
 struct HealingRoomView: View {
     @Environment(AppRouter.self) private var router
     @Environment(JourneyStore.self) private var journey
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pressedObject: RoomObject?
+    /// Under a pointer (iPad or trackpad): the same glow and tooltip as pressing.
+    @State private var hoveredObject: RoomObject?
+    @State private var tooltipWidth: CGFloat = 0
     @State private var isCedFloating = false
 
     var body: some View {
@@ -25,15 +29,26 @@ struct HealingRoomView: View {
                     .accessibilityLabel("Day \(journey.dayNumber). Your Healing Room. Ced says: You don\u{2019}t have to feel great today. Let\u{2019}s choose one small thing.")
                     .accessibilityAddTraits(.isHeader)
 
+                // One book per completed activity, on the empty shelves above.
+                RoomBookshelf(books: journey.books, isCurrent: journey.cachedAt == nil && journey.hasLoaded,
+                              scale: scale)
+
                 cedShadow(scale: scale)
                 objectButton(.ced, scale: scale)
                 objectButton(.scrapbook, scale: scale)
                 objectButton(.phone, scale: scale)
+                objectButton(.plant, scale: scale)
 
-                if let pressedObject {
-                    RoomTooltip(text: pressedObject.tooltip)
-                        .position(x: pressedObject.tooltipCenter.x * scale,
-                                  y: pressedObject.tooltipCenter.y * scale)
+                if let object = pressedObject ?? hoveredObject {
+                    // Kept fully on screen: the room can be wider than the
+                    // screen (its sides are cropped), and the plant is near the edge.
+                    let visibleLeft = -(geometry.size.width - roomWidth) / 2
+                    let half = tooltipWidth / 2 + 8
+                    let x = min(max(object.tooltipCenter.x * scale, visibleLeft + half),
+                                visibleLeft + geometry.size.width - half)
+                    RoomTooltip(text: object.tooltip)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tooltipWidth = $0 }
+                        .position(x: x, y: object.tooltipCenter.y * scale)
                 }
             }
             .frame(width: roomWidth, height: roomHeight, alignment: .topLeading)
@@ -63,11 +78,16 @@ struct HealingRoomView: View {
                 .frame(width: frame.width * scale, height: frame.height * scale)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(RoomObjectButtonStyle(object: object, pressedObject: $pressedObject))
+        .buttonStyle(RoomObjectButtonStyle(object: object, pressedObject: $pressedObject,
+                                           isHovered: hoveredObject == object))
+        .onHover { isOver in
+            if isOver { hoveredObject = object } else if hoveredObject == object { hoveredObject = nil }
+        }
         // Ced gently floats up and down; his shadow stays on the floor.
         .offset(y: object == .ced && isCedFloating ? -4 * scale : 0)
         .offset(x: frame.minX * scale, y: frame.minY * scale)
         .accessibilityLabel(object.tooltip)
+        .accessibilityHint(object.accessibilityHint)
     }
 
     /// Ced's shadow: stays put and fades a little while he rises.
@@ -81,16 +101,24 @@ struct HealingRoomView: View {
     }
 }
 
-// MARK: - The three objects
+// MARK: - The objects you can tap
 
 private enum RoomObject {
-    case ced, scrapbook, phone
+    case ced, scrapbook, phone, plant
 
     var destination: AppScreen {
         switch self {
         case .ced: .activities
         case .scrapbook: .scrapbook
         case .phone: .talk
+        case .plant: .growWithKindness
+        }
+    }
+
+    var accessibilityHint: String {
+        switch self {
+        case .plant: "Opens a short game where you read kind words aloud and a plant grows."
+        default: ""
         }
     }
 
@@ -100,6 +128,7 @@ private enum RoomObject {
         case .ced: "View Today\u{2019}s Activity"
         case .scrapbook: "Open Scrapbook"
         case .phone: "Talk Instead"
+        case .plant: "Grow with Kindness"
         }
     }
 
@@ -109,6 +138,7 @@ private enum RoomObject {
         case .ced: CGRect(x: 160, y: 428, width: 70, height: 82)
         case .scrapbook: CGRect(x: 50, y: 480, width: 84, height: 46)
         case .phone: CGRect(x: 247, y: 469, width: 75, height: 55)
+        case .plant: PixelRoomPlantArt.frame
         }
     }
 
@@ -118,6 +148,7 @@ private enum RoomObject {
         case .ced: CGPoint(x: 390 * 0.62, y: 700 * 0.62)
         case .scrapbook: CGPoint(x: 390 * 0.25, y: 700 * 0.68)
         case .phone: CGPoint(x: 390 * 0.73, y: 700 * 0.64)
+        case .plant: CGPoint(x: 350, y: 306)      // just above the top leaves (clamped on screen)
         }
     }
 
@@ -127,6 +158,8 @@ private enum RoomObject {
             PixelCedArt()
         case .scrapbook:
             PixelScrapbookArt()
+        case .plant:
+            PixelRoomPlantArt()
         case .phone:
             // The prototype mutes the phone with saturate(0.7) brightness(0.87).
             Image("phone-clear")
@@ -144,13 +177,14 @@ private enum RoomObject {
 private struct RoomObjectButtonStyle: ButtonStyle {
     let object: RoomObject
     @Binding var pressedObject: RoomObject?
+    var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
-        let glow = configuration.isPressed ? Color.white : .clear
+        let glow = configuration.isPressed || isHovered ? Color.white : .clear
         configuration.label
             .shadow(color: glow, radius: 2)
             .shadow(color: glow.opacity(0.55), radius: 4.5)
-            .animation(.easeOut(duration: 0.2), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.2), value: configuration.isPressed || isHovered)
             .onChange(of: configuration.isPressed) { _, isPressed in
                 if isPressed {
                     pressedObject = object

@@ -61,7 +61,7 @@ final class AppSession {
         guard let status = try? await journey.restoreSession(today: today) else { return }
         restoredDay = today
         // Don't pull someone out of something they're in the middle of.
-        let busyScreens: Set<AppScreen> = [.reflection, .checkIn, .welcome, .movingForward, .finalGift]
+        let busyScreens: Set<AppScreen> = [.reflection, .checkIn, .welcome, .movingForward, .finalGift, .growWithKindness]
         if status.checkIn == nil, !busyScreens.contains(router.current) {
             router.go(to: Self.startScreen(for: status))
         }

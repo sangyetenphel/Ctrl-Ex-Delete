@@ -313,3 +313,27 @@ struct FarewellMemoryDTO: Decodable, Identifiable {
     let photoId: Int?
     let imageUrl: URL?          // temporary; refresh with `scrapbookPhoto(id:)`
 }
+
+// MARK: - The room's bookshelf
+
+/// `GET /progress/bookshelf`: one book per completed activity, earliest first.
+struct BookshelfDTO: Codable, Equatable {
+    let capacity: Int
+    let totalCompleted: Int
+    let books: [ShelfBookDTO]
+}
+
+struct ShelfBookDTO: Codable, Equatable, Identifiable {
+    let selectionId: Int
+    let category: String        // colours the book, like the activity cards
+    let completedOn: String
+    var id: Int { selectionId }
+}
+
+// MARK: - Affirmations ("Grow with Kindness")
+
+/// `GET /affirmations`: the active, curated catalog (same ids as the bundled copy).
+struct AffirmationsResponseDTO: Decodable {
+    let language: String
+    let affirmations: [Affirmation]
+}

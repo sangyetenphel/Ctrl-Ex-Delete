@@ -116,6 +116,16 @@ struct APIClient {
         ])
     }
 
+    /// `GET /affirmations`: the plant game's catalog (same for everyone).
+    func affirmations() async throws -> AffirmationsResponseDTO {
+        try await send("GET", "affirmations")
+    }
+
+    /// `GET /progress/bookshelf`: the room's books, one per completed activity.
+    func bookshelf() async throws -> BookshelfDTO {
+        try await send("GET", "progress/bookshelf")
+    }
+
     /// `GET /progress/summary`: journey start, counts and milestones.
     func progressSummary() async throws -> ProgressSummaryDTO {
         try await send("GET", "progress/summary")

@@ -264,6 +264,8 @@
 				INFOPLIST_FILE = "Config/Debug-Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take a photo of your activity to keep in your scrapbook.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connects to the Ctrl+Ex+Delete development server on your local network.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "In Grow with Kindness, the microphone listens while you read an affirmation aloud so its words can light up. Nothing is recorded or saved.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech recognition turns your voice into words so Grow with Kindness can highlight the affirmation as you read it. It happens on your iPhone when possible; Ctrl+Ex+Delete never saves your voice or the words.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -306,6 +308,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take a photo of your activity to keep in your scrapbook.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connects to the Ctrl+Ex+Delete development server on your local network.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "In Grow with Kindness, the microphone listens while you read an affirmation aloud so its words can light up. Nothing is recorded or saved.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech recognition turns your voice into words so Grow with Kindness can highlight the affirmation as you read it. It happens on your iPhone when possible; Ctrl+Ex+Delete never saves your voice or the words.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

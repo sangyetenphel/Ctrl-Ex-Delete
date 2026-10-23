@@ -3,7 +3,7 @@ Applies the SQL files in db/migrations/ to the database in DATABASE_URL.
 
 Run from the backend/ folder (with the venv active):
 
-    python -m scripts.migrate            # apply new migrations, then load the activity catalog
+    python -m scripts.migrate            # apply new migrations, then load the activity and affirmation catalogs
     python -m scripts.migrate --no-seed  # apply new migrations only
     python -m scripts.migrate --status   # list which ones are applied (changes nothing)
 
@@ -18,7 +18,7 @@ from pathlib import Path
 import psycopg
 
 from app.config import settings
-from scripts import seed_catalog
+from scripts import seed_affirmations, seed_catalog
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "db" / "migrations"
 
@@ -65,9 +65,11 @@ def main() -> None:
 
     print("Database is up to date." if not show_status_only else "")
 
-    # The catalog seed is safe to repeat (see scripts/seed_catalog.py).
+    # Both catalog seeds are safe to repeat (see scripts/seed_catalog.py and
+    # scripts/seed_affirmations.py); neither deletes user data.
     if not show_status_only and "--no-seed" not in sys.argv:
         seed_catalog.main()
+        seed_affirmations.main()
 
 
 if __name__ == "__main__":

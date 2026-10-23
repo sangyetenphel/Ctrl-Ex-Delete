@@ -61,7 +61,7 @@ struct RoomBackdrop: View {
             Self.drawHeader(in: context, day: day)
             Self.drawLampAndBookshelf(in: context)
             Self.drawWindowAndPainting(in: context)
-            Self.drawPlant(in: context)
+            // The big plant is its own tappable object (PixelRoomPlantArt).
             Self.drawSpeechBubble(in: context)
             Self.drawDesk(in: context)
         }
@@ -106,29 +106,82 @@ struct RoomBackdrop: View {
         c.rect(176, 98, 38, 20, 0xFFD080, opacity: 0.65)
         c.fill(Path(ellipseIn: CGRect(x: 155, y: 108, width: 80, height: 28)), with: .color(Color(hex: 0xFFD060, opacity: 0.16)))
 
-        // Bookshelf frame and shelves
+        // Bookshelf: warm wooden backing first, so the wall doesn't show through.
+        drawShelfBacking(in: c)
         c.rect(6, 92, 5, 328, 0x7A4E24)
         c.rect(111, 92, 5, 328, 0x7A4E24)
         for y in [92, 172, 252, 332, 416] as [CGFloat] {
             c.rect(6, y, 110, 6, 0x9B6A3B)
+            c.rect(6, y + 5, 110, 1, 0x7A4E24, opacity: 0.6)      // the board's lower edge
         }
+        drawShelfDecorations(in: c)
+        // The books are the user's own (RoomBookshelf, on top), beside these.
+    }
 
-        // Books: (x, width, height, color), standing on each shelf
-        let shelves: [(shelfY: CGFloat, books: [(CGFloat, CGFloat, CGFloat, UInt32)])] = [
-            (172, [(12, 11, 68, 0xC4633B), (25, 9, 60, 0x7B5E7B), (36, 13, 72, 0xD4847A), (51, 10, 64, 0x6BA84A),
-                   (63, 12, 70, 0x4A7C9E), (77, 10, 62, 0xE8A87C), (89, 11, 68, 0x9E8070)]),
-            (252, [(12, 10, 66, 0x7B5E7B), (24, 13, 60, 0xC4633B), (39, 11, 70, 0x4A7C9E), (52, 9, 62, 0x6BA84A),
-                   (63, 12, 68, 0xD4847A), (77, 10, 58, 0xE8A87C), (89, 11, 64, 0x9E8070)]),
-            (332, [(12, 12, 62, 0xD4847A), (26, 10, 70, 0xC4633B), (38, 11, 60, 0x9E8070), (51, 13, 72, 0x7B5E7B),
-                   (66, 9, 64, 0x4A7C9E), (77, 12, 66, 0x6BA84A)]),
-            (416, [(12, 11, 66, 0x4A7C9E), (25, 9, 72, 0xC4633B), (36, 12, 62, 0x6BA84A), (50, 10, 68, 0x7B5E7B),
-                   (62, 11, 64, 0xE8A87C), (75, 13, 70, 0xD4847A), (90, 11, 60, 0x9E8070)]),
-        ]
-        for shelf in shelves {
-            for (x, width, height, color) in shelf.books {
-                c.rect(x, shelf.shelfY - height, width, height, color)
+    /// Light oak planks inside the frame, with a soft shadow under each
+    /// board and along the sides for depth.
+    private static func drawShelfBacking(in c: GraphicsContext) {
+        c.rect(11, 98, 100, 318, 0xC79E74)
+        for x in [36, 61, 86] as [CGFloat] {                    // plank seams
+            c.rect(x, 98, 1, 318, 0xB48A61, opacity: 0.8)
+        }
+        for x in [23, 48, 73, 98] as [CGFloat] {                // a little grain
+            for y in [118, 150, 196, 230, 274, 306, 356, 388] as [CGFloat] {
+                c.rect(x, y + (x == 48 || x == 98 ? 9 : 0), 6, 1, 0xB48A61, opacity: 0.45)
             }
         }
+        for y in [98, 178, 258, 338] as [CGFloat] {              // shadow under each board
+            c.rect(11, y, 100, 4, 0x6E4524, opacity: 0.28)
+            c.rect(11, y + 4, 100, 2, 0x6E4524, opacity: 0.12)
+        }
+        c.rect(11, 98, 3, 318, 0x6E4524, opacity: 0.18)          // inner sides
+        c.rect(108, 98, 3, 318, 0x6E4524, opacity: 0.18)
+    }
+
+    /// One small keepsake per shelf, in a nook RoomBookshelf leaves free
+    /// (right, left, right, left). Each stands on its shelf.
+    private static func drawShelfDecorations(in c: GraphicsContext) {
+        // Top shelf, right: a tiny potted plant.
+        c.rect(97, 165, 10, 7, 0xB5603A)                         // pot
+        c.rect(96, 164, 12, 2, 0xC4704A)
+        c.rect(98, 166, 2, 5, 0xD08060, opacity: 0.6)
+        c.rect(101, 151, 2, 13, 0x4E8A3A)                        // stem and leaves
+        c.rect(97, 155, 4, 3, 0x6BA84A)
+        c.rect(103, 152, 4, 3, 0x6BA84A)
+        c.rect(98, 158, 3, 2, 0x4E8A3A)
+        c.rect(103, 157, 3, 3, 0x4E8A3A)
+        c.rect(100, 148, 3, 3, 0x7BC05A)
+
+        // Second shelf, left: an unlit candle on a little brass holder.
+        c.rect(15, 249, 12, 3, 0xC9A050)
+        c.rect(17, 247, 8, 2, 0xD9B060)
+        c.rect(18, 232, 6, 15, 0xF5E8D0)
+        c.rect(18, 232, 2, 15, 0xFFF6E6, opacity: 0.8)
+        c.rect(23, 234, 1, 13, 0xE2D2B6)
+        c.rect(20, 229, 2, 3, 0x3D2B1F)                          // wick
+
+        // Third shelf, right: a small framed heart.
+        c.rect(94, 314, 14, 18, 0x7A4E24)                        // frame
+        c.rect(96, 316, 10, 14, 0xFFF4E8)
+        for (x, y, w) in [(97, 319, 3), (101, 319, 3), (97, 320, 7), (97, 321, 7), (98, 322, 5), (99, 323, 3), (100, 324, 1)] as [(CGFloat, CGFloat, CGFloat)] {
+            c.rect(x, y, w, 1, 0xE9716D)
+        }
+        c.rect(108, 318, 2, 14, 0x5C3A1A, opacity: 0.5)          // its stand
+
+        // Bottom shelf, left: a tiny Ced figurine (Ced's own colours).
+        let ced: UInt32 = 0xF0EEFF
+        c.rect(17, 402, 10, 12, ced)
+        c.rect(18, 399, 8, 3, ced)
+        c.rect(19, 397, 6, 2, ced)
+        c.rect(17, 414, 3, 2, ced)
+        c.rect(21, 414, 2, 2, ced)
+        c.rect(24, 414, 3, 2, ced)
+        c.rect(19, 403, 2, 2, 0x3D2B1F)                          // eyes
+        c.rect(23, 403, 2, 2, 0x3D2B1F)
+        c.rect(18, 405, 2, 1, 0xF09090, opacity: 0.6)            // cheeks
+        c.rect(24, 405, 2, 1, 0xF09090, opacity: 0.6)
+        c.rect(20, 407, 4, 1, 0x3D2B1F)                          // smile
+        c.rect(15, 415, 14, 1, 0x6E4524, opacity: 0.25)          // its shadow
     }
 
     private static func drawWindowAndPainting(in c: GraphicsContext) {
@@ -167,24 +220,6 @@ struct RoomBackdrop: View {
         c.polygon([CGPoint(x: 306, y: 176), CGPoint(x: 330, y: 126), CGPoint(x: 354, y: 176)], 0xC4633B, opacity: 0.55)
         c.polygon([CGPoint(x: 324, y: 176), CGPoint(x: 350, y: 138), CGPoint(x: 376, y: 176)], 0xD4847A, opacity: 0.52)
         c.rect(330, 106, 18, 18, 0xFFE060, opacity: 0.75)
-    }
-
-    private static func drawPlant(in c: GraphicsContext) {
-        // Pot (sits on the floor line at y = 556)
-        c.rect(324, 514, 52, 42, 0xA05228)
-        c.rect(320, 509, 60, 10, 0xB8622E)
-        c.rect(328, 519, 44, 10, 0x7A3E1A)
-        // Stem and leaves
-        c.rect(348, 400, 5, 114, 0x5A8A3A)
-        let leaves: [(CGFloat, CGFloat, CGFloat, CGFloat, UInt32)] = [
-            (319, 400, 32, 18, 0x6BA84A), (314, 406, 22, 12, 0x5A9A3A), (354, 382, 32, 18, 0x5A9A3A),
-            (357, 388, 20, 14, 0x7BBF5A), (330, 362, 28, 18, 0x7BBF5A), (333, 368, 18, 12, 0x6BA84A),
-            (350, 420, 24, 16, 0x6BA84A), (322, 434, 22, 14, 0x5A9A3A), (338, 450, 18, 12, 0x6BA84A),
-            (336, 342, 22, 18, 0x7BBF5A), (338, 348, 14, 12, 0x5A9A3A), (354, 326, 20, 16, 0x6BA84A),
-        ]
-        for (x, y, width, height, color) in leaves {
-            c.rect(x, y, width, height, color)
-        }
     }
 
     private static func drawSpeechBubble(in c: GraphicsContext) {
@@ -295,6 +330,48 @@ struct PixelScrapbookArt: View {
             // Binding dots
             c.rect(55, 496, 4, 4, 0x5A2040)
             c.rect(55, 506, 4, 4, 0x5A2040)
+        }
+    }
+}
+
+
+// MARK: - The big plant (opens "Grow with Kindness")
+
+extension RoomBackdrop {
+    fileprivate static func drawPlant(in c: GraphicsContext) {
+        // Pot (sits on the floor line at y = 556)
+        c.rect(324, 514, 52, 42, 0xA05228)
+        c.rect(320, 509, 60, 10, 0xB8622E)
+        c.rect(328, 519, 44, 10, 0x7A3E1A)
+        // Stem and leaves
+        c.rect(348, 400, 5, 114, 0x5A8A3A)
+        let leaves: [(CGFloat, CGFloat, CGFloat, CGFloat, UInt32)] = [
+            (319, 400, 32, 18, 0x6BA84A), (314, 406, 22, 12, 0x5A9A3A), (354, 382, 32, 18, 0x5A9A3A),
+            (357, 388, 20, 14, 0x7BBF5A), (330, 362, 28, 18, 0x7BBF5A), (333, 368, 18, 12, 0x6BA84A),
+            (350, 420, 24, 16, 0x6BA84A), (322, 434, 22, 14, 0x5A9A3A), (338, 450, 18, 12, 0x6BA84A),
+            (336, 342, 22, 18, 0x7BBF5A), (338, 348, 14, 12, 0x5A9A3A), (354, 326, 20, 16, 0x6BA84A),
+        ]
+        for (x, y, width, height, color) in leaves {
+            c.rect(x, y, width, height, color)
+        }
+    }
+}
+
+/// The room's big potted plant, exactly as it was drawn in the backdrop, now
+/// on its own so it can be tapped and glow like the scrapbook and phone.
+/// Drawn on a 76 × 234 grid whose top-left sits at (312, 322) in the room.
+/// The desk overlaps the pot's lower-left corner, so that area is cleared:
+/// the desk (in the backdrop) stays in front, as before.
+struct PixelRoomPlantArt: View {
+    static let frame = CGRect(x: 312, y: 322, width: 76, height: 234)
+
+    var body: some View {
+        Canvas { c, size in
+            c.scaleBy(x: size.width / Self.frame.width, y: size.width / Self.frame.width)
+            c.translateBy(x: -Self.frame.minX, y: -Self.frame.minY)
+            RoomBackdrop.drawPlant(in: c)
+            c.blendMode = .clear
+            c.fill(Path(CGRect(x: 312, y: 524, width: 42, height: 32)), with: .color(.black))   // the desk's corner
         }
     }
 }
