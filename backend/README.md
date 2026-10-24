@@ -115,33 +115,27 @@ The tests use the database in `.env`. Each test makes its own random installatio
 
 ## Using it from the app
 
-### iOS Simulator
+**By default every build (Debug and Release, Simulator and iPhone) uses the deployed backend on Render**, `https://ctrl-ex-delete-api.onrender.com` (`APIConfig.deployedBaseURL`; voice calls use `wss://` on the same host). Nothing needs setting up on a new Mac, and it works on any network, including cellular. Neon's `DATABASE_URL` and the API keys are only in Render's environment variables, never in the app. See [Deploying to Render](#deploying-to-render).
 
-Start the server as above, then run the app from Xcode. Debug builds in the Simulator call `http://127.0.0.1:8000` (`CtrlExDelete/Config/Debug.xcconfig`). The Simulator shares your Mac's network, so nothing else is needed.
+### Local development (optional, Debug only)
 
-### Physical iPhone (same Wi-Fi as your Mac)
+To make the app use the server on your Mac instead:
 
-`127.0.0.1` on a phone means the phone itself, so:
-
-1. Start the server so other devices can reach it:
-   ```bash
-   uvicorn app.main:app --reload --host 0.0.0.0
+1. Once per Mac: copy `CtrlExDelete/Config/DeveloperSettings.example.xcconfig` to `CtrlExDelete/Config/DeveloperSettings.xcconfig` (gitignored, so every developer keeps their own) and uncomment
    ```
-2. Find your Mac's local name: **System Settings ▸ General ▸ Sharing**, under "Local hostname" (e.g. `Your-Mac-Name.local`), or run `scutil --get LocalHostName` and add `.local`.
-3. Once per Mac: copy `CtrlExDelete/Config/DeveloperSettings.example.xcconfig` to `CtrlExDelete/Config/DeveloperSettings.xcconfig` (gitignored, so every developer keeps their own) and set
+   CED_BACKEND = local
+   ```
+2. **Simulator:** start the server as above. The Simulator reaches it at `http://127.0.0.1:8000`.
+3. **Physical iPhone (same Wi-Fi as your Mac):** `127.0.0.1` on a phone means the phone itself, so also set your Mac's local name (**System Settings ▸ General ▸ Sharing ▸ Local hostname**, or `scutil --get LocalHostName` plus `.local`):
    ```
    CED_DEV_SERVER_HOST[sdk=iphoneos*] = Your-Mac-Name.local
    ```
-   The address is built into the Debug app, so it keeps working when the app is opened from the Home Screen or after a force-close, not only when Xcode starts it. (A `-CEDAPIBaseURL` launch argument only applies to runs started by Xcode; it still works for one-off tests.)
-4. Run on the phone from Xcode once after changing it, and tap **Allow** when iOS asks about devices on your local network.
+   and start the server with `uvicorn app.main:app --reload --host 0.0.0.0`. Tap **Allow** when iOS asks about devices on your local network.
+4. Run from Xcode once after changing the file. The choice is built into the Debug app, so it also applies when the app is opened from the Home Screen. Comment `CED_BACKEND = local` out again (and run once) to go back to Render.
 
-A phone reaches a backend on your Mac only while the Mac is awake, the server is running with `--host 0.0.0.0`, and both are on the same network (some guest or campus Wi-Fi blocks devices from reaching each other). If not, the app shows "We can't reach Ctrl+Ex+Delete right now" with Try again; nothing is reset.
+A `-CEDAPIBaseURL http://…` launch argument still overrides everything, but only for runs started by Xcode (the shared scheme has it disabled).
 
-Debug builds include a narrow App Transport Security exception (`NSAllowsLocalNetworking`, in `CtrlExDelete/Config/Debug-Info.plist`) that allows plain `http` only to local-network addresses. Release builds don't have it.
-
-### Deployed backend (Render)
-
-See [Deploying to Render](#deploying-to-render). The app's address for it is `APIConfig.deployedBaseURL`. Neon's `DATABASE_URL` and the API keys go in Render's environment variables, never in the app.
+A phone reaches a backend on your Mac only while the Mac is awake, the server is running with `--host 0.0.0.0`, and both are on the same network (some guest or campus Wi-Fi blocks devices from reaching each other). Debug builds include a narrow App Transport Security exception (`NSAllowsLocalNetworking`, in `CtrlExDelete/Config/Debug-Info.plist`) that allows plain `http` only to local-network addresses. Release builds don't have it.
 
 ## Deploying to Render
 
@@ -172,7 +166,9 @@ The backend runs as one **Render Free** web service, described in `render.yaml` 
 | `CED_VOICE_DIAGNOSTICS` | no | `false` silences the call diagnostics in the logs |
 | `CED_DAILY_MESSAGE_LIMIT`, `CED_VOICE_MAX_MINUTES`, `CED_VOICE_MAX_CONCURRENT`, `CED_VOICE_CALLS_PER_HOUR` | no | usage limits (defaults in `app/config.py`) |
 
-**Checking it:** `https://<service>.onrender.com/health` → `{"status":"ok"}` and `/health/db` → `{"status":"ok","database":"ok"}` (503 if Neon can't be reached).
+**Service:** `https://ctrl-ex-delete-api.onrender.com` (Render service `ctrl-ex-delete-api`, Virginia region, Free).
+
+**Checking it:** `https://ctrl-ex-delete-api.onrender.com/health` → `{"status":"ok"}` and `/health/db` → `{"status":"ok","database":"ok"}` (503 if Neon can't be reached).
 
 **Free plan:** the service sleeps after about 15 minutes without requests; the next request wakes it, which can take a minute. The app waits for that on launch ("Waking up the server…") and wakes it when it comes back to the foreground. Pushing to the branch redeploys automatically.
 

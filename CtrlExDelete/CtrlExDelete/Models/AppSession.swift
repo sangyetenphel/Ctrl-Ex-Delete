@@ -13,6 +13,8 @@ final class AppSession {
     }
 
     private(set) var phase = Phase.restoring
+    /// The start is taking a while, most likely the deployed server waking up.
+    private(set) var isWakingServer = false
     /// The local day the backend last confirmed the check-in status for.
     private var restoredDay: String?
     private var isRestoring = false
@@ -31,8 +33,20 @@ final class AppSession {
         defer { isRestoring = false }
         withAnimation(.easeInOut(duration: 0.2)) { phase = .restoring }
 
+        // Render Free sleeps when idle and can take about a minute to wake;
+        // after a few seconds, say so instead of looking stuck.
+        let slowNotice = Task {
+            try? await Task.sleep(for: .seconds(4))
+            if !Task.isCancelled { withAnimation { isWakingServer = true } }
+        }
+        defer {
+            slowNotice.cancel()
+            isWakingServer = false
+        }
+
         let today = LocalDate.text()
         do {
+            try await APIClient.shared.waitUntilAwake()
             let status = try await journey.restoreSession(today: today)
             restoredDay = today
             phase = .ready
@@ -54,6 +68,10 @@ final class AppSession {
     /// reached the backend), checks again and asks for that day's check-in
     /// if there isn't one. Failures here leave the current screen alone.
     func returnedToForeground(journey: JourneyStore, router: AppRouter) async {
+        // Start waking the deployed server now, so whatever the user taps
+        // next doesn't wait for it. Harmless when it's already awake.
+        Task { try? await APIClient.shared.waitUntilAwake() }
+
         let today = LocalDate.text()
         guard phase == .ready, restoredDay != today, !isRestoring else { return }
         isRestoring = true
