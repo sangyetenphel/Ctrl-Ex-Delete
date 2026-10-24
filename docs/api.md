@@ -4,7 +4,7 @@ This is the contract between the iOS app and the FastAPI backend.
 **Field names and allowed values must match exactly.** If something here needs to change, update this doc in the same pull request as the code.
 
 - **Status:** check-ins, recommendations, activity status (one in progress), bookmarks, scrapbook photos, reflections (completion), progress summary, insights, Ced chat, Ced voice calls
-- **Deployed base URL:** Render, `https://` (see `backend/README.md`, "Deploying to Render"); the app's `APIConfig.deployedBaseURL`
+- **Deployed base URL:** `https://ctrl-ex-delete-api.onrender.com` (Render Free; see `backend/README.md`, "Deploying to Render")
 - **Local base URL:** `http://127.0.0.1:8000` (works from the iOS Simulator on the same Mac)
 - **Interactive docs:** `http://127.0.0.1:8000/docs` (while the backend is running)
 
@@ -534,7 +534,7 @@ Example `422` body:
 
 These are already implemented in `CtrlExDelete/CtrlExDelete/Networking/`:
 
-- **Base URL:** `APIConfig.swift` is the only place it's set. Debug uses `http://127.0.0.1:8000` (Simulator); a physical iPhone uses the Mac address from `CtrlExDelete/Config/DeveloperSettings.xcconfig` (gitignored, one per Mac; copy `DeveloperSettings.example.xcconfig`). The launch argument `-CEDAPIBaseURL http://Your-Mac-Name.local:8000` still overrides it for runs started from Xcode. Voice calls use the same address (`ws://…/ced/voice`). Release must be an `https://` URL.
+- **Base URL:** `APIConfig.swift` is the only place it's set. Every build uses the deployed backend, `https://ctrl-ex-delete-api.onrender.com` (`APIConfig.deployedBaseURL`); voice calls use `wss://` on the same host. Debug builds can opt into a local server with `CED_BACKEND = local` in `CtrlExDelete/Config/DeveloperSettings.xcconfig` (gitignored, one per Mac; see `backend/README.md`). The launch argument `-CEDAPIBaseURL http://Your-Mac-Name.local:8000` still overrides it for runs started from Xcode.
 - **Installation ID:** `InstallationID.swift` creates the UUID once, stores it in the Keychain, and `APIClient` sends it on every request.
 - **Key names:** `APIClient` uses `.convertToSnakeCase` / `.convertFromSnakeCase`, so Swift's `contactUrge` maps to `contact_urge` automatically.
 - **Enums:** `Emotion`, `EnergyLevel` and `HardestArea` (in `Models/SampleData.swift`) have raw values matching the tables above. The UI labels can change freely; the raw values can't.

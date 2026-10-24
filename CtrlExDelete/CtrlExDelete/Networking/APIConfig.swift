@@ -2,13 +2,14 @@ import Foundation
 
 /// The one place that decides which backend the app talks to.
 ///
-/// - Debug builds use the FastAPI server on a developer's Mac. Its address is
-///   built into the app (Config/Debug.xcconfig, plus each Mac's own
-///   Config/DeveloperSettings.xcconfig), so it is the same whether the app is
-///   started from Xcode or opened from the Home Screen. The Simulator uses
-///   127.0.0.1; a physical iPhone uses the Mac address in DeveloperSettings.
-/// - Release builds must use a deployed HTTPS server. There isn't one yet,
-///   so `releaseBaseURL` is a placeholder that will fail until it's replaced.
+/// - Every build, Debug and Release, uses the deployed backend on Render
+///   (`deployedBaseURL`, HTTPS; voice calls use WSS on the same host). It is
+///   built into the app, so it is the same whether the app is started from
+///   Xcode or opened from the Home Screen.
+/// - Local development is opt-in, Debug only: `CED_BACKEND = local` in your
+///   Mac's Config/DeveloperSettings.xcconfig uses the FastAPI server on your
+///   Mac instead (127.0.0.1 in the Simulator; on an iPhone, the Mac address
+///   in CED_DEV_SERVER_HOST). See DeveloperSettings.example.xcconfig.
 ///
 /// For a one-off run against another server, a launch argument still wins
 /// (Product ▸ Scheme ▸ Edit Scheme ▸ Run ▸ Arguments), but only for runs
@@ -16,12 +17,13 @@ import Foundation
 ///
 ///     -CEDAPIBaseURL http://Your-Mac-Name.local:8000
 ///
-/// Note: Neon's DATABASE_URL is NOT this URL. Only the backend talks to Neon.
+/// Note: Neon's DATABASE_URL is NOT this URL. Only the backend talks to Neon,
+/// and no backend credential is ever in the app.
 enum APIConfig {
-    static let localBaseURL = URL(string: "http://127.0.0.1:8000")!
+    /// The Render web service (backend/README.md, "Deploying to Render").
+    static let deployedBaseURL = URL(string: "https://ctrl-ex-delete-api.onrender.com")!
 
-    /// Replace with the deployed API (must be https://) before shipping.
-    static let releaseBaseURL = URL(string: "https://replace-with-deployed-api.invalid")!
+    static let localBaseURL = URL(string: "http://127.0.0.1:8000")!
 
     static let baseURL: URL = {
         #if DEBUG
@@ -29,13 +31,23 @@ enum APIConfig {
            let url = URL(string: override) {
             return url
         }
-        return builtInDevServerURL ?? localBaseURL
-        #else
-        return releaseBaseURL
+        if usesLocalServer {
+            return builtInDevServerURL ?? localBaseURL
+        }
         #endif
+        return deployedBaseURL
     }()
 
+    /// Whether this is the deployed backend, which sleeps when idle (Render Free).
+    static var isDeployed: Bool { baseURL == deployedBaseURL }
+
     #if DEBUG
+    /// `CED_BACKEND = local` in DeveloperSettings.xcconfig (Debug Info.plist).
+    private static var usesLocalServer: Bool {
+        let value = Bundle.main.infoDictionary?["CEDBackend"] as? String
+        return value?.trimmingCharacters(in: .whitespaces).lowercased() == "local"
+    }
+
     /// http://<CED_DEV_SERVER_HOST>:<CED_DEV_SERVER_PORT> from the Debug Info.plist.
     private static var builtInDevServerURL: URL? {
         let info = Bundle.main.infoDictionary

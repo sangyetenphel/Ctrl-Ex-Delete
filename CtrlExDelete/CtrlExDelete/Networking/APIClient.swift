@@ -11,7 +11,9 @@ struct APIClient {
 
     init() {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 20
+        // Long enough for the deployed backend to wake up (Render Free sleeps
+        // when idle and holds the first request while it starts).
+        configuration.timeoutIntervalForRequest = 60
         session = URLSession(configuration: configuration)
 
         encoder = JSONEncoder()
@@ -21,6 +23,12 @@ struct APIClient {
     }
 
     // MARK: Endpoints
+
+    /// `GET /health`: waits until the server answers, long enough for a
+    /// sleeping Render Free service to start (often under a minute).
+    func waitUntilAwake() async throws {
+        let _: EmptyResponse = try await send("GET", "health", timeout: 90)
+    }
 
     /// `POST /check-ins`: saves today's check-in. One per local day: if there
     /// already is one for `localDate` (a second tap, a retry), the server
@@ -129,7 +137,7 @@ struct APIClient {
     /// `POST /ced/messages`: Ced's reply to the conversation so far.
     /// AI replies can take a while, so this waits longer than other requests.
     func cedReply(_ request: CedChatRequest) async throws -> CedChatResponse {
-        try await send("POST", "ced/messages", body: try encoder.encode(request), timeout: 45)
+        try await send("POST", "ced/messages", body: try encoder.encode(request), timeout: 75)
     }
 
     /// `GET /progress/summary`: journey start, counts and milestones.
@@ -239,6 +247,9 @@ enum APIError: LocalizedError {
             #if DEBUG
             if APIConfig.isMisconfiguredForDevice {
                 return "This iPhone is set to reach the server at \(APIConfig.baseURL.absoluteString), which is the phone itself. Set your Mac\u{2019}s address in Config/DeveloperSettings.xcconfig and run again from Xcode."
+            }
+            if APIConfig.isDeployed {
+                return "Couldn\u{2019}t reach the server at \(APIConfig.baseURL.absoluteString). Check your internet connection and try again."
             }
             return "Couldn\u{2019}t reach the server at \(APIConfig.baseURL.absoluteString). Is the backend running, and is this device on the same network as the Mac?"
             #else

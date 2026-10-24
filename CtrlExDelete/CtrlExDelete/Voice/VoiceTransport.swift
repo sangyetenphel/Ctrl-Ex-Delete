@@ -51,7 +51,7 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
         case .failure(let error):
             setupFailure = error.localizedDescription
         }
-        request.timeoutInterval = 20
+        request.timeoutInterval = 60     // the deployed server may be waking up
         self.request = request
     }
 

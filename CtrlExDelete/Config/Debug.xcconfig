@@ -1,15 +1,18 @@
 // Debug build settings for the CtrlExDelete target (Release doesn't use this file).
 //
-// Where Debug builds find the FastAPI backend. The address is built into the
-// app, so it also works when the app is opened from the Home Screen, without
-// Xcode. The Simulator shares the Mac's network, so 127.0.0.1 works there.
+// Which backend Debug builds use. "deployed" is the Render server (the same
+// as Release; its address is APIConfig.deployedBaseURL). It's built into the
+// app, so it also applies when the app is opened from the Home Screen.
 //
-// A physical iPhone needs YOUR Mac's address. Don't change it here: copy
+// To use the FastAPI server on your Mac instead, don't change it here: copy
 // DeveloperSettings.example.xcconfig to DeveloperSettings.xcconfig (gitignored,
-// one per Mac) and set it there.
+// one per Mac) and set CED_BACKEND = local there. The Simulator reaches the
+// Mac at 127.0.0.1; a physical iPhone needs your Mac's address
+// (CED_DEV_SERVER_HOST).
 //
 // Only the host goes here, without http://: "//" starts a comment in xcconfig files.
 
+CED_BACKEND = deployed
 CED_DEV_SERVER_HOST = 127.0.0.1
 CED_DEV_SERVER_PORT = 8000
 

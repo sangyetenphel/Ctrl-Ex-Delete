@@ -23,6 +23,12 @@ struct LaunchView: View {
                     Text("Getting your room ready\u{2026}")
                         .cedTextStyle(.body)
                         .foregroundStyle(CEDColor.mutedForeground)
+                    if session.isWakingServer {
+                        Text("Waking up the server. This can take up to a minute; your progress is safe.")
+                            .cedTextStyle(.caption)
+                            .foregroundStyle(CEDColor.mutedForeground)
+                            .multilineTextAlignment(.center)
+                    }
                 }
                 .accessibilityElement(children: .combine)
             }
