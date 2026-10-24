@@ -139,9 +139,44 @@ A phone reaches a backend on your Mac only while the Mac is awake, the server is
 
 Debug builds include a narrow App Transport Security exception (`NSAllowsLocalNetworking`, in `CtrlExDelete/Config/Debug-Info.plist`) that allows plain `http` only to local-network addresses. Release builds don't have it.
 
-### Deployed backend (later)
+### Deployed backend (Render)
 
-When the API is hosted somewhere, it must use `https://`. Put its URL in `APIConfig.releaseBaseURL`. Neon's `DATABASE_URL` goes in the host's environment variables, never in the app.
+See [Deploying to Render](#deploying-to-render). The app's address for it is `APIConfig.deployedBaseURL`. Neon's `DATABASE_URL` and the API keys go in Render's environment variables, never in the app.
+
+## Deploying to Render
+
+The backend runs as one **Render Free** web service, described in `render.yaml` at the repository root. It uses the existing Neon database, S3 bucket, Groq and Gemini keys. Deploying never migrates, seeds or resets anything.
+
+**Settings** (New ▸ Web Service, or New ▸ Blueprint with `render.yaml`):
+
+| Setting | Value |
+|---|---|
+| Repository | `sangyetenphel/Ctrl-Ex-Delete` |
+| Branch | `integration/ai-room-progress` |
+| Root Directory | `backend` |
+| Runtime / Language | Python 3 |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"` |
+| Health Check Path | `/health` |
+| Instance Type | **Free** |
+
+**Environment variables** (Environment tab; type the values there, never in a commit):
+
+| Name | Required | What |
+|---|---|---|
+| `PYTHON_VERSION` | yes | `3.11` (the version the backend is tested with) |
+| `DATABASE_URL` | yes | Neon connection string (with `sslmode=require`) |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` | for photos | without them, only the photo endpoints answer 503 |
+| `GROQ_API_KEY` | for Ced chat | `GROQ_MODEL` optional (default `openai/gpt-oss-120b`) |
+| `GEMINI_API_KEY` | for Ced calls | `GEMINI_VOICE` optional |
+| `CED_VOICE_DIAGNOSTICS` | no | `false` silences the call diagnostics in the logs |
+| `CED_DAILY_MESSAGE_LIMIT`, `CED_VOICE_MAX_MINUTES`, `CED_VOICE_MAX_CONCURRENT`, `CED_VOICE_CALLS_PER_HOUR` | no | usage limits (defaults in `app/config.py`) |
+
+**Checking it:** `https://<service>.onrender.com/health` → `{"status":"ok"}` and `/health/db` → `{"status":"ok","database":"ok"}` (503 if Neon can't be reached).
+
+**Free plan:** the service sleeps after about 15 minutes without requests; the next request wakes it, which can take a minute. The app waits for that on launch ("Waking up the server…") and wakes it when it comes back to the foreground. Pushing to the branch redeploys automatically.
+
+**Public exposure:** every endpoint is open to anyone with the URL and a made-up installation ID (there are no accounts). The AI endpoints are limited per installation and for the whole server (chat: 8/min and 60/day per installation, 25/min server-wide; calls: one per installation, 3 at once, 30 started per hour, 15 minutes each), so the worst case is using up the free AI quotas, not someone's data.
 
 ## Clearing test data
 

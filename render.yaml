@@ -1,0 +1,44 @@
+# Render Blueprint for the CED backend (FastAPI in backend/), Free plan.
+# The dashboard settings in backend/README.md ("Deploying to Render") match
+# this file, so the service can be made either way.
+#
+# Secrets are NOT here: entries with `sync: false` are typed into Render's
+# dashboard (Environment tab), never committed. Nothing here migrates, seeds
+# or resets the database; Neon is already migrated (python -m scripts.migrate
+# --status from a laptop shows it).
+services:
+  - type: web
+    name: ctrl-ex-delete-api
+    runtime: python
+    plan: free
+    branch: integration/ai-room-progress
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # No --reload. Render sets $PORT; it handles HTTPS and WebSockets (wss://).
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      # Required
+      - key: DATABASE_URL
+        sync: false
+      # Scrapbook photos (S3)
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      # Ced chat (Groq) and voice calls (Gemini Live)
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_VOICE
+        sync: false

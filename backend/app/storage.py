@@ -61,6 +61,12 @@ def _connect() -> psycopg.Connection:
     return psycopg.connect(settings.database_url, row_factory=dict_row, connect_timeout=10)
 
 
+def ping() -> None:
+    """Raises psycopg.OperationalError if the database can't be reached."""
+    with _connect() as conn:
+        conn.execute("SELECT 1")
+
+
 def _ensure_installation(conn: psycopg.Connection, installation_id: UUID) -> None:
     # First time we see this ID: add it. Every time after: update last_seen_at.
     conn.execute(

@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     gemini_voice: str = DEFAULT_GEMINI_VOICE   # "Gentle". Others: Zephyr (Bright), Achernar (Soft), Sulafat (Warm)
     ced_voice_max_minutes: int = 15        # per call
     ced_voice_max_concurrent: int = 3      # calls at once, whole server
+    ced_voice_calls_per_hour: int = 30     # calls started, whole server
     # TEMPORARY: privacy-safe call diagnostics (states, counts, sizes; never audio,
     # transcripts or keys). Set CED_VOICE_DIAGNOSTICS=false to silence.
     ced_voice_diagnostics: bool = True
