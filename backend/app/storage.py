@@ -6,10 +6,12 @@ functions and don't care how the data is stored.
 from datetime import date
 from uuid import UUID
 
+import logging
+
 import psycopg
 from psycopg.rows import dict_row
 
-from app import recommendation_rules
+from app import recommendation_rules, room_messages
 from app.config import settings
 from app.schemas import (
     Activity,
@@ -19,6 +21,7 @@ from app.schemas import (
     CheckInAnswers,
     CheckInCreate,
     CheckInStatus,
+    RoomMessage,
     Bookshelf,
     ShelfBook,
     MovingForward,
@@ -30,6 +33,9 @@ from app.schemas import (
     ReflectionCreate,
     SelectedActivity,
 )
+
+
+logger = logging.getLogger("ced")
 
 
 class NotFound(Exception):
@@ -114,9 +120,12 @@ def create_check_in(installation_id: UUID, data: CheckInCreate) -> tuple[CheckIn
             ),
         ).fetchone()
         if row is None:
-            return _check_in_for_day(conn, installation_id, data.local_date), False
+            existing = _check_in_for_day(conn, installation_id, data.local_date)
+            existing.room_message = _assign_room_message(conn, existing)
+            return existing, False
         check_in = CheckIn(**row)
         _create_recommendations(conn, check_in)
+        check_in.room_message = _assign_room_message(conn, check_in)
     return check_in, True
 
 
@@ -138,7 +147,72 @@ def get_check_in_status(installation_id: UUID, local_date: date) -> CheckInStatu
         has_any = check_in is not None or conn.execute(
             "SELECT EXISTS (SELECT 1 FROM check_ins WHERE installation_id = %s)", (installation_id,)
         ).fetchone()["exists"]
-    return CheckInStatus(local_date=local_date, check_in=check_in, has_any_check_in=has_any)
+        if check_in is not None:
+            # Older check-ins get their message the first time it's needed.
+            check_in.room_message = _assign_room_message(conn, check_in)
+            message = check_in.room_message
+        else:
+            message = _before_check_in_message(conn, installation_id, local_date)
+    return CheckInStatus(local_date=local_date, check_in=check_in, has_any_check_in=has_any,
+                         room_message=message)
+
+
+# ─────────────────────────────────────────────
+# Ced's room message
+# ─────────────────────────────────────────────
+
+def _active_room_messages(conn: psycopg.Connection, pattern: str) -> list[dict]:
+    return conn.execute(
+        "SELECT id, pattern, text FROM room_messages WHERE pattern = %s AND is_active ORDER BY sort_order, id",
+        (pattern,),
+    ).fetchall()
+
+
+def _assign_room_message(conn: psycopg.Connection, check_in: CheckIn) -> RoomMessage | None:
+    """
+    The check-in's message: the one already given to it, or a new one chosen
+    by the rules in app/room_messages.py and saved with its text. One per
+    check-in even with two requests at once (check_in_id is the key). Runs in a
+    savepoint, so a problem here never undoes or blocks the check-in itself.
+    """
+    try:
+        with conn.transaction():
+            saved = conn.execute(
+                "SELECT message_id AS id, pattern, text FROM check_in_room_messages WHERE check_in_id = %s",
+                (check_in.id,),
+            ).fetchone()
+            if saved:
+                return RoomMessage(**saved)
+            pattern = room_messages.pattern_for(check_in)
+            candidates = _active_room_messages(conn, pattern) or _active_room_messages(conn, "general")
+            chosen = room_messages.choose(candidates, room_messages.check_in_key(check_in.id))
+            if chosen is None:
+                return None
+            conn.execute(
+                """INSERT INTO check_in_room_messages (check_in_id, message_id, pattern, text)
+                   VALUES (%s, %s, %s, %s) ON CONFLICT (check_in_id) DO NOTHING""",
+                (check_in.id, chosen["id"], chosen["pattern"], chosen["text"]),
+            )
+            saved = conn.execute(
+                "SELECT message_id AS id, pattern, text FROM check_in_room_messages WHERE check_in_id = %s",
+                (check_in.id,),
+            ).fetchone()
+            return RoomMessage(**saved) if saved else None
+    except psycopg.Error as error:
+        logger.warning("Couldn't assign a room message: %s", type(error).__name__)
+        return None
+
+
+def _before_check_in_message(conn: psycopg.Connection, installation_id: UUID, local_date: date) -> RoomMessage | None:
+    """A "let's check in" message, the same all day (nothing is saved for it)."""
+    try:
+        with conn.transaction():
+            candidates = _active_room_messages(conn, room_messages.BEFORE_CHECK_IN)
+    except psycopg.Error as error:
+        logger.warning("Couldn't load room messages: %s", type(error).__name__)
+        return None
+    chosen = room_messages.choose(candidates, room_messages.before_check_in_key(installation_id, local_date))
+    return RoomMessage(**chosen) if chosen else None
 
 
 def list_check_ins(installation_id: UUID) -> list[CheckIn]:
