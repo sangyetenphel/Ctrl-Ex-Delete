@@ -60,6 +60,11 @@ final class JourneyStore {
     /// Newest first.
     private(set) var memories: [ScrapbookMemory] = []
     private(set) var summary: ProgressSummaryDTO?
+    /// Ced's message in the room, for the local day it belongs to (kept on the
+    /// phone). Only today's is ever shown; see `roomMessageText(today:)`.
+    private(set) var roomMessage: RoomMessageRecord? = RoomMessageCache.load()
+    private var isLoadingRoomMessage = false
+
     /// The room's books: one per completed activity, earliest first (≤ 32).
     /// Never emptied by a failed request; kept on the phone between launches.
     private(set) var books: [ShelfBookDTO] = []
@@ -132,8 +137,41 @@ final class JourneyStore {
     /// is decided from the error (no new user, no extra check-in).
     func restoreSession(today: String) async throws -> CheckInStatusDTO {
         let status = try await APIClient.shared.checkInStatus(localDate: today)
+        applyRoomMessage(status.roomMessage, checkInId: status.checkIn?.id, localDate: status.localDate)
         try await reloadStory()
         return status
+    }
+
+    // MARK: Ced's room message
+
+    /// What Ced says in the room today. Never another day's message: until
+    /// today's is known (loading, or no connection and nothing saved for
+    /// today) it's a neutral line.
+    func roomMessageText(today: String) -> String {
+        guard let roomMessage, roomMessage.localDate == today else { return RoomMessageRecord.neutralText }
+        return roomMessage.text
+    }
+
+    /// Keeps a message from the backend (after checking in, or today's status).
+    func applyRoomMessage(_ message: RoomMessageDTO?, checkInId: Int?, localDate: String) {
+        guard let message else { return }
+        let record = RoomMessageRecord(text: message.text, pattern: message.pattern, checkInId: checkInId,
+                                       localDate: localDate, installationID: try? InstallationID.current())
+        // A personal message for today is never replaced by a "let's check in" one.
+        if let current = roomMessage, current.localDate == localDate, current.isPersonal, !record.isPersonal { return }
+        roomMessage = record
+        RoomMessageCache.save(record)
+    }
+
+    /// Fetches today's message when none is known for today. A failure keeps
+    /// whatever belongs to today and changes nothing else.
+    func loadRoomMessage(today: String) async {
+        guard roomMessage?.localDate != today, !isLoadingRoomMessage else { return }
+        isLoadingRoomMessage = true
+        defer { isLoadingRoomMessage = false }
+        if let status = try? await APIClient.shared.checkInStatus(localDate: today) {
+            applyRoomMessage(status.roomMessage, checkInId: status.checkIn?.id, localDate: status.localDate)
+        }
     }
 
     /// Shows the progress saved on this device after the last successful load,

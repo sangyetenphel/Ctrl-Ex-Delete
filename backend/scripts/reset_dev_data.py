@@ -46,6 +46,7 @@ DATABASE_ONLY_FLAG = "--database-only"
 # must be here; reset() refuses to run if it finds one that isn't.
 USER_TABLES = [
     "moving_forward_check_ins",
+    "check_in_room_messages",  # cascades from check_ins anyway; cleared explicitly
     "reflections",
     "scrapbook_photos",
     "activity_bookmarks",

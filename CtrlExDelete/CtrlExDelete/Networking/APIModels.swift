@@ -25,6 +25,15 @@ struct CheckInResponse: Codable {
     let hardestAreas: [String]
     let localDate: String
     let createdAt: String
+    /// Ced's room message for this check-in (chosen once, then kept).
+    let roomMessage: RoomMessageDTO?
+}
+
+/// Ced's message in the healing room, chosen by the backend's rules.
+struct RoomMessageDTO: Codable, Equatable {
+    let id: String
+    let pattern: String
+    let text: String
 }
 
 // MARK: - Recommendations
@@ -34,6 +43,8 @@ struct CheckInStatusDTO: Decodable {
     let localDate: String
     let checkIn: CheckInResponse?   // nil = not yet today
     let hasAnyCheckIn: Bool         // false for someone who has never checked in
+    /// Today's room message: the check-in's, or a "let's check in" one before it.
+    let roomMessage: RoomMessageDTO?
 }
 
 /// Response of `GET /recommendations/latest`.

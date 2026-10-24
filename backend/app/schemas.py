@@ -46,11 +46,21 @@ class CheckInCreate(BaseModel):
     local_date: date
 
 
+class RoomMessage(BaseModel):
+    """Ced's message in the healing room (catalog id, pattern and the text shown)."""
+    id: str
+    pattern: str
+    text: str
+
+
 class CheckIn(CheckInCreate):
     """What the API SENDS BACK: the saved check-in plus server-made fields."""
     id: int
     installation_id: UUID
     created_at: datetime
+    # Ced's message for this check-in (POST /check-ins and GET /check-ins/today).
+    # Chosen once and kept, so it's the same every time the room opens.
+    room_message: RoomMessage | None = None
 
 
 class CheckInStatus(BaseModel):
@@ -61,6 +71,9 @@ class CheckInStatus(BaseModel):
     local_date: date
     check_in: CheckIn | None      # that day's check-in, or null if there isn't one yet
     has_any_check_in: bool        # false for someone who has never checked in
+    # Ced's room message: the check-in's assigned one, or a "let's check in"
+    # message when there's no check-in yet today (null only if none could load).
+    room_message: RoomMessage | None = None
 
 
 # ─────────────────────────────────────────────

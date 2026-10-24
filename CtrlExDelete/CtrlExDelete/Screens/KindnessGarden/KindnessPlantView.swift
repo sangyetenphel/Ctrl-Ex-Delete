@@ -20,7 +20,10 @@ struct KindnessPlantView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let unit = min(geometry.size.width / Self.grid.width, geometry.size.height / Self.grid.height)
+            // Snapped to whole device pixels so the pixel art stays crisp at any size.
+            let pixelScale: CGFloat = 3
+            let unit = (min(geometry.size.width / Self.grid.width, geometry.size.height / Self.grid.height) * pixelScale)
+                .rounded(.down) / pixelScale
             let origin = CGPoint(x: (geometry.size.width - Self.grid.width * unit) / 2,
                                  y: geometry.size.height - Self.grid.height * unit)
             let stemHeight = Self.stemHeights[min(leaves, 3)]
