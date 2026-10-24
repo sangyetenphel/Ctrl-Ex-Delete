@@ -18,7 +18,7 @@ from pathlib import Path
 import psycopg
 
 from app.config import settings
-from scripts import seed_affirmations, seed_catalog
+from scripts import seed_affirmations, seed_catalog, seed_room_messages
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "db" / "migrations"
 
@@ -70,6 +70,7 @@ def main() -> None:
     if not show_status_only and "--no-seed" not in sys.argv:
         seed_catalog.main()
         seed_affirmations.main()
+        seed_room_messages.main()
 
 
 if __name__ == "__main__":

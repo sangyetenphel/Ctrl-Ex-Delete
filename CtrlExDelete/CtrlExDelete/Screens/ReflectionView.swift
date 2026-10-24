@@ -9,6 +9,7 @@ import SwiftUI
 struct ReflectionView: View {
     @Environment(AppRouter.self) private var router
     @Environment(JourneyStore.self) private var journey
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var note = ""        // "What did you notice?"
     @State private var thoughtAboutEx: ThoughtAboutEx?
@@ -18,10 +19,13 @@ struct ReflectionView: View {
     @State private var triedIncomplete = false
 
     @State private var pickedItem: PhotosPickerItem?
-    @State private var isChoosingPhotoSource = false
     @State private var isShowingLibrary = false
     @State private var isShowingCamera = false
     @State private var isCameraAccessOff = false
+    /// Waiting for the camera permission prompt to be answered.
+    @State private var isAskingCameraAccess = false
+    /// "Change photo" was tapped: the two sources show under the current photo.
+    @State private var isChangingPhoto = false
     @State private var photo: PickedPhoto?
     @State private var isLoadingPhoto = false
     @State private var photoError: String?
@@ -80,12 +84,6 @@ struct ReflectionView: View {
         }
         // Both photo sources end in usePhoto(_:), so they share the same
         // preview, upload and save, linked to the activity in progress.
-        .confirmationDialog(photo == nil ? "Add a photo" : "Change photo",
-                            isPresented: $isChoosingPhotoSource, titleVisibility: .visible) {
-            Button("Take Photo", action: takePhoto)
-            Button("Choose from Library") { isShowingLibrary = true }
-            Button("Cancel", role: .cancel) {}
-        }
         .photosPicker(isPresented: $isShowingLibrary, selection: $pickedItem,
                       matching: .images, preferredItemEncoding: .compatible)
         .fullScreenCover(isPresented: $isShowingCamera) {
@@ -102,10 +100,10 @@ struct ReflectionView: View {
                     UIApplication.shared.open(url)
                 }
             }
-            Button("Choose from Library") { isShowingLibrary = true }
+            Button("Choose photo") { isShowingLibrary = true }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("To take a photo for this memory, allow camera access for Ctrl+Ex+Delete in Settings. You can also choose one from your library.")
+            Text("To take a photo for this memory, allow camera access for Ctrl+Ex+Delete in Settings. You can also choose one from your photos.")
         }
     }
 
@@ -273,104 +271,182 @@ struct ReflectionView: View {
 
     // MARK: Photo
 
-    /// The prototype's dashed photo box. Tapping it offers the camera or the
-    /// photo library. The library picker runs outside the app, so it needs no
-    /// permission; the camera asks for permission the first time it's used.
+    /// The prototype's dashed photo box, with the two sources as buttons inside
+    /// it. The library picker runs outside the app, so it needs no permission;
+    /// the camera asks for permission the first time it's used.
     private var photoPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button(action: choosePhotoSource) {
-                photoBox
-            }
-            .buttonStyle(.plain)
-            .disabled(isSaving)
-            .accessibilityLabel(photo == nil ? "Add a photo" : "Change photo")
-            .overlay(alignment: .topTrailing) {
-                if photo != nil, !isSaving {
-                    Button(action: removePhoto) {
-                        CEDIconView(icon: .xMark, size: 16, color: CEDColor.foreground)
-                            .frame(width: 32, height: 32)
-                            .background(.white.opacity(0.85), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(10)
-                    .accessibilityLabel("Remove photo")
-                }
+            if let photo {
+                selectedPhoto(photo)
+            } else {
+                emptyPhotoBox
             }
 
             if let photoError {
                 Text(photoError)
                     .cedTextStyle(.caption)
                     .foregroundStyle(CEDColor.rose)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: isChangingPhoto)
+    }
+
+    private var emptyPhotoBox: some View {
+        let shape = RoundedRectangle(cornerRadius: CEDRadius.xl)
+        return VStack(spacing: 16) {
+            if isLoadingPhoto {
+                ProgressView()
+                    .tint(CEDColor.primary)
+                    .frame(minHeight: 96)
+                    .accessibilityLabel("Opening your photo")
+            } else {
+                VStack(spacing: 6) {
+                    CEDIconView(icon: .image, size: 28, color: CEDColor.hint)
+                    Text("Add a photo")
+                        .cedTextStyle(.bodySemibold)
+                        .foregroundStyle(CEDColor.foreground)
+                        .accessibilityAddTraits(.isHeader)
+                    Text("A small memory from your activity.")
+                        .cedTextStyle(.caption)
+                        .foregroundStyle(CEDColor.mutedForeground)
+                }
+                .multilineTextAlignment(.center)
+
+                photoSourceButtons
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(CEDColor.card, in: shape)
+        .overlay {
+            shape.strokeBorder(CEDColor.border, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+        }
+    }
+
+    /// The chosen photo, never stretched. "Change photo" shows the same two
+    /// sources under it; the photo stays until a new one is actually picked.
+    private func selectedPhoto(_ photo: PickedPhoto) -> some View {
+        let shape = RoundedRectangle(cornerRadius: CEDRadius.xl)
+        return VStack(spacing: 12) {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 220)
+                .overlay {
+                    Image(uiImage: photo.preview)
+                        .resizable()
+                        .scaledToFill()
+                }
+                .clipShape(shape)
+                .overlay {
+                    if isLoadingPhoto {
+                        ProgressView()
+                            .tint(CEDColor.primary)
+                            .padding(12)
+                            .background(.white.opacity(0.85), in: Circle())
+                            .accessibilityLabel("Opening your new photo")
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if !isSaving {
+                        Button(action: removePhoto) {
+                            CEDIconView(icon: .xMark, size: 16, color: CEDColor.foreground)
+                                .frame(width: 32, height: 32)
+                                .background(.white.opacity(0.85), in: Circle())
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(4)
+                        .disabled(isLoadingPhoto)
+                        .accessibilityLabel("Remove photo")
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if !isChangingPhoto, !isSaving {
+                        Button {
+                            photoError = nil
+                            isChangingPhoto = true
+                        } label: {
+                            Text("Change photo")
+                                .cedTextStyle(.captionBold)
+                                .foregroundStyle(CEDColor.primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(.white.opacity(0.9), in: Capsule())
+                                .frame(minHeight: 44)
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, 4)
+                        .disabled(isLoadingPhoto)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Your photo")
+
+            if isChangingPhoto, !isSaving {
+                VStack(spacing: 8) {
+                    photoSourceButtons
+                    Button("Keep this photo") {
+                        photoError = nil
+                        isChangingPhoto = false
+                    }
+                    .cedTextStyle(.captionBold)
+                    .foregroundStyle(CEDColor.mutedForeground)
+                    .frame(minHeight: 44)
+                    .buttonStyle(.plain)
+                    .disabled(isLoadingPhoto)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
 
-    private var photoBox: some View {
-        let shape = RoundedRectangle(cornerRadius: CEDRadius.xl)
-        return ZStack {
-            if let photo {
-                Color.clear
-                    .overlay {
-                        Image(uiImage: photo.preview)
-                            .resizable()
-                            .scaledToFill()
-                    }
-                    .clipped()
-                    .overlay(alignment: .bottom) {
-                        Text("Change photo")
-                            .cedTextStyle(.captionBold)
-                            .foregroundStyle(CEDColor.foreground)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(.white.opacity(0.85), in: Capsule())
-                            .padding(.bottom, 10)
-                    }
-            } else if isLoadingPhoto {
-                ProgressView()
-                    .tint(CEDColor.primary)
+    /// "Take photo" and "Choose photo", side by side, or stacked when they
+    /// don't fit (narrow screens, large text).
+    private var photoSourceButtons: some View {
+        let take = PhotoSourceButton(icon: .camera, title: "Take photo", action: takePhoto)
+        let choose = PhotoSourceButton(icon: .image, title: "Choose photo", action: choosePhoto)
+        return Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: 8) { take; choose }
             } else {
-                VStack(spacing: 8) {
-                    CEDIconView(icon: .image, size: 32, color: CEDColor.mutedForeground)
-                    Text("Add a photo")
-                        .cedTextStyle(.bodySemibold)
-                        .foregroundStyle(CEDColor.mutedForeground)
-                    Text("Take one or choose from your library.")
-                        .cedTextStyle(.caption)
-                        .foregroundStyle(CEDColor.hint)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { take; choose }
+                    VStack(spacing: 8) { take; choose }
                 }
             }
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: photo == nil ? 144 : 220)
-        .background(CEDColor.card, in: shape)
-        .clipShape(shape)
-        .overlay {
-            if photo == nil {
-                shape.strokeBorder(CEDColor.border, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-            }
-        }
-        .contentShape(shape)
+        .disabled(isSaving || isLoadingPhoto || isPresentingPhotoSource)
     }
 
-    /// Without a camera (e.g. the Simulator), go straight to the library.
-    private func choosePhotoSource() {
+    /// True while a camera, picker, permission prompt or alert is up (or on
+    /// its way), so repeated taps can't stack a second one on top.
+    private var isPresentingPhotoSource: Bool {
+        isShowingCamera || isShowingLibrary || isAskingCameraAccess || isCameraAccessOff
+    }
+
+    private func choosePhoto() {
+        guard !isPresentingPhotoSource else { return }
         photoError = nil
-        if CameraPicker.isAvailable {
-            isChoosingPhotoSource = true
-        } else {
-            isShowingLibrary = true
-        }
+        isShowingLibrary = true
     }
 
-    /// "Take Photo": opens the camera, asking for permission only if needed.
+    /// "Take photo": opens the camera, asking for permission only if needed.
     private func takePhoto() {
+        guard !isPresentingPhotoSource else { return }
+        photoError = nil
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         switch CameraRoute.route(isCameraAvailable: CameraPicker.isAvailable, status: status) {
         case .open:
             isShowingCamera = true
         case .askPermission:
+            isAskingCameraAccess = true
             Task {
-                if await AVCaptureDevice.requestAccess(for: .video) {
+                let allowed = await AVCaptureDevice.requestAccess(for: .video)
+                isAskingCameraAccess = false
+                if allowed {
                     isShowingCamera = true
                 } else {
                     isCameraAccessOff = true
@@ -379,7 +455,7 @@ struct ReflectionView: View {
         case .denied:
             isCameraAccessOff = true
         case .unavailable:
-            photoError = "This device doesn\u{2019}t have a camera. Choose a photo from your library instead."
+            photoError = "This device doesn\u{2019}t have a camera. You can choose a photo instead."
         }
     }
 
@@ -410,6 +486,7 @@ struct ReflectionView: View {
         photo = PickedPhoto(preview: UIImage(data: jpeg) ?? image, jpeg: jpeg)
         uploadedPhotoId = nil  // a new photo needs a new upload
         photoError = nil
+        isChangingPhoto = false
     }
 
     private func removePhoto() {
@@ -417,6 +494,7 @@ struct ReflectionView: View {
         pickedItem = nil
         uploadedPhotoId = nil
         photoError = nil
+        isChangingPhoto = false
     }
 
     // MARK: Saving
@@ -512,6 +590,40 @@ struct ReflectionView: View {
         let elapsed = ContinuousClock.now - shownAt
         if elapsed < minimum { try? await Task.sleep(for: minimum - elapsed) }
         router.go(to: .scrapbook)
+    }
+}
+
+/// One photo source inside the photo box: pale blue, a subtle border and
+/// dark teal text, at least 44 points tall.
+private struct PhotoSourceButton: View {
+    let icon: CEDIcon
+    let title: String
+    let action: () -> Void
+
+    @Environment(\.isEnabled) private var isEnabled
+    /// Grows with the label at larger text sizes.
+    @ScaledMetric(relativeTo: .subheadline) private var iconSize: CGFloat = 18
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                CEDIconView(icon: icon, size: iconSize, color: CEDColor.primary)
+                Text(title)
+                    .cedTextStyle(.bodyBold)
+                    .foregroundStyle(CEDColor.primary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(CEDColor.secondary, in: RoundedRectangle(cornerRadius: CEDRadius.lg))
+            .overlay {
+                RoundedRectangle(cornerRadius: CEDRadius.lg).strokeBorder(CEDColor.border, lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: CEDRadius.lg))
+            .opacity(isEnabled ? 1 : 0.55)
+        }
+        .buttonStyle(PressScaleButtonStyle())
     }
 }
 

@@ -87,6 +87,7 @@ It inserts or updates activities by `slug`. An activity that isn't in the file a
 | `015_moving_forward.sql` | `moving_forward_check_ins`: one moving-forward reflection per installation (ticked questions, optional note, the day it was chosen). Nothing else changes |
 | `016_moving_forward_readiness_only.sql` | Drops the moving-forward `note` column: the check-in is now the five readiness questions only, and the API requires all five |
 | `017_affirmations.sql` | The Grow with Kindness catalog: `affirmation_themes`, `affirmations` (stable id, text, theme, language, active, timestamps), `affirmation_sources`, `affirmation_theme_sources` (principle and rationale per source) and `affirmation_notes` (editorial, never shown). Filled by `scripts/seed_affirmations.py`, which `migrate` runs; it never deletes, only retires. After changing `scripts/affirmation_data.py`, also run `python -m scripts.export_affirmations` to update the app's bundled copy |
+| `018_room_messages.sql` | Ced's room message: the `room_messages` catalog (filled by `scripts/seed_room_messages.py`, run by `migrate`; never deletes, only retires) and `check_in_room_messages` (the message and text given to each check-in, one per check-in). The rules are in `app/room_messages.py` |
 
 To change the database later, **add a new numbered file** (e.g. `004_add_something.sql`). Don't edit a migration that has already been applied.
 

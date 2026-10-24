@@ -42,7 +42,8 @@ def rows(installation_id):
 
 
 def test_status_before_and_after_the_days_check_in(installation_id):
-    assert status(installation_id) == {"local_date": DAY, "check_in": None, "has_any_check_in": False}
+    before = status(installation_id)
+    assert (before["local_date"], before["check_in"], before["has_any_check_in"]) == (DAY, None, False)
     saved = check_in(installation_id).json()
     today = status(installation_id)
     assert today["check_in"]["id"] == saved["id"] and today["has_any_check_in"] is True

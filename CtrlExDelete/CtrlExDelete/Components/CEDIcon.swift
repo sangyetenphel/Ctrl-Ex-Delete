@@ -29,6 +29,7 @@ enum CEDIcon: String {
     // Reflection, scrapbook, talk, chat and final screens
     case check = "icon-check"
     case image = "icon-image"
+    case camera = "icon-camera"
     case star = "icon-star"
     case download = "icon-download"
     case info = "icon-info"
