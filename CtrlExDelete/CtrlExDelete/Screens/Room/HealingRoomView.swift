@@ -26,8 +26,12 @@ struct HealingRoomView: View {
                 RoomBackdrop(day: journey.dayNumber)
                     .frame(width: roomWidth, height: roomHeight)
                     .accessibilityElement()
-                    .accessibilityLabel("Day \(journey.dayNumber). Your Healing Room. Ced says: You don\u{2019}t have to feel great today. Let\u{2019}s choose one small thing.")
+                    .accessibilityLabel("Day \(journey.dayNumber). Your Healing Room.")
                     .accessibilityAddTraits(.isHeader)
+
+                // Ced's words for today, inside the cream card above him.
+                RoomCedMessage(text: journey.roomMessageText(today: LocalDate.text()), scale: scale)
+                    .offset(x: RoomCedMessage.frame.minX * scale, y: RoomCedMessage.frame.minY * scale)
 
                 // One book per completed activity, on the empty shelves above.
                 RoomBookshelf(books: journey.books, isCurrent: journey.cachedAt == nil && journey.hasLoaded,
@@ -59,6 +63,9 @@ struct HealingRoomView: View {
         // Let the header's teal run up behind the status bar. The room covers
         // the rest of this color, so it only shows behind the status bar.
         .background(Color(hex: 0x2D5A70), ignoresSafeAreaEdges: .top)
+        // Today's message, if the room doesn't have it yet (the check-in and
+        // startup usually provide it, so this is rarely a request).
+        .task { await journey.loadRoomMessage(today: LocalDate.text()) }
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {

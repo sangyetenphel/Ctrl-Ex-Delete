@@ -8,6 +8,24 @@ enum RoomGrid {
     static let size = CGSize(width: 390, height: 700)
 }
 
+/// Colours shared by the room and screens that should feel like part of it
+/// (the Grow with Kindness game uses the wall, message card and wood).
+enum RoomPalette {
+    /// The wall's top-to-bottom gradient and its faint dot texture.
+    static let wallStops: [(Double, UInt32)] = [(0, 0x90B8CC), (0.3, 0x9DC0D0), (0.7, 0xA5C5D4), (1, 0xA9C9D8)]
+    static let wallDot: UInt32 = 0x7AAFC7
+    static let wallDotOpacity = 0.18
+    /// Ced's message card: cream fill, pale tan frame, warm brown text.
+    static let cardFill: UInt32 = 0xFFF8F0
+    static let cardFrame: UInt32 = 0xE0C9B8
+    static let cardText: UInt32 = 0x3D2B1F
+    static let cardSignature: UInt32 = 0x9E8070
+    /// Shelf and desk wood.
+    static let woodLight: UInt32 = 0xB07845
+    static let wood: UInt32 = 0x9B6A3B
+    static let woodDark: UInt32 = 0x7A4E24
+}
+
 // MARK: - Drawing helpers
 
 private extension GraphicsContext {
@@ -71,10 +89,10 @@ struct RoomBackdrop: View {
     private static func drawWallAndFloor(in c: GraphicsContext) {
         // Wall  (y 0–556)
         let wall = CGRect(x: 0, y: 0, width: 390, height: 556)
-        c.rect(0, 0, 390, 556, verticalGradient([(0, 0x90B8CC), (0.3, 0x9DC0D0), (0.7, 0xA5C5D4), (1, 0xA9C9D8)], in: wall))
+        c.rect(0, 0, 390, 556, verticalGradient(RoomPalette.wallStops, in: wall))
         for x in [35, 75, 150, 230, 310, 360] as [CGFloat] {
             for y in [130, 200, 280, 370, 460] as [CGFloat] {
-                c.rect(x, y, 3, 3, 0x7AAFC7, opacity: 0.18)
+                c.rect(x, y, 3, 3, RoomPalette.wallDot, opacity: RoomPalette.wallDotOpacity)
             }
         }
 
@@ -223,17 +241,12 @@ struct RoomBackdrop: View {
     }
 
     private static func drawSpeechBubble(in c: GraphicsContext) {
-        c.rect(112, 340, 200, 78, 0xFFF8F0)
-        c.rect(112, 338, 200, 3, 0xE0C9B8)
-        c.rect(112, 416, 200, 3, 0xE0C9B8)
-        c.rect(112, 338, 3, 81, 0xE0C9B8)
-        c.rect(309, 338, 3, 81, 0xE0C9B8)
-        c.text("You don\u{2019}t have to feel great today.", font: .nunitoSemiBold, size: 10, hex: 0x3D2B1F,
-               x: 212, baseline: 364, anchor: .top)
-        c.text("Let\u{2019}s choose one small thing.", font: .nunitoSemiBold, size: 10, hex: 0x3D2B1F,
-               x: 212, baseline: 382, anchor: .top)
-        c.text("\u{2014} Ced, your healing companion", font: .nunitoRegular, size: 9, hex: 0x9E8070,
-               x: 212, baseline: 404, anchor: .top)
+        c.rect(112, 340, 200, 78, RoomPalette.cardFill)
+        c.rect(112, 338, 200, 3, RoomPalette.cardFrame)
+        c.rect(112, 416, 200, 3, RoomPalette.cardFrame)
+        c.rect(112, 338, 3, 81, RoomPalette.cardFrame)
+        c.rect(309, 338, 3, 81, RoomPalette.cardFrame)
+        // Ced's words are live text on top (RoomCedMessage), chosen from today's check-in.
     }
 
     private static func drawDesk(in c: GraphicsContext) {
@@ -373,5 +386,97 @@ struct PixelRoomPlantArt: View {
             c.blendMode = .clear
             c.fill(Path(CGRect(x: 312, y: 524, width: 42, height: 32)), with: .color(.black))   // the desk's corner
         }
+    }
+}
+
+
+// MARK: - Room pieces for other screens
+
+/// The room's blue wall, with its gradient and faint dot texture, to fill a
+/// whole screen (the dots repeat at the room's spacing, scaled to the width).
+struct RoomWallBackground: View {
+    var body: some View {
+        Canvas { c, size in
+            let rect = CGRect(origin: .zero, size: size)
+            c.fill(Path(rect), with: verticalGradient(RoomPalette.wallStops, in: rect))
+            let scale = size.width / RoomGrid.size.width
+            let dot = 3 * scale
+            for x in [35, 75, 150, 230, 310, 360] as [CGFloat] {
+                var y: CGFloat = 60
+                while y * scale < size.height {
+                    c.fill(Path(CGRect(x: x * scale, y: y * scale, width: dot, height: dot)),
+                           with: .color(Color(hex: RoomPalette.wallDot, opacity: RoomPalette.wallDotOpacity)))
+                    y += 75
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// Ced's message card from the room: cream, square corners, pale tan frame.
+    func roomMessageCard() -> some View {
+        self
+            .background(Color(hex: RoomPalette.cardFill))
+            .overlay(Rectangle().strokeBorder(Color(hex: RoomPalette.cardFrame), lineWidth: 3))
+    }
+}
+
+/// A simple wooden ledge in the room's shelf colours: a lit top edge, the
+/// board, a dark lower lip and two small brackets.
+struct WoodenLedge: View {
+    var body: some View {
+        Canvas { c, size in
+            let u = size.height / 26
+            func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ hex: UInt32, _ opacity: Double = 1) {
+                c.fill(Path(CGRect(x: x, y: y * u, width: w, height: h * u)), with: .color(Color(hex: hex, opacity: opacity)))
+            }
+            rect(0, 0, size.width, 3, RoomPalette.woodLight)
+            rect(0, 3, size.width, 9, RoomPalette.wood)
+            rect(0, 12, size.width, 2, RoomPalette.woodDark)
+            for x in [size.width * 0.18, size.width * 0.82 - 10 * u] {
+                rect(x, 14, 10 * u, 6, RoomPalette.woodDark)
+                rect(x + 2 * u, 20, 6 * u, 4, RoomPalette.woodDark, 0.85)
+            }
+            rect(0, 14, size.width, 2, 0x3D2B1F, 0.12)        // a soft shadow under the board
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+
+/// Ced's message inside the room's cream card: today's words (from the
+/// check-in) and his signature, in the card's own type. The card is part of
+/// the artwork and doesn't grow, so the text follows the user's text size up
+/// to a point and then shrinks to fit; VoiceOver always reads all of it.
+struct RoomCedMessage: View {
+    let text: String
+    let scale: CGFloat
+
+    /// The card's inside on the room grid (inside its 3-unit frame, a little padding).
+    static let frame = CGRect(x: 119, y: 343, width: 186, height: 71)
+
+    var body: some View {
+        let textScale = min(UIFontMetrics(forTextStyle: .caption1).scaledValue(for: 1), 1.4)
+        VStack(spacing: 5 * scale) {
+            Text(text)
+                .font(.custom(CEDFontName.nunitoSemiBold.rawValue, fixedSize: 10 * scale * textScale))
+                .foregroundStyle(Color(hex: RoomPalette.cardText))
+                .lineSpacing(2 * scale)
+                .lineLimit(4)
+                .minimumScaleFactor(0.55)
+            Text("\u{2014} Ced, your healing companion")
+                .font(.custom(CEDFontName.nunitoRegular.rawValue, fixedSize: 9 * scale * min(textScale, 1.2)))
+                .foregroundStyle(Color(hex: RoomPalette.cardSignature))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .multilineTextAlignment(.center)
+        .frame(width: Self.frame.width * scale, height: Self.frame.height * scale)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Ced says: \(text)")
+        .contentTransition(.opacity)
+        .animation(.easeInOut(duration: 0.3), value: text)
     }
 }

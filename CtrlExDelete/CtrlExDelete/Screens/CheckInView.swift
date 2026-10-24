@@ -74,7 +74,9 @@ struct CheckInView: View {
 
         Task {
             do {
-                _ = try await APIClient.shared.submitCheckIn(request)
+                let saved = try await APIClient.shared.submitCheckIn(request)
+                // Ced's message for this check-in is ready for the room right away.
+                journey.applyRoomMessage(saved.roomMessage, checkInId: saved.id, localDate: saved.localDate)
                 await journey.refresh()   // the first check-in starts the day count
                 withAnimation(.easeOut(duration: 0.2)) { submission = .saved }
                 AccessibilityNotification.Announcement("Check-in saved").post()

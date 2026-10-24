@@ -96,32 +96,43 @@ struct GrowWithKindnessView: View {
 
     private var listener: AffirmationListener { game.listener }
 
+    /// Room reserved for the card and its controls, so the pot sits in the
+    /// same place in every state (very large text lets it grow and scroll).
+    private var cardArea: CGFloat { dynamicTypeSize.isAccessibilitySize ? 0 : 326 }
+    /// The fully grown plant's space (grid 100 × 130), with the pot at its foot.
+    private var plantSize: CGSize {
+        dynamicTypeSize.isAccessibilitySize ? CGSize(width: 170, height: 221) : CGSize(width: 236, height: 307)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            // The words scroll (large text, long messages); the plant below
-            // stays anchored in the same place for the whole game.
             ScrollView {
-                VStack(spacing: 18) {
-                    if game.phase == .finished {
-                        closingCard
-                    } else {
-                        affirmationCard
-                        controls
+                VStack(spacing: 0) {
+                    Group {
+                        if game.phase == .finished {
+                            closingCard
+                        } else {
+                            VStack(spacing: 14) {
+                                affirmationCard
+                                controls
+                            }
+                        }
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                    .frame(minHeight: cardArea, alignment: .top)
+
+                    plantCorner
+                        .padding(.top, 4)
+                        .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
             }
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
-
-            KindnessPlantView(leaves: game.leaves, isBloomed: game.phase == .finished)
-                // Smaller with very large text, so the words keep most of the screen.
-                .frame(height: dynamicTypeSize.isAccessibilitySize ? 150 : 230)
-                .padding(.bottom, 16)
         }
-        .background(CEDColor.background)
+        // A cosy corner of the healing room: its wall, its card, its wood.
+        .background(RoomWallBackground().ignoresSafeArea())
         // The catalog refreshes in the background for next time only.
         .task { await AffirmationCatalog.refresh() }
         // Leaving or backgrounding always stops the microphone; a tap resumes.
@@ -129,6 +140,18 @@ struct GrowWithKindnessView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { listener.stop() }
         }
+    }
+
+    /// The plant on a little wooden ledge. Its size never changes, so the pot
+    /// stays put from sprout to flower.
+    private var plantCorner: some View {
+        VStack(spacing: 0) {
+            KindnessPlantView(leaves: game.leaves, isBloomed: game.phase == .finished)
+                .frame(width: plantSize.width, height: plantSize.height)
+            WoodenLedge()
+                .frame(width: plantSize.width * 1.25, height: 26)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Top bar
@@ -166,11 +189,12 @@ struct GrowWithKindnessView: View {
     // MARK: The affirmation
 
     private var affirmationCard: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 10) {
             highlightedSentence
                 .cedTextStyle(.cardTitle)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(game.current?.text ?? "")
                 .accessibilityValue(accessibilityProgress)
 
@@ -180,10 +204,14 @@ struct GrowWithKindnessView: View {
             statusText
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 22)
-        .background(CEDColor.card, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x8A4A1C), lineWidth: 3))
+        .padding(.vertical, 16)
+        .roomMessageCard()
     }
+
+    private static let cardText = Color(hex: RoomPalette.cardText)
+    /// Heard words: a deeper leaf green that stays readable on the cream card.
+    private static let heardGreen = Color(hex: 0x3B7A2A)
+    private static let cardHint = Color(hex: 0x7A5E4E)
 
     /// The sentence, with every word heard so far in soft green.
     private var highlightedSentence: Text {
@@ -192,7 +220,7 @@ struct GrowWithKindnessView: View {
         for (index, word) in listener.displayWords.enumerated() {
             var piece = AttributedString(index == 0 ? word : " " + word)
             piece.foregroundColor = green.contains(index) || game.phase != .reading
-                ? Color(hex: 0x4E9A3A) : CEDColor.foreground
+                ? Self.heardGreen : Self.cardText
             text += piece
         }
         return Text(text)
@@ -212,11 +240,11 @@ struct GrowWithKindnessView: View {
             ZStack {
                 Circle()
                     .fill(isListening ? CEDColor.rose : CEDColor.primary)
-                    .frame(width: 60, height: 60)
+                    .frame(width: 56, height: 56)
                 if isListening && !reduceMotion {
                     Circle()
                         .strokeBorder(CEDColor.rose.opacity(0.35), lineWidth: 4)
-                        .frame(width: 74, height: 74)
+                        .frame(width: 68, height: 68)
                         .phaseAnimator([0.9, 1.08]) { ring, scale in ring.scaleEffect(scale) }
                             animation: { _ in .easeInOut(duration: 0.8) }
                 }
@@ -226,7 +254,7 @@ struct GrowWithKindnessView: View {
                     CEDIconView(icon: .micBold, size: 26, color: CEDColor.cream)
                 }
             }
-            .frame(width: 76, height: 76)
+            .frame(width: 70, height: 70)
         }
         .buttonStyle(PressScaleButtonStyle())
         .disabled(listener.state == .processing)
@@ -238,11 +266,11 @@ struct GrowWithKindnessView: View {
         if game.phase == .grown {
             Text("A new leaf grew.")
                 .cedTextStyle(.bodySemibold)
-                .foregroundStyle(Color(hex: 0x4E8A3A))
+                .foregroundStyle(Self.heardGreen)
         } else if game.isQuietPractice {
             Text("Read it quietly to yourself, then tap \u{201C}I\u{2019}m ready.\u{201D}")
                 .cedTextStyle(.body)
-                .foregroundStyle(CEDColor.mutedForeground)
+                .foregroundStyle(Self.cardHint)
                 .multilineTextAlignment(.center)
         } else {
             switch listener.state {
@@ -275,23 +303,28 @@ struct GrowWithKindnessView: View {
                 } else if case .retry = listener.state {
                     OutlineButton(title: "I said it", color: CEDColor.primary) { game.completeManually() }
                 }
-                HStack(spacing: 20) {
-                    if game.canTryAnother {
-                        Button("Try another affirmation") { game.tryAnother() }
-                            .accessibilityHint("Shows a different sentence. It doesn\u{2019}t count as a leaf.")
-                    }
-                    Button(game.isQuietPractice ? "Use my voice" : "Practice quietly") {
-                        listener.stop()
-                        game.isQuietPractice.toggle()
-                    }
+                // Secondary: small cream pills that stay readable on the wall.
+                ViewThatFits {
+                    HStack(spacing: 10) { secondaryLinks }
+                    VStack(spacing: 8) { secondaryLinks }
                 }
-                .cedTextStyle(.bodySemibold)
-                .foregroundStyle(CEDColor.primary)
-                .multilineTextAlignment(.center)
             case .finished:
                 EmptyView()
             }
         }
+    }
+
+    @ViewBuilder private var secondaryLinks: some View {
+        if game.canTryAnother {
+            Button("Try another affirmation") { game.tryAnother() }
+                .buttonStyle(WallPillButtonStyle())
+                .accessibilityHint("Shows a different sentence. It doesn\u{2019}t count as a leaf.")
+        }
+        Button(game.isQuietPractice ? "Use my voice" : "Practice quietly") {
+            listener.stop()
+            game.isQuietPractice.toggle()
+        }
+        .buttonStyle(WallPillButtonStyle())
     }
 
     // MARK: The end
@@ -300,13 +333,12 @@ struct GrowWithKindnessView: View {
         VStack(spacing: 18) {
             Text("A little kindness helps you grow.")
                 .cedTextStyle(.cardTitle)
-                .foregroundStyle(CEDColor.foreground)
+                .foregroundStyle(Self.cardText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 18)
-                .padding(.vertical, 26)
-                .background(CEDColor.card, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x8A4A1C), lineWidth: 3))
+                .padding(.vertical, 20)
+                .roomMessageCard()
                 .accessibilityAddTraits(.isHeader)
             PrimaryButton(title: "Back to room") { router.go(to: .room) }
             OutlineButton(title: "Play again", color: CEDColor.primary) {
@@ -317,10 +349,26 @@ struct GrowWithKindnessView: View {
 }
 
 private extension Text {
+    /// Instructions under the microphone, in the card's warm brown.
     func statusStyle() -> some View {
         self.cedTextStyle(.body)
-            .foregroundStyle(CEDColor.mutedForeground)
+            .foregroundStyle(Color(hex: 0x7A5E4E))
             .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// "Try another affirmation" / "Practice quietly": quiet cream pills on the wall.
+private struct WallPillButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .cedTextStyle(.bodySemibold)
+            .foregroundStyle(CEDColor.primary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Color(hex: RoomPalette.cardFill).opacity(configuration.isPressed ? 0.6 : 0.85), in: Capsule())
+            .contentShape(Capsule())
     }
 }
 

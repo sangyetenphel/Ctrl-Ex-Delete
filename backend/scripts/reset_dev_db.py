@@ -14,6 +14,8 @@ from app.config import settings
 
 # Children first, so foreign keys never block a drop.
 CED_TABLES = [
+    "check_in_room_messages",
+    "room_messages",
     "affirmation_notes",
     "affirmation_theme_sources",
     "affirmations",

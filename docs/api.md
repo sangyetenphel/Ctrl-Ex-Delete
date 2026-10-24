@@ -110,6 +110,20 @@ Saving a check-in also creates its activity recommendations (same database trans
 
 ---
 
+## Ced's room message (`room_message`)
+
+`POST /check-ins` and `GET /check-ins/today` include Ced's message for the healing room, so the app needs no extra request:
+
+```json
+"room_message": {"id": "strong-urge-01", "pattern": "strong_urge", "text": "That pull can feel strong. Let’s pause and make a little space for you."}
+```
+- **With a check-in:** one message is chosen by the rules in `backend/app/room_messages.py` and saved with the check-in (`check_in_room_messages`, text included), so it never changes, even if the catalog is edited later. Check-ins made before this get theirs the first time it's needed; two requests at once still give one.
+- **Before today's check-in:** `GET /check-ins/today` returns a "let's check in" message (`pattern: "before_check_in"`), the same all day.
+- `null` only if no message could be loaded; the check-in itself is never affected.
+- It describes today's answers gently. It is not a risk assessment or a judgement about readiness.
+
+---
+
 ## `GET /check-ins/today?local_date=YYYY-MM-DD`
 
 Has the user checked in on their local day? The app asks on every start (including after a force-close) and when it returns on a new day, before choosing the welcome, check-in or room screen. Changes nothing.
