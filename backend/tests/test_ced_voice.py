@@ -79,6 +79,7 @@ def live(monkeypatch):
         state["classified"].append(text)
         return state["classifier_says"]
 
+    voice.slots.reset_for_tests()
     monkeypatch.setattr(voice, "is_configured", lambda: True)
     monkeypatch.setattr(voice, "gemini_connect", connect)
     monkeypatch.setattr(risk, "classify", classify)
@@ -212,6 +213,14 @@ def test_one_call_at_a_time(installation_id, live):
 def test_server_wide_call_cap(installation_id, live, monkeypatch):
     monkeypatch.setattr(settings, "ced_voice_max_concurrent", 0)
     with call(installation_id) as ws:
+        assert ws.receive_json()["code"] == "busy"
+
+
+def test_server_wide_hourly_call_cap(installation_id, other_installation_id, live, monkeypatch):
+    monkeypatch.setattr(settings, "ced_voice_calls_per_hour", 1)
+    with call(installation_id) as ws:
+        connected(ws)
+    with call(other_installation_id) as ws:  # a different installation is refused too
         assert ws.receive_json()["code"] == "busy"
 
 

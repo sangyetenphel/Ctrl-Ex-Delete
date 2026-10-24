@@ -4,6 +4,7 @@ This is the contract between the iOS app and the FastAPI backend.
 **Field names and allowed values must match exactly.** If something here needs to change, update this doc in the same pull request as the code.
 
 - **Status:** check-ins, recommendations, activity status (one in progress), bookmarks, scrapbook photos, reflections (completion), progress summary, insights, Ced chat, Ced voice calls
+- **Deployed base URL:** Render, `https://` (see `backend/README.md`, "Deploying to Render"); the app's `APIConfig.deployedBaseURL`
 - **Local base URL:** `http://127.0.0.1:8000` (works from the iOS Simulator on the same Mac)
 - **Interactive docs:** `http://127.0.0.1:8000/docs` (while the backend is running)
 
@@ -15,7 +16,7 @@ There are no accounts. Instead:
 
 1. On first launch, the app generates a UUID (`UUID().uuidString`).
 2. The app saves it in the **Keychain** and reuses it forever after.
-3. Every request (except `/health`) sends it in this header:
+3. Every request (except `/health` and `/health/db`) sends it in this header:
 
 ```
 X-Installation-ID: A4781CB6-8637-4789-BD52-9AB075D2AB1C
@@ -46,6 +47,13 @@ Checks that the server is running. No header needed.
 ```json
 { "status": "ok" }
 ```
+It doesn't touch the database, so it answers quickly (Render's health check uses it).
+
+## `GET /health/db`
+
+Checks that the server can reach the database. No header needed.
+
+**Response `200`:** `{ "status": "ok", "database": "ok" }`. **`503`** when Neon can't be reached (same body as other database errors).
 
 ---
 
@@ -489,7 +497,7 @@ The app streams microphone audio here; the backend relays it to **Gemini Live** 
 - **App side:** a WebSocket ping every 10 s detects a dead connection, and a 25 s watchdog ends a call that hears nothing from the server while waiting on Ced. Ended calls offer **Call again**.
 - **Voice:** `GEMINI_VOICE` is checked against Gemini's 30 voices (case-insensitive); an unknown name logs a warning and uses the default, because Gemini would otherwise silently pick its own.
 - **Safety:** each finished user turn's transcript is checked by the backend patterns and by an independent Groq classifier. Self-harm or danger → a `safety` event (the app shows 988 / 911 on the call screen; nothing is dialled automatically) and a note to the voice model so its next words address safety. Stalking/harassment → a note only.
-- **Limits:** one call per installation, `CED_VOICE_MAX_CONCURRENT` calls server-wide (3), `CED_VOICE_MAX_MINUTES` per call (15); each call counts as one message toward the daily Ced limit.
+- **Limits:** one call per installation, `CED_VOICE_MAX_CONCURRENT` calls server-wide (3), `CED_VOICE_CALLS_PER_HOUR` calls started server-wide per hour (30; then `busy`), `CED_VOICE_MAX_MINUTES` per call (15); each call counts as one message toward the daily Ced limit.
 - **Privacy:** audio and transcripts pass through memory only; nothing is stored or logged.
 - Without `GEMINI_API_KEY` the server sends `error`/`unavailable`. Debug builds of the app then fall back to a clearly labelled practice mock (`-CEDMockVoice YES` forces it; `-CEDMockVoiceCrisis YES` also simulates a crisis).
 

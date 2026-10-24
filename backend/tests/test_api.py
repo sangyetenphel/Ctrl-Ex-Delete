@@ -31,6 +31,10 @@ def test_health():
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_health_db():
+    assert client.get("/health/db").json() == {"status": "ok", "database": "ok"}
+
+
 def test_check_in_is_saved(installation_id):
     response = client.post("/check-ins", json=CHECK_IN, headers=headers(installation_id))
     assert response.status_code == 201

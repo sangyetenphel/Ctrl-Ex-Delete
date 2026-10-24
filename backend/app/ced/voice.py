@@ -29,6 +29,8 @@ import contextlib
 import json
 import logging
 import re
+import time
+from collections import deque
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Protocol
@@ -217,21 +219,36 @@ def is_configured() -> bool:
 # ── Who may call ──
 
 class _Slots:
-    """One call at a time per installation, and a cap for the whole server."""
+    """
+    One call at a time per installation, and caps for the whole server: calls
+    at once, and calls started per hour (so a script inventing installation
+    IDs can't keep Gemini busy around the clock). In memory; a restart resets.
+    """
 
     def __init__(self):
         self._active: set[UUID] = set()
+        self._started: deque[float] = deque()
 
     def take(self, installation_id: UUID) -> str | None:
         if installation_id in self._active:
             return "You already have a call with Ced open."
         if len(self._active) >= settings.ced_voice_max_concurrent:
             return "Ced is on a lot of calls right now. Please try again in a few minutes."
+        now = time.monotonic()
+        while self._started and now - self._started[0] >= 3600:
+            self._started.popleft()
+        if len(self._started) >= settings.ced_voice_calls_per_hour:
+            return "Ced is on a lot of calls right now. Please try again a little later."
+        self._started.append(now)
         self._active.add(installation_id)
         return None
 
     def release(self, installation_id: UUID) -> None:
         self._active.discard(installation_id)
+
+    def reset_for_tests(self) -> None:
+        self._active.clear()
+        self._started.clear()
 
 
 slots = _Slots()
