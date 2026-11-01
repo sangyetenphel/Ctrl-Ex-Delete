@@ -51,6 +51,8 @@ struct JourneyMilestone: Identifiable {
     let label: String
     let date: String          // e.g. "Aug 18", or "Upcoming"
     let isDone: Bool
+    let isBadge: Bool         // a hidden badge the user earned; drawn in gold
+    let description: String?
     var id: String { label }
 }
 
@@ -89,7 +91,9 @@ final class JourneyStore {
             JourneyMilestone(
                 label: milestone.label,
                 date: milestone.reachedOn.map { LocalDate.format($0, .dateTime.month(.abbreviated).day()) } ?? "Upcoming",
-                isDone: milestone.reachedOn != nil
+                isDone: milestone.reachedOn != nil,
+                isBadge: milestone.kind == "badge",
+                description: milestone.description
             )
         }
     }

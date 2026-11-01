@@ -353,15 +353,26 @@ Every memory, newest first, in the same shape. The Scrapbook's "Recent Memories"
   "memories": 1,
   "photos": 1,
   "milestones": [
-    { "label": "Started the journey", "reached_on": "2026-10-13" },
-    { "label": "Completed a first activity", "reached_on": "2026-10-13" },
-    { "label": "Added a first photo memory", "reached_on": "2026-10-13" },
-    { "label": "5 activities milestone", "reached_on": null },
-    { "label": "Moving forward check-in", "reached_on": null }
+    { "label": "Started the journey", "reached_on": "2026-10-13", "kind": "milestone",
+      "description": "You checked in for the first time." },
+    { "label": "Completed a first activity", "reached_on": "2026-10-13", "kind": "milestone",
+      "description": "You finished your first activity." },
+    { "label": "In Control", "reached_on": "2026-10-13", "kind": "badge",
+      "description": "Your energy was low and the urge was strong, and you still did something for yourself." },
+    { "label": "Added a first photo memory", "reached_on": null, "kind": "milestone",
+      "description": "You saved your first photo memory." }
   ]
 }
 ```
-`journey_started_on` is the first check-in's `local_date`; the app shows "Day N" from it. `reached_on: null` means not reached yet ("Upcoming").
+`journey_started_on` is the first check-in's `local_date`; the app shows "Day N" from it.
+
+`milestones` is "Your story so far", built by `backend/app/achievements.py` from existing records (no table of its own):
+
+- `kind: "milestone"`: always listed; `reached_on: null` means not reached yet ("Upcoming"). Started the journey, Completed a first activity, Added a first photo memory, 5 activities milestone, Showing up for yourself (check-ins on 7 different days, not in a row), A lighter day (an urge 3+ lower than the first check-in's), 10 small steps, Moving forward check-in.
+- `kind: "badge"`: a hidden badge, sent **only once earned** (so its name never shows early), with the day it was earned. The app draws badges in gold. Jack of All Trades (one activity of each kind), In Control (completed from a check-in with low energy and urge 7+), Brave Hello (Social Connection when feeling lonely was a hardest area), Outdoor Champ / Calm Keeper / Self-Discovery Guru / Connector (5 of that kind), Feeling It (felt better after 5), Quiet Mind (3 reflections answering "not really"), Storyteller (10 memories with a note), Back Again (a check-in after 7+ days away), Sunday Reset (an activity completed on a Sunday).
+- Order: everything reached, by date (on the same day, milestones first), then the upcoming milestones.
+- `description`: one short line about the entry (the app reads it with VoiceOver). Older apps ignore `kind` and `description`, so badges show there like any other reached milestone.
+- Nothing here can be lost by missing a day (no streaks). Badges from memories (Feeling It, Quiet Mind, Storyteller, photo) follow the memories that still exist; completions stay counted when a memory is deleted.
 
 ---
 

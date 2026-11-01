@@ -188,13 +188,16 @@ struct ScrapbookView: View {
                     let item = milestones[index]
                     HStack(alignment: .top, spacing: 12) {
                         VStack(spacing: 0) {
+                            // Earned badges are gold; milestones keep the blue.
                             Circle()
-                                .fill(item.isDone ? CEDColor.primary : CEDColor.border)
+                                .fill(item.isBadge ? CEDColor.sunriseAmber
+                                      : item.isDone ? CEDColor.primary : CEDColor.border)
                                 .frame(width: 12, height: 12)
                                 .padding(.top, 4)
                             if index < milestones.count - 1 {
                                 Rectangle()
-                                    .fill(item.isDone ? CEDColor.rose : CEDColor.border)
+                                    .fill(item.isBadge ? CEDColor.sunriseAmber
+                                          : item.isDone ? CEDColor.rose : CEDColor.border)
                                     .frame(width: 2, height: 24)
                             }
                         }
@@ -209,6 +212,7 @@ struct ScrapbookView: View {
                         .padding(.bottom, 12)
                     }
                     .accessibilityElement(children: .combine)
+                    .accessibilityHint(item.description.map { (item.isBadge ? "Badge. " : "") + $0 } ?? "")
                 }
             }
         }

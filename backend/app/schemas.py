@@ -232,8 +232,14 @@ class Bookmark(BaseModel):
 # ─────────────────────────────────────────────
 
 class Milestone(BaseModel):
+    """
+    One entry in "Your story so far" (app/achievements.py): a journey
+    milestone (always listed) or a hidden badge (listed only once earned).
+    """
     label: str
-    reached_on: date | None   # null = not reached yet
+    reached_on: date | None   # null = not reached yet (milestones only)
+    kind: Literal["milestone", "badge"] = "milestone"
+    description: str | None = None   # one short line, e.g. for VoiceOver
 
 
 class ShelfBook(BaseModel):

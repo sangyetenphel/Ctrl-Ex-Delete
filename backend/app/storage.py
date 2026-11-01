@@ -11,7 +11,7 @@ import logging
 import psycopg
 from psycopg.rows import dict_row
 
-from app import recommendation_rules, room_messages
+from app import achievements, recommendation_rules, room_messages
 from app.config import settings
 from app.schemas import (
     Activity,
@@ -26,7 +26,6 @@ from app.schemas import (
     ShelfBook,
     MovingForward,
     MovingForwardSave,
-    Milestone,
     ProgressSummary,
     Recommendation,
     RecommendationsResponse,
@@ -799,9 +798,6 @@ def list_reflections(installation_id: UUID) -> list[dict]:
 # Progress
 # ─────────────────────────────────────────────
 
-MILESTONE_ACTIVITY_COUNT = 5
-
-
 BOOKSHELF_CAPACITY = 32   # 4 shelves × 8 books in the room
 
 
@@ -836,16 +832,6 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
     with _connect() as conn:
         row = conn.execute(
             """
-            WITH memories AS (
-                SELECT * FROM reflections WHERE installation_id = %(id)s
-            ), completed AS (
-                -- Counted from the activity itself, so deleting a memory
-                -- doesn't undo the completion.
-                SELECT completed_on AS local_date,
-                       row_number() OVER (ORDER BY ended_at, id) AS n
-                FROM activity_selections
-                WHERE installation_id = %(id)s AND status = 'completed'
-            )
             SELECT
                 (SELECT min(local_date) FROM check_ins
                  WHERE installation_id = %(id)s)                       AS journey_started_on,
@@ -853,30 +839,19 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
                  WHERE installation_id = %(id)s)                       AS check_ins,
                 (SELECT count(*) FROM activity_selections
                  WHERE installation_id = %(id)s)                       AS activities_selected,
-                (SELECT count(*) FROM completed)                       AS activities_completed,
-                (SELECT count(*) FROM memories)                        AS memories,
-                (SELECT count(*) FROM memories WHERE photo_id IS NOT NULL) AS photos,
-                (SELECT local_date FROM completed WHERE n = 1)         AS first_activity_on,
-                (SELECT local_date FROM completed WHERE n = %(goal)s)  AS goal_reached_on,
-                (SELECT min(local_date) FROM memories
-                 WHERE photo_id IS NOT NULL)                           AS first_photo_on,
-                (SELECT moved_forward_on FROM moving_forward_check_ins
-                 WHERE installation_id = %(id)s)                       AS moved_forward_on
+                -- Counted from the activity itself, so deleting a memory
+                -- doesn't undo the completion.
+                (SELECT count(*) FROM activity_selections
+                 WHERE installation_id = %(id)s AND status = 'completed') AS activities_completed,
+                (SELECT count(*) FROM reflections
+                 WHERE installation_id = %(id)s)                       AS memories,
+                (SELECT count(*) FROM reflections
+                 WHERE installation_id = %(id)s AND photo_id IS NOT NULL) AS photos
             """,
-            {"id": installation_id, "goal": MILESTONE_ACTIVITY_COUNT},
+            {"id": installation_id},
         ).fetchone()
+        records = _achievement_records(conn, installation_id)
 
-    milestones = [
-        Milestone(label="Started the journey", reached_on=row["journey_started_on"]),
-        Milestone(label="Completed a first activity", reached_on=row["first_activity_on"]),
-        Milestone(label="Added a first photo memory", reached_on=row["first_photo_on"]),
-        Milestone(
-            label=f"{MILESTONE_ACTIVITY_COUNT} activities milestone",
-            reached_on=row["goal_reached_on"],
-        ),
-        # Reached once the user chose "I'm ready to move forward".
-        Milestone(label="Moving forward check-in", reached_on=row["moved_forward_on"]),
-    ]
     return ProgressSummary(
         journey_started_on=row["journey_started_on"],
         check_ins=row["check_ins"],
@@ -884,8 +859,63 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
         activities_completed=row["activities_completed"],
         memories=row["memories"],
         photos=row["photos"],
-        milestones=milestones,
+        milestones=achievements.story(records),
     )
+
+
+def _achievement_records(conn: psycopg.Connection, installation_id: UUID) -> dict:
+    """
+    What app/achievements.py decides from, each list in the order it happened:
+      check_ins:   [{local_date, contact_urge}]             (the one that counts for each day)
+      completions: [{completed_on, category,                 (completed activities, with the
+                     energy_level, contact_urge, hardest_areas}]  check-in they were recommended for)
+      reflections: [{local_date, mood_change, thought_about_ex, has_photo, has_note}]
+      moved_forward_on: date or None
+    """
+    params = {"id": installation_id}
+    check_ins = conn.execute(
+        """
+        SELECT local_date, contact_urge
+        FROM check_ins
+        WHERE installation_id = %(id)s AND counts_for_day
+        ORDER BY local_date, created_at, id
+        """,
+        params,
+    ).fetchall()
+    completions = conn.execute(
+        """
+        SELECT s.completed_on, a.category,
+               c.energy_level, c.contact_urge, c.hardest_areas
+        FROM activity_selections s
+        JOIN recommendations r ON r.id = s.recommendation_id
+        JOIN activities a ON a.id = r.activity_id
+        JOIN check_ins c ON c.id = r.check_in_id
+        WHERE s.installation_id = %(id)s AND s.status = 'completed'
+        ORDER BY s.completed_on, s.ended_at, s.id
+        """,
+        params,
+    ).fetchall()
+    reflections = conn.execute(
+        """
+        SELECT local_date, mood_change, thought_about_ex,
+               photo_id IS NOT NULL AS has_photo,
+               coalesce(btrim(note), '') <> '' AS has_note
+        FROM reflections
+        WHERE installation_id = %(id)s
+        ORDER BY local_date, created_at, id
+        """,
+        params,
+    ).fetchall()
+    moved = conn.execute(
+        "SELECT moved_forward_on FROM moving_forward_check_ins WHERE installation_id = %(id)s",
+        params,
+    ).fetchone()
+    return {
+        "check_ins": check_ins,
+        "completions": completions,
+        "reflections": reflections,
+        "moved_forward_on": moved["moved_forward_on"] if moved else None,
+    }
 
 
 # ─────────────────────────────────────────────

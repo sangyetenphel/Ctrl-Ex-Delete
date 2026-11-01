@@ -100,7 +100,8 @@ def test_moving_forward_deletes_and_locks_nothing(installation_id, fake_s3):
         assert counts(conn, installation_id) == before
     assert deleted == deleted_before
     summary = client.get("/progress/summary", headers=headers(installation_id)).json()
-    assert summary["milestones"][-1] == {"label": "Moving forward check-in", "reached_on": "2026-10-20"}
+    reached = {m["label"]: m["reached_on"] for m in summary["milestones"]}
+    assert reached["Moving forward check-in"] == "2026-10-20"
     # The app keeps working: the next day's check-in still goes through.
     assert check_in(installation_id, "2026-10-21").status_code == 201
     assert journey  # (made above)

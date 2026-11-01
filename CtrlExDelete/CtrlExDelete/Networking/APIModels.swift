@@ -186,6 +186,8 @@ struct ProgressSummaryDTO: Codable {
 struct MilestoneDTO: Codable {
     let label: String
     let reachedOn: String?          // nil = not reached yet
+    let kind: String?               // "milestone" or "badge" (a hidden badge, sent only once earned)
+    let description: String?        // one short line, read by VoiceOver
 }
 
 // MARK: - Insights
