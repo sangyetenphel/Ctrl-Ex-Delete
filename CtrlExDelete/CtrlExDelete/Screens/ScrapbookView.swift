@@ -188,7 +188,7 @@ struct ScrapbookView: View {
                     let item = milestones[index]
                     HStack(alignment: .top, spacing: 12) {
                         VStack(spacing: 0) {
-                            // Earned badges are gold; milestones keep the blue.
+                            // Earned badges get a gold dot; the line stays the same for both.
                             Circle()
                                 .fill(item.isBadge ? CEDColor.sunriseAmber
                                       : item.isDone ? CEDColor.primary : CEDColor.border)
@@ -196,8 +196,7 @@ struct ScrapbookView: View {
                                 .padding(.top, 4)
                             if index < milestones.count - 1 {
                                 Rectangle()
-                                    .fill(item.isBadge ? CEDColor.sunriseAmber
-                                          : item.isDone ? CEDColor.rose : CEDColor.border)
+                                    .fill(item.isDone ? CEDColor.rose : CEDColor.border)
                                     .frame(width: 2, height: 24)
                             }
                         }
