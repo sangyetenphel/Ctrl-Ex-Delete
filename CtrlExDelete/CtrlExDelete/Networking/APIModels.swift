@@ -210,7 +210,7 @@ struct InsightsDTO: Decodable {
 }
 
 struct UrgePointDTO: Decodable {
-    let label: String       // "Mon" or "W1"
+    let label: String       // "Mon", or the week's first day ("Oct 15")
     let start: String       // "YYYY-MM-DD", the bar's first day
     let value: Int?         // average urge 1–10; nil = no check-in
     let checkIns: Int
@@ -220,7 +220,7 @@ struct UrgePointDTO: Decodable {
 /// fixed internal scores, used only for the bar's height; it is not a rating
 /// the user gave, so the app never shows it. nil = a gap (no answers).
 struct MoodPointDTO: Decodable {
-    let label: String       // "Mon" or "W1"
+    let label: String       // "Mon", or the week's first day ("Oct 15")
     let start: String       // "YYYY-MM-DD"
     let value: Double?      // 1–10
     let answers: [MoodChange]

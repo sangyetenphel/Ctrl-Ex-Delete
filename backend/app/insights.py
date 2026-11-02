@@ -59,8 +59,21 @@ def period_bounds(period: Period, today: date) -> tuple[date, date]:
     return start, today.replace(day=monthrange(today.year, today.month)[1])
 
 
-def _buckets(period: Period, start: date, end: date) -> list[tuple[str, date, date]]:
-    """Chart bars: one per day of the week, or one per week of the month (days 1–7 = W1, …)."""
+def _day_label(day: date) -> str:
+    return f"{day:%b} {day.day}"  # "Oct 5"
+
+
+def _buckets(
+    period: Period, start: date, end: date, journey_started_on: date | None = None
+) -> list[tuple[str, date, date]]:
+    """
+    Chart bars: one per day of the week, or one per week of the month
+    (days 1–7, 8–14, …), labelled with the week's first day ("Oct 15").
+
+    In the month view, weeks that ended before the user's first check-in are
+    left out, and the week it falls in starts on that day, so someone who
+    started on Oct 18 sees "Oct 18" first instead of two empty weeks.
+    """
     if period == "week":
         return [
             ((start + timedelta(days=i)).strftime("%a"), start + timedelta(days=i), start + timedelta(days=i))
@@ -68,11 +81,12 @@ def _buckets(period: Period, start: date, end: date) -> list[tuple[str, date, da
         ]
     buckets = []
     first = start
-    week = 1
     while first <= end:
         last = min(first + timedelta(days=6), end)
-        buckets.append((f"W{week}", first, last))
-        first, week = last + timedelta(days=1), week + 1
+        if journey_started_on is None or last >= journey_started_on:
+            shown_from = max(first, journey_started_on) if journey_started_on else first
+            buckets.append((_day_label(shown_from), shown_from, last))
+        first = last + timedelta(days=1)
     return buckets
 
 
@@ -86,13 +100,18 @@ def build(period: Period, today: date, records: dict) -> InsightsResponse:
     # the same names the activity cards show.
     category_labels = {row["category"]: row["label"] for row in records["categories"]}
     in_period = f"this {period}"
+    # Older callers (and unit tests) may leave it out: then nothing is trimmed.
+    journey_started_on = records.get("journey_started_on")
+    if journey_started_on is not None and journey_started_on > end:
+        journey_started_on = None
+    buckets = _buckets(period, start, end, journey_started_on)
 
     # ── Urges: average rating per bar; None = no check-in (urges are 1–10, never 0)
     daily: dict[date, list[int]] = defaultdict(list)
     for row in records["check_ins"]:
         daily[row["local_date"]].append(row["contact_urge"])
     urges = []
-    for label, first, last in _buckets(period, start, end):
+    for label, first, last in buckets:
         ratings = [r for day, rs in daily.items() if first <= day <= last for r in rs]
         urges.append(UrgePoint(
             label=label,
@@ -115,7 +134,7 @@ def build(period: Period, today: date, records: dict) -> InsightsResponse:
         if row["mood_change"] in MOOD_SCORES:
             answers_by_day[row["local_date"]].append(row["mood_change"])
     mood_points = []
-    for label, first, last in _buckets(period, start, end):
+    for label, first, last in buckets:
         answers = [a for day in sorted(answers_by_day) if first <= day <= last for a in answers_by_day[day]]
         scores = [MOOD_SCORES[a] for a in answers]
         mood_points.append(MoodPoint(

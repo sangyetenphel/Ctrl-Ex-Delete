@@ -1026,6 +1026,7 @@ def get_insight_records(installation_id: UUID, start: date, end: date) -> dict:
       completed:   [{completed_on, category}]            (status completed only)
       moods:       [{local_date, mood_change, category}] (reflections of completed activities)
       categories:  [{category, label}]                   (every category, in display order)
+      journey_started_on: the first check-in's local_date ever (None if none)
     """
     with _connect() as conn:
         check_ins = conn.execute(
@@ -1065,7 +1066,17 @@ def get_insight_records(installation_id: UUID, start: date, end: date) -> dict:
         categories = conn.execute(
             "SELECT category, label FROM activity_categories ORDER BY sort_order, category"
         ).fetchall()
-    return {"check_ins": check_ins, "completed": completed, "moods": moods, "categories": categories}
+        journey_started_on = conn.execute(
+            "SELECT min(local_date) AS first FROM check_ins WHERE installation_id = %s",
+            (installation_id,),
+        ).fetchone()["first"]
+    return {
+        "check_ins": check_ins,
+        "completed": completed,
+        "moods": moods,
+        "categories": categories,
+        "journey_started_on": journey_started_on,
+    }
 
 # ─────────────────────────────────────────────
 # Affirmations
