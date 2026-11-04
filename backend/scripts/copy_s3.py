@@ -3,8 +3,10 @@ Copies every object from the S3 bucket in backend/.env to a bucket in
 another AWS account, keeping the same keys, then checks each copy. Read-only
 on the source; never deletes anything. Run from the backend/ folder:
 
-    TARGET_AWS_ACCESS_KEY_ID=... TARGET_AWS_SECRET_ACCESS_KEY=... \\
-    TARGET_AWS_REGION=us-east-2 TARGET_S3_BUCKET=... python -m scripts.copy_s3 [--dry-run]
+    python -m scripts.copy_s3 [--dry-run]
+
+The TARGET_AWS_* settings and TARGET_S3_BUCKET come from the environment or
+from backend/.env.migration (git-ignored).
 
 Each object is downloaded from the source and uploaded to the target, so the
 two accounts need no access to each other. Uploads carry their MD5, so S3
@@ -15,7 +17,6 @@ changes. Secrets are never printed.
 """
 import base64
 import hashlib
-import os
 import sys
 
 import boto3
@@ -23,16 +24,17 @@ from botocore.exceptions import ClientError
 
 from app import media
 from app.config import settings
+from scripts.compare_databases import migration_setting
 
 TARGET_SETTINGS = ["TARGET_AWS_ACCESS_KEY_ID", "TARGET_AWS_SECRET_ACCESS_KEY", "TARGET_AWS_REGION", "TARGET_S3_BUCKET"]
 
 
 def target_client():
-    region = os.environ["TARGET_AWS_REGION"]
+    region = migration_setting("TARGET_AWS_REGION")
     return boto3.client(
         "s3",
-        aws_access_key_id=os.environ["TARGET_AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["TARGET_AWS_SECRET_ACCESS_KEY"],
+        aws_access_key_id=migration_setting("TARGET_AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=migration_setting("TARGET_AWS_SECRET_ACCESS_KEY"),
         region_name=region,
         endpoint_url=f"https://s3.{region}.amazonaws.com",
     )
@@ -76,12 +78,12 @@ def copy_all(source, source_bucket: str, target, target_bucket: str, dry_run: bo
 
 
 def main() -> int:
-    missing = [name for name in TARGET_SETTINGS if not os.environ.get(name)]
+    missing = [name for name in TARGET_SETTINGS if not migration_setting(name)]
     if missing or not media.is_configured():
         print("Need the source bucket in backend/.env and these target settings: " + ", ".join(missing))
         return 2
-    target_bucket = os.environ["TARGET_S3_BUCKET"]
-    if target_bucket == settings.s3_bucket and os.environ["TARGET_AWS_REGION"] == settings.aws_region:
+    target_bucket = migration_setting("TARGET_S3_BUCKET")
+    if target_bucket == settings.s3_bucket and migration_setting("TARGET_AWS_REGION") == settings.aws_region:
         print("Refusing: the target is the source bucket.")
         return 2
     source, target = media._s3(), target_client()

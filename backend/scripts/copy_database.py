@@ -3,10 +3,13 @@ Copies the CED database into a new, EMPTY database (for example a Neon
 project in another account), then checks the copy. Read-only on the source.
 Run from the backend/ folder:
 
-    TARGET_DATABASE_URL=... python -m scripts.copy_database
+    python -m scripts.copy_database [--database rehearsal]
 
-The source is SOURCE_DATABASE_URL, or DATABASE_URL from backend/.env when
-that isn't set. Steps:
+The target is TARGET_DATABASE_URL, from the environment or from
+backend/.env.migration (git-ignored); --database NAME copies into that
+server's NAME database instead (for a rehearsal). The source is
+SOURCE_DATABASE_URL, or DATABASE_URL from backend/.env when that isn't set.
+Steps:
 
 1. Refuses unless the target is a different database and has no tables, so
    nothing can be overwritten.
@@ -31,7 +34,7 @@ from urllib.parse import urlsplit, urlunsplit
 import psycopg
 
 from app.config import settings
-from scripts.compare_databases import compare, same_database
+from scripts.compare_databases import compare, database_argument, migration_setting, same_database, with_database
 
 BACKUP_DIR = Path(__file__).resolve().parents[2] / ".local-backup"
 
@@ -57,10 +60,11 @@ def run(args: list[str], secret: str) -> None:
 
 def main() -> int:
     source_url = os.environ.get("SOURCE_DATABASE_URL") or settings.database_url
-    target_url = os.environ.get("TARGET_DATABASE_URL")
+    target_url = migration_setting("TARGET_DATABASE_URL")
     if not target_url:
-        print("Set TARGET_DATABASE_URL to the new, empty database.")
+        print("Set TARGET_DATABASE_URL (in backend/.env.migration) to the new, empty database.")
         return 2
+    target_url = with_database(target_url, database_argument())
     if same_database(source_url, target_url):
         print("Refusing: the target is the source database.")
         return 2

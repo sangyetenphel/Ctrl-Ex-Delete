@@ -2,20 +2,54 @@
 Compares two CED databases, for checking a copy (for example the move to a
 new Neon project). Read-only on both sides. Run from the backend/ folder:
 
-    TARGET_DATABASE_URL=... python -m scripts.compare_databases
+    python -m scripts.compare_databases [--database rehearsal]
 
-The source is SOURCE_DATABASE_URL, or DATABASE_URL from backend/.env when
-that isn't set. It checks the tables, each table's row count and a checksum
+The target is TARGET_DATABASE_URL, from the environment or from
+backend/.env.migration (git-ignored); --database NAME compares that server's
+NAME database instead. The source is SOURCE_DATABASE_URL, or DATABASE_URL from
+backend/.env when that isn't set. It checks the tables, each table's row count and a checksum
 of all its rows, the constraints and indexes, sequence positions and the
 applied migrations. Connection strings are never printed.
 """
 import os
 import sys
-from urllib.parse import urlsplit
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
+from dotenv import dotenv_values
 
 from app.config import settings
+
+
+MIGRATION_SETTINGS = Path(__file__).resolve().parents[1] / ".env.migration"
+
+
+def migration_setting(name: str) -> str | None:
+    """
+    A TARGET_* setting from the environment, else from backend/.env.migration.
+    The scripts read that file themselves: connection strings contain ? and &,
+    which break `source` in the shell.
+    """
+    if os.environ.get(name):
+        return os.environ[name]
+    saved = dotenv_values(MIGRATION_SETTINGS).get(name) if MIGRATION_SETTINGS.exists() else None
+    return saved or None
+
+
+def with_database(url: str, name: str | None) -> str:
+    """The same server, another database (e.g. "rehearsal"); the URL itself unchanged otherwise."""
+    return urlunsplit(urlsplit(url)._replace(path=f"/{name}")) if name else url
+
+
+def database_argument() -> str | None:
+    """NAME from --database NAME on the command line, if given."""
+    if "--database" not in sys.argv:
+        return None
+    position = sys.argv.index("--database") + 1
+    if position >= len(sys.argv):
+        sys.exit("--database needs a name, e.g. --database rehearsal")
+    return sys.argv[position]
 
 
 def same_database(a: str, b: str) -> bool:
@@ -95,10 +129,11 @@ def compare(source_url: str, target_url: str) -> bool:
 
 def main() -> int:
     source_url = os.environ.get("SOURCE_DATABASE_URL") or settings.database_url
-    target_url = os.environ.get("TARGET_DATABASE_URL")
+    target_url = migration_setting("TARGET_DATABASE_URL")
     if not target_url:
-        print("Set TARGET_DATABASE_URL to the database to compare with.")
+        print("Set TARGET_DATABASE_URL (in backend/.env.migration) to the database to compare with.")
         return 2
+    target_url = with_database(target_url, database_argument())
     print("Comparing databases (read-only)")
     ok = compare(source_url, target_url)
     print("They match." if ok else "They differ (see above).")

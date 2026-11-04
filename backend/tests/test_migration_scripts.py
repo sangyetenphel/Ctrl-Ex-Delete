@@ -82,3 +82,28 @@ def test_same_database_sees_through_the_neon_pooler():
     assert same_database(pooled, direct)
     assert not same_database(direct, "postgresql://u:p@ep-y-456.us-east-2.aws.neon.tech/neondb")
     assert not same_database(direct, "postgresql://u:p@ep-x-123.us-east-2.aws.neon.tech/otherdb")
+
+
+def test_settings_come_from_the_environment_first_then_the_migration_file(tmp_path, monkeypatch):
+    from scripts import compare_databases as cd
+
+    saved = tmp_path / ".env.migration"
+    # A real Neon string has ? and &, which is why the scripts read the file themselves.
+    saved.write_text("TARGET_DATABASE_URL=postgresql://u:p@ep-a-1-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require\n"
+                     "TARGET_S3_BUCKET=\n")
+    monkeypatch.setattr(cd, "MIGRATION_SETTINGS", saved)
+    monkeypatch.delenv("TARGET_DATABASE_URL", raising=False)
+    monkeypatch.delenv("TARGET_S3_BUCKET", raising=False)
+    assert cd.migration_setting("TARGET_DATABASE_URL").endswith("?sslmode=require&channel_binding=require")
+    assert cd.migration_setting("TARGET_S3_BUCKET") is None          # left empty in the file
+    monkeypatch.setenv("TARGET_DATABASE_URL", "postgresql://u:p@localhost/other")
+    assert cd.migration_setting("TARGET_DATABASE_URL") == "postgresql://u:p@localhost/other"
+
+
+def test_database_option_changes_only_the_database_name():
+    from scripts.compare_databases import with_database
+
+    url = "postgresql://u:p@ep-a-1-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+    assert with_database(url, "rehearsal") == \
+        "postgresql://u:p@ep-a-1-pooler.us-east-1.aws.neon.tech/rehearsal?sslmode=require&channel_binding=require"
+    assert with_database(url, None) == url
