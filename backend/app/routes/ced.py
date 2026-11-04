@@ -27,7 +27,7 @@ def send_message(payload: CedChatRequest, x_installation_id: InstallationId):
     try:
         return chat.respond(x_installation_id, payload)
     except chat.InvalidConversation as error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
     except limits.LimitReached as error:
         detail = (
             "You’ve reached today’s limit for talking with Ced. It resets tomorrow."

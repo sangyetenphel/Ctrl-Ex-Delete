@@ -45,6 +45,12 @@ class CheckInCreate(BaseModel):
     hardest_areas: list[HardestArea] = Field(default_factory=list)
     local_date: date
 
+    @model_validator(mode="after")
+    def _each_area_once(self):
+        # Each area adds weight to the recommendations, so a repeat must not count twice.
+        self.hardest_areas = list(dict.fromkeys(self.hardest_areas))
+        return self
+
 
 class RoomMessage(BaseModel):
     """Ced's message in the healing room (catalog id, pattern and the text shown)."""

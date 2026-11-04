@@ -123,3 +123,20 @@ def test_cannot_select_another_installations_recommendation(installation_id):
         f"/recommendations/{recommendation_id}/selection", headers=headers(stranger)
     )
     assert response.status_code == 404
+
+
+def test_a_repeated_hardest_area_counts_once(installation_id):
+    repeated = {**CHECK_IN, "hardest_areas": ["feeling_lonely", "feeling_lonely", "resisting_contact", "feeling_lonely"]}
+    response = client.post("/check-ins", json=repeated, headers=headers(installation_id))
+    assert response.status_code == 201
+    assert response.json()["hardest_areas"] == ["feeling_lonely", "resisting_contact"]
+
+
+def test_photo_links_need_a_key_and_s3(monkeypatch):
+    from app import media
+    monkeypatch.setattr(media, "is_configured", lambda: True)
+    monkeypatch.setattr(media, "download_url", lambda key: f"https://s3.example/get/{key}")
+    assert media.photo_url("scrapbook/a.jpg") == "https://s3.example/get/scrapbook/a.jpg"
+    assert media.photo_url(None) is None
+    monkeypatch.setattr(media, "is_configured", lambda: False)
+    assert media.photo_url("scrapbook/a.jpg") is None

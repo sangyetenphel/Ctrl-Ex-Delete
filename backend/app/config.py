@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     ced_voice_calls_per_hour: int = 30     # calls started, whole server
     # TEMPORARY: privacy-safe call diagnostics (states, counts, sizes; never audio,
     # transcripts or keys). Set CED_VOICE_DIAGNOSTICS=false to silence.
-    ced_voice_diagnostics: bool = True
+    ced_voice_diagnostics: bool = False
 
     @field_validator("gemini_voice")
     @classmethod

@@ -218,7 +218,7 @@ Approaches that **did not work / were wrong** (don't repeat):
 2. ⚠️ Test Call Ced on a **physical iPhone** (user has set signing + LAN scheme): greeting audible, turn-taking, **barge-in**, earpiece/speaker toggle, crisis panel, "Reconnecting…", Call again. Read app logs in Console.app (subsystem `com.ctrlexdelete`, category `call`).
 3. ⚠️ Confirm on device that echo cancellation prevents self-interruption (the simulator echo guard is compiled out on device).
 4. ⚠️ Not verified: whether `gemini-3.8-live` honours mid-session `send_client_content(turn_complete=False)` safety notes (errors are suppressed; the on-screen panel doesn't depend on it).
-5. Turn off temporary diagnostics before the demo: `CED_VOICE_DIAGNOSTICS=false` (backend), `CallDiagnostics.enabled = false` (app) — or remove them.
+5. Temporary diagnostics are off by default now: backend `CED_VOICE_DIAGNOSTICS` (set `true` to turn them on) and the app's `CallDiagnostics` (Debug builds only).
 6. User to check free-tier limits at aistudio.google.com/rate-limit (Google doesn't publish Live free-tier numbers; observed: 4 concurrent sessions OK, no quota errors).
 
 **P2 — product**
