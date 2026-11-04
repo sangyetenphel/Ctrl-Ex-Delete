@@ -252,6 +252,9 @@ enum APIError: LocalizedError {
             return "You seem to be offline. Check your connection and try again."
         case .cannotReachServer:
             #if DEBUG
+            if APIConfig.resolved.source == .invalidDeveloperSettings {
+                return "CED_API_BASE_URL in Config/DeveloperSettings.xcconfig isn\u{2019}t a usable address. Write the host only (for example ced-backend-test.onrender.com), then run again from Xcode."
+            }
             if APIConfig.isMisconfiguredForDevice {
                 return "This iPhone is set to reach the server at \(APIConfig.baseURL.absoluteString), which is the phone itself. Set your Mac\u{2019}s address in Config/DeveloperSettings.xcconfig and run again from Xcode."
             }

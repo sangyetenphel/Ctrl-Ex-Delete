@@ -129,11 +129,18 @@ whose upload link's host names the new bucket (compare, don't print); then
 delete that installation in `neondb` (cascades), and the object if any.
 
 **C. iPhone test** (Debug build only; the production URL in `APIConfig.swift`
-stays unchanged). In Xcode: Product → Scheme → Edit Scheme → Run → Arguments
-→ add `-CEDAPIBaseURL https://<test-service>.onrender.com` (untick it to go
-back to production). The test service has its own fresh database, so the
-phone starts as a new user there; production data returns when the argument
-is off. Checklist: wake-up on first launch (~1 min on Free), check-in, room
+stays unchanged). In the git-ignored `CtrlExDelete/Config/DeveloperSettings.xcconfig`
+add `CED_API_BASE_URL = <test-service>.onrender.com` (host only: `//` starts
+an xcconfig comment), then Run once from Xcode. It's built into the Debug app,
+so Home Screen launches use it too. (The `-CEDAPIBaseURL` launch argument is
+not enough: it only applies to runs started by Xcode, and a Home Screen
+launch silently went to production on 2026-11-04.) The Debug app logs
+`Backend: <host> (<source>)` at launch (Xcode console, or Console.app with
+the phone selected, subsystem `CtrlExDelete`). On-phone copies of progress
+and Ced's room message are matched by backend, so production data never
+shows against the test database. Remove the line and Run again to go back to
+production. The test service has its own fresh database, so the phone starts
+as a new user there; production data returns when the line is removed. Checklist: wake-up on first launch (~1 min on Free), check-in, room
 message, recommendations, choose/abandon/complete an activity, reflection
 with camera and library photo, Story timeline and photos, Insights week and
 month (switch quickly: no error card), bookshelf, bookmarks, plant game

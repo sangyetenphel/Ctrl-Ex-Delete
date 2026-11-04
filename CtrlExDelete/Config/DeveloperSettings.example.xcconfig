@@ -13,6 +13,11 @@
 // Simulator keeps using 127.0.0.1. Rebuild and run once from Xcode after
 // changing anything here. Host only, no http:// ("//" starts a comment here).
 
+// Another deployed backend for every Debug launch, Home Screen included
+// (wins over CED_BACKEND). Host only, https is assumed; for http or a port
+// write http:/$()/host:port. Remove the line to go back to production.
+// CED_API_BASE_URL = ced-backend-test.onrender.com
+
 // CED_BACKEND = local
 CED_DEV_SERVER_HOST[sdk=iphoneos*] = Your-Mac-Name.local
 // CED_DEV_SERVER_PORT = 8000

@@ -549,7 +549,7 @@ Example `422` body:
 
 These are already implemented in `CtrlExDelete/CtrlExDelete/Networking/`:
 
-- **Base URL:** `APIConfig.swift` is the only place it's set. Every build uses the deployed backend, `https://ctrl-ex-delete-api.onrender.com` (`APIConfig.deployedBaseURL`); voice calls use `wss://` on the same host. Debug builds can opt into a local server with `CED_BACKEND = local` in `CtrlExDelete/Config/DeveloperSettings.xcconfig` (gitignored, one per Mac; see `backend/README.md`). The launch argument `-CEDAPIBaseURL http://Your-Mac-Name.local:8000` still overrides it for runs started from Xcode.
+- **Base URL:** `APIConfig.swift` is the only place it's set. Every build uses the deployed backend, `https://ctrl-ex-delete-api.onrender.com` (`APIConfig.deployedBaseURL`); voice calls use `wss://` on the same host. Debug builds can opt into a local server with `CED_BACKEND = local` in `CtrlExDelete/Config/DeveloperSettings.xcconfig` (gitignored, one per Mac; see `backend/README.md`). `CED_API_BASE_URL = <host>` in the same file points every Debug launch (Home Screen included) at another deployed backend, e.g. the Render test service. The launch argument `-CEDAPIBaseURL http://Your-Mac-Name.local:8000` still overrides both for runs started from Xcode.
 - **Installation ID:** `InstallationID.swift` creates the UUID once, stores it in the Keychain, and `APIClient` sends it on every request.
 - **Key names:** `APIClient` uses `.convertToSnakeCase` / `.convertFromSnakeCase`, so Swift's `contactUrge` maps to `contact_urge` automatically.
 - **Enums:** `Emotion`, `EnergyLevel` and `HardestArea` (in `Models/SampleData.swift`) have raw values matching the tables above. The UI labels can change freely; the raw values can't.

@@ -9,6 +9,7 @@ struct RoomMessageRecord: Codable, Equatable {
     let checkInId: Int?          // nil before today's check-in
     let localDate: String        // the local day it belongs to
     let installationID: UUID?
+    var backend: String? = nil   // APIConfig.backendID when saved; nil in older copies (production)
 
     var isPersonal: Bool { checkInId != nil }
 
@@ -24,10 +25,11 @@ enum RoomMessageCache {
             .appending(path: "room-message.json")
     }
 
-    /// The saved message, if it belongs to this installation.
+    /// The saved message, if it belongs to this installation and this backend.
     static func load() -> RoomMessageRecord? {
         guard let url, let data = try? Data(contentsOf: url),
-              let record = try? JSONDecoder().decode(RoomMessageRecord.self, from: data) else { return nil }
+              let record = try? JSONDecoder().decode(RoomMessageRecord.self, from: data),
+              APIConfig.isCurrentBackend(record.backend) else { return nil }
         if let saved = record.installationID, let current = try? InstallationID.current(), saved != current {
             return nil
         }
@@ -35,6 +37,8 @@ enum RoomMessageCache {
     }
 
     static func save(_ record: RoomMessageRecord) {
+        var record = record
+        record.backend = APIConfig.backendID
         guard let url, let data = try? JSONEncoder().encode(record) else { return }
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }

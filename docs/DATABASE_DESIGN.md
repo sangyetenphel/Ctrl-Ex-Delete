@@ -192,7 +192,7 @@ A second Free web service (for example `ctrl-ex-delete-api-staging`) from
 | `GROQ_API_KEY`, `GROQ_MODEL` | a separate Groq key; `openai/gpt-oss-120b` |
 | `GEMINI_API_KEY` | a separate key (paid tier, logging off) |
 
-The app reaches staging with the Debug launch argument `-CEDAPIBaseURL`.
+The app reaches staging with `CED_API_BASE_URL = <host>` in the git-ignored `Config/DeveloperSettings.xcconfig` (Debug only, Home Screen launches included); the launch argument `-CEDAPIBaseURL` works only for runs started by Xcode.
 
 ## 7. Risks and what needs approval (as proposed)
 

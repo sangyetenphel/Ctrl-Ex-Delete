@@ -10,10 +10,15 @@
 // Mac at 127.0.0.1; a physical iPhone needs your Mac's address
 // (CED_DEV_SERVER_HOST).
 //
+// To use another deployed backend (e.g. a Render test service) in every
+// Debug launch, Home Screen included, set CED_API_BASE_URL in
+// DeveloperSettings.xcconfig. It wins over CED_BACKEND; empty here = unused.
+//
 // Only the host goes here, without http://: "//" starts a comment in xcconfig files.
 
 CED_BACKEND = deployed
 CED_DEV_SERVER_HOST = 127.0.0.1
 CED_DEV_SERVER_PORT = 8000
+CED_API_BASE_URL =
 
 #include? "DeveloperSettings.xcconfig"
