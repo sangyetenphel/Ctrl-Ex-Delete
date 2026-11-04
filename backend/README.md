@@ -18,6 +18,7 @@ backend/
 │   ├── verify_database.py       # checks the schema and catalogs (read-only)
 │   ├── catalog_data.py          # the 100-activity catalog and research sources
 │   ├── seed_catalog.py          # loads the catalog (never deletes user history)
+│   ├── reset_installation.py    # DEV ONLY: resets ONE installation (dry run by default)
 │   ├── reset_dev_data.py        # DEV ONLY: deletes all user data and test uploads
 │   └── reset_dev_db.py          # DEV ONLY: drops all CED tables
 └── tests/test_api.py            # end-to-end tests (pytest)
@@ -168,6 +169,26 @@ The backend runs as one **Render Free** web service, described in `render.yaml` 
 
 **Public exposure:** every endpoint is open to anyone with the URL and a made-up installation ID (there are no accounts). The AI endpoints are limited per installation and for the whole server (chat: 8/min and 60/day per installation, 25/min server-wide; calls: one per installation, 3 at once, 30 started per hour, 15 minutes each), so the worst case is using up the free AI quotas, not someone's data.
 
+## Resetting one installation (developer only, e.g. before a demo)
+
+`scripts/reset_installation.py` resets **one** phone's data and nothing else: that installation's check-ins (and their room messages), recommendations, selections, bookmarks, memories, photo records and their S3 files, Moving Forward and Ced usage counts, and the installation row. Progress, the bookshelf and Insights are computed from these, so they reset too (the plant game and Ced conversations store nothing per user on the server). Catalogs and every other installation are never touched. There is deliberately no API endpoint for it.
+
+It only runs against a local database (with no real S3 settings) or the production Neon `neondb` together with its bucket, recognised by SHA-256 fingerprints in the script; any other database, such as the original one, is refused before anything is read. A dry run is the default.
+
+```bash
+cd backend && source venv/bin/activate
+# 1. Dry run: counts per table and photo files, nothing changes
+CED_ENV_FILE=.env.production python -m scripts.reset_installation <installation-id>
+# 2. Reset: asks you to type the full installation ID, then RESET PRODUCTION
+CED_ENV_FILE=.env.production python -m scripts.reset_installation <installation-id> --execute --production
+```
+
+On this Mac add `SSL_CERT_FILE=$(python -m certifi)` in front for S3. Without `CED_ENV_FILE` it uses `.env` (a local database works the same way, without `--production`). The installation row is locked, its photo files are deleted from S3, then its rows are deleted in the same transaction and checked; if S3 fails nothing in the database changes, and if the database step fails it is rolled back. Either way it says what is left: run the same command again to finish. Output is counts only (no memory text, keys or links). Exit codes: 0 done or dry run, 1 cancelled, 2 not found, 3 not finished (retry), 4 refused.
+
+**Finding the phone's installation ID:** run the Debug app from Xcode; its console logs `Installation ID: …` the first time the app contacts the server (Debug builds only; private in other logs). The ID may be upper-case; either case works.
+
+**The phone afterwards:** the app keeps its installation ID (Keychain), so the reset phone simply starts over with no history; nothing needs deleting on the phone. Force-quit and reopen it so it reloads. Its on-phone copies (`journey-cache.json`, `room-message.json`) are only used when the server can't be reached and may show the old progress or today's old room message in that case until the next successful load. The Keychain ID survives deleting the app, so reinstalling does **not** give a new ID; to demo as a brand-new installation without resetting, use a different phone or simulator.
+
 ## Clearing test data
 
 To start the app fresh while keeping the catalog. **This deletes all user data** in the database from `.env`: installations, check-ins, recommendations, selections, bookmarks, memories, photo records and `ced_usage`. It also deletes the app's photo uploads in S3 (keys matching `scrapbook/<32 hex>.jpg` or `installations/<id>/<id>.jpg`, including orphans, and old versions if the AWS user may list them). Everything else in the bucket, the catalog, research sources, schema and migration history stay.
@@ -188,7 +209,7 @@ python -m scripts.reset_dev_db   # asks you to type RESET
 python -m scripts.migrate
 ```
 
-It only drops this project's tables: `activity_research_bases`, `research_bases`, `activity_bookmarks`, `reflections`, `scrapbook_photos`, `activity_selections`, `recommendations`, `check_ins`, `activities`, `activity_categories`, `installations`, `schema_migrations`. Other tables (for example a teammate's `ced_usage`) are left alone. Apart from `reset_dev_data` above, it's the only command that deletes user data; `migrate` and `seed_catalog` never do.
+It only drops this project's tables: `activity_research_bases`, `research_bases`, `activity_bookmarks`, `reflections`, `scrapbook_photos`, `activity_selections`, `recommendations`, `check_ins`, `activities`, `activity_categories`, `installations`, `schema_migrations`. Other tables (for example a teammate's `ced_usage`) are left alone. Apart from `reset_dev_data` and `reset_installation` above, it's the only command that deletes user data; `migrate` and `seed_catalog` never do.
 
 ## Troubleshooting
 

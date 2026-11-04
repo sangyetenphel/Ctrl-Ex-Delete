@@ -19,6 +19,7 @@ uvicorn app.main:app --reload            # restart (not just reload) after .env 
 pytest -q                                # against a LOCAL database (DATABASE_URL=...localhost...): tests edit shared catalogs, and some wipe all user data (local only)
 python -m scripts.migrate [--status]
 python -m scripts.verify_database [--fresh]
+python -m scripts.reset_installation <id> [--execute [--production]]   # ONE installation; dry run by default
 CED_ENV_FILE=.env.staging python -m scripts.migrate   # any command against another environment's settings
 cd CtrlExDelete && xcodebuild -scheme CtrlExDelete -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
