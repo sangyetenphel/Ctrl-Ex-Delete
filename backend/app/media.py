@@ -30,7 +30,9 @@ def _s3():
         endpoint_url=settings.s3_endpoint_url or f"https://s3.{settings.aws_region}.amazonaws.com",
         aws_access_key_id=settings.aws_access_key_id,
         aws_secret_access_key=settings.aws_secret_access_key,
-        config=Config(signature_version="s3v4"),
+        # A stuck S3 call shouldn't hold a request for minutes (botocore's default is 60 s each).
+        config=Config(signature_version="s3v4", connect_timeout=5, read_timeout=15,
+                      retries={"max_attempts": 3, "mode": "standard"}),
     )
 
 
@@ -50,6 +52,12 @@ def upload_url(key: str) -> str:
         Params={"Bucket": settings.s3_bucket, "Key": key, "ContentType": CONTENT_TYPE},
         ExpiresIn=300,
     )
+
+
+def photo_url(key: str | None) -> str | None:
+    """A fresh private link to a memory's photo, or None (no photo, or no S3 settings: the memory
+    still loads, just without its picture)."""
+    return download_url(key) if key and is_configured() else None
 
 
 def download_url(key: str) -> str:

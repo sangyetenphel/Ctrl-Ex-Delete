@@ -13,7 +13,8 @@ router = APIRouter(prefix="/insights", tags=["progress"])
 @router.get("", response_model=InsightsResponse)
 def get_insights(
     x_installation_id: InstallationId,
-    today: date = Query(description="The user's local calendar day, YYYY-MM-DD"),
+    today: date = Query(description="The user's local calendar day, YYYY-MM-DD",
+                        ge=date(2020, 1, 1), le=date(2100, 12, 31)),
     period: Literal["week", "month"] = "week",
 ):
     """

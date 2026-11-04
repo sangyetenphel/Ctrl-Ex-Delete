@@ -11,10 +11,7 @@ logger = logging.getLogger("ced")
 
 
 def _to_reflection(row: dict) -> Reflection:
-    photo_key = row.pop("photo_key")
-    # Without S3 settings the memory still loads, just without its picture.
-    image_url = media.download_url(photo_key) if photo_key and media.is_configured() else None
-    return Reflection(**row, image_url=image_url)
+    return Reflection(**row, image_url=media.photo_url(row.pop("photo_key")))
 
 
 @router.post(

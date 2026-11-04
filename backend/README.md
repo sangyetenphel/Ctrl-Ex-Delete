@@ -164,7 +164,7 @@ The backend runs as one **Render Free** web service, described in `render.yaml` 
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` | for photos | without them, only the photo endpoints answer 503 |
 | `GROQ_API_KEY` | for Ced chat | `GROQ_MODEL` optional (default `openai/gpt-oss-120b`) |
 | `GEMINI_API_KEY` | for Ced calls | `GEMINI_VOICE` optional |
-| `CED_VOICE_DIAGNOSTICS` | no | `false` silences the call diagnostics in the logs |
+| `CED_VOICE_DIAGNOSTICS` | no | `true` turns on the temporary call diagnostics in the logs (off by default) |
 | `CED_DAILY_MESSAGE_LIMIT`, `CED_VOICE_MAX_MINUTES`, `CED_VOICE_MAX_CONCURRENT`, `CED_VOICE_CALLS_PER_HOUR` | no | usage limits (defaults in `app/config.py`) |
 
 **Service:** `https://ctrl-ex-delete-api.onrender.com` (Render service `ctrl-ex-delete-api`, Virginia region, Free).

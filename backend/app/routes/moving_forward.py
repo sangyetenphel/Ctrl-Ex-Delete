@@ -1,6 +1,4 @@
-import logging
-
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Response, status
 
 from app import media, storage
 from app.dependencies import InstallationId
@@ -16,7 +14,6 @@ from app.schemas import (
 )
 
 router = APIRouter(tags=["moving forward"])
-logger = logging.getLogger("ced")
 
 
 @router.get("/moving-forward", response_model=MovingForwardResponse)
@@ -47,9 +44,7 @@ def _memory(row: dict) -> FarewellMemory:
     row = dict(row)
     key = row.pop("photo_key")
     row.pop("activity_selection_id", None)
-    # Fresh private links on every request; the bucket stays private.
-    image_url = media.download_url(key) if key and media.is_configured() else None
-    return FarewellMemory(**row, image_url=image_url)
+    return FarewellMemory(**row, image_url=media.photo_url(key))
 
 
 @router.get("/farewell-scrapbook", response_model=FarewellScrapbook)

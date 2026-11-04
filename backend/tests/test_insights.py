@@ -423,3 +423,9 @@ def test_api_mood_chart_uses_the_completion_day_and_averages(installation_id):
     next_week = get_insights(installation_id, today="2026-10-19")
     assert next_week["start"] == "2026-10-19"
     assert all(p["value"] is None for p in next_week["mood_points"])
+
+
+def test_api_an_absurd_date_is_rejected_not_a_server_error(installation_id):
+    for today in ("9999-12-31", "0001-01-01"):
+        response = client.get(f"/insights?period=month&today={today}", headers=headers(installation_id))
+        assert response.status_code == 422
