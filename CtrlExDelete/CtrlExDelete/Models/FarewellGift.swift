@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Prepares the farewell scrapbook: loads the latest journey, downloads the
 /// real photo bytes and draws the PDF off the main thread. A new one is made
@@ -176,6 +177,29 @@ final class FarewellGift {
     private nonisolated static func removeOldCopies() {
         guard let directory else { return }
         try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+/// The finished PDF, for the system's Files export screen. It only carries
+/// the bytes `FarewellGift` already made; nothing is drawn again.
+nonisolated struct ScrapbookDocument: FileDocument {
+    static let readableContentTypes: [UTType] = [.pdf]
+
+    let data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        self.data = data
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }
 

@@ -1,5 +1,6 @@
 import PDFKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The farewell gift, reached only from "I'm ready to move forward":
 /// 1. Ced puts the scrapbook together (the real PDF is made meanwhile, from
@@ -14,9 +15,16 @@ struct FinalGiftView: View {
     /// The animation has had its moment, so the invitation may show.
     @State private var isPrepared = false
     @State private var isOpened = false
+    /// The PDF being handed to the Files export screen.
+    @State private var exportDocument: ScrapbookDocument?
+    @State private var isExporting = false
+    @State private var isSavedMessageShown = false
+    @State private var savedMessageTask: Task<Void, Never>?
+    @State private var saveError: String?
 
     /// Long enough to see Ced at work, short enough not to keep anyone waiting.
     private static let minimumAnimation = Duration.seconds(2.6)
+    private static let savedMessage = "Your scrapbook has been saved!"
 
     var body: some View {
         Group {
@@ -45,6 +53,7 @@ struct FinalGiftView: View {
         .background(CEDColor.background)
         // Straight into the animation; the scrapbook is made meanwhile.
         .task { make() }
+        .onDisappear { savedMessageTask?.cancel() }
     }
 
     // MARK: 1. Making it
@@ -123,8 +132,17 @@ struct FinalGiftView: View {
                 .clipShape(RoundedRectangle(cornerRadius: CEDRadius.xl))
                 .overlay(RoundedRectangle(cornerRadius: CEDRadius.xl).strokeBorder(CEDColor.border, lineWidth: 1))
                 .accessibilityLabel("Preview of your scrapbook")
+                .overlay(alignment: .bottom) {
+                    if isSavedMessageShown {
+                        ToastView(message: Self.savedMessage)
+                            .padding(.bottom, 12)
+                            .transition(.opacity)
+                    }
+                }
 
-            ShareLink(item: url, preview: SharePreview("My Ctrl+Ex+Delete scrapbook")) {
+            Button {
+                save(url)
+            } label: {
                 HStack(spacing: 8) {
                     CEDIconView(icon: .download, size: 20, color: CEDColor.cream)
                     Text("Save my scrapbook")
@@ -136,13 +154,61 @@ struct FinalGiftView: View {
                 .background(CEDColor.primary, in: RoundedRectangle(cornerRadius: CEDRadius.xl))
             }
             .buttonStyle(PressScaleButtonStyle())
-            .accessibilityHint("Opens the share sheet, where you can save it to Files.")
+            .accessibilityHint("Opens Files, where you choose where to save it.")
+
+            if let saveError {
+                Text(saveError)
+                    .cedTextStyle(.body)
+                    .foregroundStyle(CEDColor.rose)
+                    .multilineTextAlignment(.center)
+            }
 
             roomLink
                 .padding(.bottom, 12)
         }
         .padding(.horizontal, 24)
+        .fileExporter(isPresented: $isExporting, document: exportDocument, contentType: .pdf,
+                      defaultFilename: FarewellGift.fileName, onCompletion: finishSaving)
     }
+
+    // MARK: Saving to Files
+
+    /// Opens the system's Files export screen with the PDF already made.
+    private func save(_ url: URL) {
+        saveError = nil
+        savedMessageTask?.cancel()
+        isSavedMessageShown = false
+        do {
+            exportDocument = ScrapbookDocument(data: try Data(contentsOf: url))
+            isExporting = true
+        } catch {
+            saveError = Self.saveFailedMessage
+        }
+    }
+
+    /// Runs only when the export screen reports a result. Cancelling isn't one
+    /// of them, so it shows nothing.
+    private func finishSaving(_ result: Result<URL, any Error>) {
+        switch result {
+        case .success:
+            showSavedMessage()
+        case .failure:
+            saveError = Self.saveFailedMessage
+        }
+    }
+
+    private func showSavedMessage() {
+        savedMessageTask?.cancel()
+        withAnimation(.easeOut(duration: 0.2)) { isSavedMessageShown = true }
+        AccessibilityNotification.Announcement(Self.savedMessage).post()
+        savedMessageTask = Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.4)) { isSavedMessageShown = false }
+        }
+    }
+
+    private static let saveFailedMessage = "Your scrapbook wasn\u{2019}t saved. Please try again, or choose a different location."
 
     // MARK: Problems
 
