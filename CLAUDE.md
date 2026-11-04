@@ -2,7 +2,7 @@
 
 iOS breakup-recovery app (UNCG senior capstone). SwiftUI app (`CtrlExDelete/`) + FastAPI backend (`backend/`) + Neon PostgreSQL + AWS S3 (photos) + Groq (Ced text chat) + Gemini Live (Ced voice calls, relayed by the backend). Anonymous users: a Keychain UUID sent as `X-Installation-ID`.
 
-For the current state of the AI/voice work, read `docs/AI_INTEGRATION_HANDOFF.md`. The API contract is `docs/api.md` — update it with any endpoint change.
+For the current state of the AI/voice work, read `docs/AI_INTEGRATION_HANDOFF.md`. The API contract is `docs/api.md` — update it with any endpoint change. Moving Neon/S3 to new accounts: `docs/MIGRATION.md`.
 
 ## Rules
 - Never push, merge, or modify `main` or teammates' branches without explicit permission. Ask before committing the user's own uncommitted changes.
@@ -16,7 +16,7 @@ For the current state of the AI/voice work, read `docs/AI_INTEGRATION_HANDOFF.md
 ```bash
 cd backend && source venv/bin/activate
 uvicorn app.main:app --reload            # restart (not just reload) after .env changes
-pytest -q                                # real DATABASE_URL; tests clean up their own data
+pytest -q                                # against a LOCAL database (DATABASE_URL=...localhost...): tests edit shared catalogs, and some wipe all user data (local only)
 python -m scripts.migrate [--status]
 cd CtrlExDelete && xcodebuild -scheme CtrlExDelete -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
