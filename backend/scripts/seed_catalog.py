@@ -6,8 +6,8 @@ Loads the activity catalog (scripts/catalog_data.py) into the database.
 Safe to run any number of times, and it never deletes user history:
 - Research approaches and activities are inserted or updated by their key
   (code / slug), so nothing is duplicated.
-- An activity's category_label is set by the database from
-  activity_categories (migration 011), never from this script.
+- The four categories (names and order) are inserted or updated first; an
+  activity's category name is always read from them, never copied.
 - An activity that isn't in the catalog any more is deleted if nothing
   points at it. If someone was recommended, chose or saved it, it's retired
   instead (is_active = false: never recommended again, history intact) and a
@@ -22,11 +22,19 @@ To wipe the development database instead, see scripts/reset_dev_db.py.
 import psycopg
 
 from app.config import settings
-from scripts.catalog_data import RESEARCH_BASES, activities
+from scripts.catalog_data import CATEGORIES, RESEARCH_BASES, activities
 
 
 def seed(conn: psycopg.Connection) -> dict:
     """Loads the catalog in the current transaction and returns counts."""
+    for category, label, order in CATEGORIES:
+        conn.execute(
+            """
+            INSERT INTO activity_categories (category, label, sort_order) VALUES (%s, %s, %s)
+            ON CONFLICT (category) DO UPDATE SET label = EXCLUDED.label, sort_order = EXCLUDED.sort_order
+            """,
+            (category, label, order),
+        )
     for code, base in RESEARCH_BASES.items():
         conn.execute(
             """
@@ -42,14 +50,13 @@ def seed(conn: psycopg.Connection) -> dict:
     rows = activities()
     inserted = updated = 0
     for row in rows:
-        # category_label is filled by the database trigger from activity_categories.
         result = conn.execute(
             """
             INSERT INTO activities
-                (slug, title, category, category_label, energy_level, duration_minutes,
+                (slug, title, category, energy_level, duration_minutes,
                  involves_movement, instructions, why_it_fits, evidence_note,
                  sort_order, is_active)
-            VALUES (%(slug)s, %(title)s, %(category)s, '', %(energy_level)s, %(duration_minutes)s,
+            VALUES (%(slug)s, %(title)s, %(category)s, %(energy_level)s, %(duration_minutes)s,
                     %(involves_movement)s, %(instructions)s, %(why_it_fits)s, %(evidence_note)s,
                     %(sort_order)s, TRUE)
             ON CONFLICT (slug) DO UPDATE SET

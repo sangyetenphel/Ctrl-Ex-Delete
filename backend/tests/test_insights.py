@@ -21,7 +21,7 @@ def headers(installation_id: str) -> dict:
     return {"X-Installation-ID": installation_id}
 
 
-# What storage reads from activity_categories (migration 011), in display order.
+# What storage reads from activity_categories, in display order.
 CATEGORIES = [
     {"category": "outdoor_movement", "label": "Outdoor & Movement"},
     {"category": "mindfulness_rest", "label": "Mindfulness & Rest"},

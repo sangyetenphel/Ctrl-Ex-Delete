@@ -129,7 +129,7 @@ def test_only_one_activity_in_progress(installation_id):
 
 
 def test_database_allows_one_in_progress_activity(installation_id):
-    """The partial unique index from migration 006, checked without the API."""
+    """The partial unique index for one activity in progress, checked without the API."""
     cards = check_in_and_list(installation_id)
     select(installation_id, cards[0]["id"])
     with psycopg.connect(settings.database_url) as conn:
@@ -298,7 +298,7 @@ def test_other_installations_cannot_touch_my_activity(installation_id):
 
 
 def test_database_rejects_links_across_installations(installation_id):
-    """The composite foreign keys from migration 005, checked without the API."""
+    """The composite "same installation" foreign keys, checked without the API."""
     cards = check_in_and_list(installation_id)
     selection = select(installation_id, cards[0]["id"]).json()
     other = str(uuid.uuid4())

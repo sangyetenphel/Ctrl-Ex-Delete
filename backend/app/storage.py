@@ -27,6 +27,7 @@ from app.schemas import (
     Bookshelf,
     ShelfBook,
     MovingForward,
+    MovingForwardQuestion,
     MovingForwardSave,
     Milestone,
     ProgressSummary,
@@ -53,10 +54,11 @@ CHECK_IN_COLUMNS = """
     hardest_areas, local_date, created_at
 """
 
-# category_label is kept in step with activity_categories by the database
-# (migration 011), so it's the same name everywhere.
-ACTIVITY_COLUMNS = """
-    a.id, a.slug, a.title, a.category, a.category_label, a.energy_level,
+# The category's display name lives only in activity_categories (four rows,
+# keyed by category), looked up per activity.
+CATEGORY_LABEL = "(SELECT ac.label FROM activity_categories ac WHERE ac.category = a.category)"
+ACTIVITY_COLUMNS = f"""
+    a.id, a.slug, a.title, a.category, {CATEGORY_LABEL} AS category_label, a.energy_level,
     a.duration_minutes, a.instructions, a.why_it_fits
 """
 
@@ -104,11 +106,14 @@ def ping() -> None:
 
 
 def _ensure_installation(conn: psycopg.Connection, installation_id: UUID) -> None:
-    # First time we see this ID: add it. Every time after: update last_seen_at.
+    # First time we see this ID: add it. After that, last_seen_at moves on at
+    # most once a day (nothing needs it more precisely), so most requests
+    # write nothing here.
     conn.execute(
         """
         INSERT INTO installations (id) VALUES (%s)
         ON CONFLICT (id) DO UPDATE SET last_seen_at = now()
+        WHERE installations.last_seen_at < now() - interval '1 day'
         """,
         (installation_id,),
     )
@@ -123,7 +128,7 @@ def create_check_in(installation_id: UUID, data: CheckInCreate) -> tuple[CheckIn
     Saves the check-in AND its recommendations in one transaction, so a saved
     check-in always has its recommendations ready for the Activities screen.
 
-    One check-in per local calendar day (migration 014): if this installation
+    One check-in per local calendar day (unique on installation_id, local_date): if this installation
     already checked in on data.local_date, nothing is added and that check-in
     is returned instead. This also covers a repeated tap, a retry after a lost
     response, and two requests at once (the second waits on the unique index,
@@ -137,7 +142,7 @@ def create_check_in(installation_id: UUID, data: CheckInCreate) -> tuple[CheckIn
                 (installation_id, feeling, contact_urge, energy_level,
                  hardest_areas, local_date)
             VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (installation_id, local_date) WHERE counts_for_day DO NOTHING
+            ON CONFLICT (installation_id, local_date) DO NOTHING
             RETURNING {CHECK_IN_COLUMNS}
             """,
             (
@@ -163,7 +168,7 @@ def _check_in_for_day(conn: psycopg.Connection, installation_id: UUID, local_dat
     row = conn.execute(
         f"""
         SELECT {CHECK_IN_COLUMNS} FROM check_ins
-        WHERE installation_id = %s AND local_date = %s AND counts_for_day
+        WHERE installation_id = %s AND local_date = %s
         """,
         (installation_id, local_date),
     ).fetchone()
@@ -638,16 +643,16 @@ def get_scrapbook_key(installation_id: UUID, photo_id: int) -> str | None:
     return row["object_key"] if row else None
 
 
-def mark_scrapbook_uploaded(installation_id: UUID, photo_id: int, byte_size: int) -> dict:
+def mark_scrapbook_uploaded(installation_id: UUID, photo_id: int) -> dict:
     with _connect() as conn:
         return conn.execute(
             f"""
             UPDATE scrapbook_photos
-            SET uploaded_at = COALESCE(uploaded_at, now()), byte_size = %s
+            SET uploaded_at = COALESCE(uploaded_at, now())
             WHERE id = %s AND installation_id = %s
             RETURNING {SCRAPBOOK_COLUMNS}
             """,
-            (byte_size, photo_id, installation_id),
+            (photo_id, installation_id),
         ).fetchone()
 
 
@@ -691,18 +696,20 @@ def take_orphan_photo_keys(installation_id: UUID) -> list[str]:
 # Reflections (scrapbook memories)
 #
 # One reflections row = one memory. Linked to a selection, it is also that
-# activity's completion. See db/migrations/005_reflections.sql.
+# activity's completion. See db/migrations/001_schema.sql.
 # ─────────────────────────────────────────────
 
 REFLECTION_QUERY = """
     SELECT rf.id, rf.activity_selection_id, rf.note,
            rf.thought_about_ex, rf.mood_change, rf.local_date, rf.created_at,
            rf.photo_id, p.object_key AS photo_key,
-           CASE WHEN a.id IS NULL THEN NULL ELSE to_jsonb(a) END AS activity
+           CASE WHEN a.id IS NULL THEN NULL
+                ELSE to_jsonb(a) || jsonb_build_object('category_label', ac.label) END AS activity
     FROM reflections rf
     LEFT JOIN activity_selections s ON s.id = rf.activity_selection_id
     LEFT JOIN recommendations r ON r.id = s.recommendation_id
     LEFT JOIN activities a ON a.id = r.activity_id
+    LEFT JOIN activity_categories ac ON ac.category = a.category
     LEFT JOIN scrapbook_photos p ON p.id = rf.photo_id AND p.uploaded_at IS NOT NULL
 """
 
@@ -922,7 +929,9 @@ def get_progress_summary(installation_id: UUID) -> ProgressSummary:
 # Moving forward and the farewell scrapbook
 # ─────────────────────────────────────────────
 
-MOVING_FORWARD_COLUMNS = "reflected_on, moved_forward_on, updated_at"
+# Saving requires all five readiness questions, so they are implied, not stored.
+MOVING_FORWARD_COLUMNS = "moved_forward_on, updated_at"
+ALL_READINESS_QUESTIONS = list(MovingForwardQuestion.__args__)
 
 
 def get_moving_forward(installation_id: UUID) -> MovingForward | None:
@@ -935,30 +944,28 @@ def _moving_forward(conn: psycopg.Connection, installation_id: UUID) -> MovingFo
         f"SELECT {MOVING_FORWARD_COLUMNS} FROM moving_forward_check_ins WHERE installation_id = %s",
         (installation_id,),
     ).fetchone()
-    return MovingForward(**row) if row else None
+    return MovingForward(**row, reflected_on=ALL_READINESS_QUESTIONS) if row else None
 
 
 def save_moving_forward(installation_id: UUID, data: MovingForwardSave) -> tuple[MovingForward, bool]:
     """
     One per installation: the first save creates it, later saves (a repeated
-    tap, a retry, an edit) update the answers and keep moved_forward_on.
+    tap, a retry) only touch updated_at and keep moved_forward_on.
     Returns (saved, created). Never deletes or changes anything else.
     """
     with _connect() as conn:
         _ensure_installation(conn, installation_id)
         row = conn.execute(
             f"""
-            INSERT INTO moving_forward_check_ins (installation_id, reflected_on, moved_forward_on)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (installation_id) DO UPDATE SET
-                reflected_on = EXCLUDED.reflected_on,
-                updated_at = now()
+            INSERT INTO moving_forward_check_ins (installation_id, moved_forward_on)
+            VALUES (%s, %s)
+            ON CONFLICT (installation_id) DO UPDATE SET updated_at = now()
             RETURNING {MOVING_FORWARD_COLUMNS}, (xmax = 0) AS created
             """,
-            (installation_id, data.reflected_on, data.local_date),
+            (installation_id, data.local_date),
         ).fetchone()
     created = row.pop("created")
-    return MovingForward(**row), created
+    return MovingForward(**row, reflected_on=ALL_READINESS_QUESTIONS), created
 
 
 def get_farewell_records(installation_id: UUID) -> dict:
@@ -971,7 +978,7 @@ def get_farewell_records(installation_id: UUID) -> dict:
             """
             SELECT id, local_date, feeling, contact_urge, energy_level, hardest_areas
             FROM check_ins
-            WHERE installation_id = %s AND counts_for_day
+            WHERE installation_id = %s
             ORDER BY local_date, created_at, id
             """,
             (installation_id,),

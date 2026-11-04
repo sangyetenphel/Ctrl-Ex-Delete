@@ -1,6 +1,6 @@
 """
-Category names: one descriptive name per category, defined once in the
-database (activity_categories, migration 011) and stored on every activity as
+Category names: one descriptive name per category, stored once in the
+database (activity_categories) and read from there for every activity as
 category_label. The key (`category`) never changes. S3 is faked; the database
 is real.
 """
@@ -41,40 +41,32 @@ def test_one_definition_with_the_descriptive_names():
     assert set(EXPECTED) == set(get_args(ActivityCategory))  # same keys as the API accepts
 
 
-def test_every_activity_stores_its_categorys_name():
+def test_the_name_is_stored_once_in_activity_categories():
     with db() as conn:
-        pairs = set(conn.execute("SELECT DISTINCT category, category_label FROM activities").fetchall())
         columns = {r[0] for r in conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'activities'")}
-    assert pairs == set(EXPECTED.items())
-    assert {"category_label", "slug", "is_active", "sort_order"} <= columns  # all kept
+        categories = {r[0] for r in conn.execute("SELECT DISTINCT category FROM activities")}
+    assert "category_label" not in columns                  # no copy to keep in step
+    assert {"slug", "is_active", "sort_order"} <= columns
+    assert categories == set(EXPECTED)                       # every activity is in one of the four
 
 
-def test_the_database_keeps_key_and_name_paired():
+def test_renaming_a_category_reaches_every_activity_and_unknown_ones_are_refused(installation_id):
     with db() as conn:
-        # Writing an old or wrong name: the trigger stores the right one instead.
-        row = conn.execute(
-            """INSERT INTO activities (slug, title, category, category_label, energy_level,
-                                       duration_minutes, instructions, why_it_fits, sort_order, is_active)
-               VALUES ('pairing_test', 'Pairing test', 'outdoor_movement', 'Fresh Air', 'low',
-                       5, 'x', 'y', 999, FALSE)
-               RETURNING id, category_label"""
-        ).fetchone()
-        assert row[1] == "Outdoor & Movement"
-        conn.execute("UPDATE activities SET category_label = 'Reconnect' WHERE id = %s", (row[0],))
-        assert conn.execute("SELECT category_label FROM activities WHERE id = %s", (row[0],)).fetchone()[0] == "Outdoor & Movement"
-        conn.execute("UPDATE activities SET category = 'social_connection' WHERE id = %s", (row[0],))
-        assert conn.execute("SELECT category_label FROM activities WHERE id = %s", (row[0],)).fetchone()[0] == "Social Connection"
-        # An unknown category has no name, so it can't be stored at all.
-        with pytest.raises(psycopg.errors.IntegrityError):
+        conn.execute("UPDATE activity_categories SET label = 'Outdoors' WHERE category = 'outdoor_movement'")
+        names = {r[0] for r in conn.execute(
+            """SELECT ac.label FROM activities a JOIN activity_categories ac ON ac.category = a.category
+               WHERE a.category = 'outdoor_movement'""")}
+        assert names == {"Outdoors"}
+        # An unknown category can't be stored: activities.category references activity_categories.
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
             with conn.transaction():
-                conn.execute("UPDATE activities SET category = 'mystery' WHERE id = %s", (row[0],))
-        # And the pairing itself is a foreign key, not just the trigger.
-        fk = conn.execute(
-            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'activities_category_label_fkey'"
-        ).fetchone()[0]
-        assert "(category, category_label) REFERENCES activity_categories(category, label)" in fk
-        conn.rollback()  # leave no test activity behind
+                conn.execute("UPDATE activities SET category = 'mystery' WHERE slug = (SELECT min(slug) FROM activities)")
+        # ...and the category table only knows the four keys.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with conn.transaction():
+                conn.execute("INSERT INTO activity_categories VALUES ('mystery', 'Mystery', 9)")
+        conn.rollback()  # leave the names as they were
 
 
 @pytest.fixture

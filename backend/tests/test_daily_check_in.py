@@ -1,5 +1,5 @@
 """
-One check-in per local calendar day (migration 014).
+One check-in per local calendar day (a unique constraint since the baseline schema).
 
 "Today" is the local_date the app sends: the user's own calendar day in the
 phone's time zone. The server never uses its clock or a rolling 24 hours.
@@ -7,6 +7,7 @@ phone's time zone. The server never uses its clock or a rolling 24 hours.
 from concurrent.futures import ThreadPoolExecutor
 
 import psycopg
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
@@ -111,17 +112,15 @@ def test_unfinished_activity_carries_over_to_the_next_day(installation_id):
     assert blocked.status_code == 409                       # still one activity at a time
 
 
-def test_earlier_duplicates_from_before_the_rule_are_kept_but_dont_count(installation_id):
-    # Migration 014 keeps old same-day duplicates, marked counts_for_day = false.
+def test_the_database_itself_allows_one_check_in_per_day(installation_id):
+    # Even a write that skips the API can't add a second check-in for the same day.
     counted = check_in(installation_id).json()
     with psycopg.connect(settings.database_url) as conn:
-        conn.execute("""INSERT INTO check_ins (installation_id, feeling, contact_urge, energy_level, local_date,
-                                               counts_for_day, created_at)
-                        VALUES (%s, 'heavy', 5, 'low', %s, FALSE, now() - interval '1 hour')""",
-                     (installation_id, DAY))
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute("""INSERT INTO check_ins (installation_id, feeling, contact_urge, energy_level, local_date)
+                            VALUES (%s, 'heavy', 5, 'low', %s)""", (installation_id, DAY))
     assert status(installation_id)["check_in"]["id"] == counted["id"]
-    assert check_in(installation_id).json()["id"] == counted["id"]
-    assert rows(installation_id)[0] == 2
+    assert rows(installation_id)[0] == 1
 
 
 def test_the_urge_is_saved_exactly_as_sent(installation_id, other_installation_id):
