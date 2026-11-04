@@ -463,11 +463,12 @@ async def run_call(
     if problem:
         return await refuse("busy", problem)
 
+    call: _Call | None = None
     try:
-        if storage.count_ced_message(installation_id) > settings.ced_daily_message_limit:
+        # A database round trip: off the event loop, so other calls' audio never waits on it.
+        if await asyncio.to_thread(storage.count_ced_message, installation_id) > settings.ced_daily_message_limit:
             return await refuse("limit", "You’ve reached today’s limit for talking with Ced. It resets tomorrow.")
 
-        call: _Call | None = None
         loop = asyncio.get_running_loop()
         call_started = loop.time()
         max_seconds = settings.ced_voice_max_minutes * 60
@@ -533,9 +534,6 @@ async def run_call(
                         await call.set_state("reconnecting")
                 await asyncio.sleep(min(2.0, 0.5 * reconnects))
                 continue
-        if call:
-            for task in list(call.checks):
-                task.cancel()
     except WebSocketDisconnect:
         pass
     except Exception as error:  # noqa: BLE001
@@ -548,6 +546,10 @@ async def run_call(
                 "message": "The call with Ced dropped. Tap \u201cCall again\u201d to reconnect.",
             }))
     finally:
+        # Safety checks still running for this call (also after a failure).
+        if call:
+            for task in list(call.checks):
+                task.cancel()
         slots.release(installation_id)
         with contextlib.suppress(Exception):
             await ws.close()

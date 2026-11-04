@@ -419,3 +419,137 @@ def test_settings_accept_groq_model_and_ignore_unknown_lines(monkeypatch):
     monkeypatch.setenv("GROQ_MODEL", "some/other-model")
     monkeypatch.setenv("SOMETHING_UNRELATED", "x")
     assert Settings().ai_model == "some/other-model"
+
+
+# ── Reliability: retries, malformed replies, database outages ──
+
+class _SequencedCompletions:
+    """Answers each create() with the next outcome; records every call."""
+
+    def __init__(self, *outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def _groq_with(*outcomes):
+    provider = providers.GroqProvider(api_key="test-key", model="openai/gpt-oss-120b")
+    fake = _SequencedCompletions(*outcomes)
+    provider._client = type("C", (), {"chat": type("Ch", (), {"completions": fake})()})()
+    return provider, fake
+
+
+def _groq_error(cls, status, body=None, headers=None):
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    return cls("x", response=httpx.Response(status, headers=headers or {}, request=request), body=body)
+
+
+def _json_rejected():
+    import groq
+    return _groq_error(groq.BadRequestError, 400,
+                       {"error": {"code": "json_validate_failed", "type": "invalid_request_error"}})
+
+
+def test_a_reply_groq_rejects_as_invalid_json_is_asked_for_once_more():
+    provider, fake = _groq_with(_json_rejected(), _completion(ai_reply(["Hi."])))
+    assert json.loads(provider.complete([providers.ChatMessage("user", "hi")], json_reply=True))["messages"] == ["Hi."]
+    assert len(fake.calls) == 2
+
+    provider, fake = _groq_with(_json_rejected(), _json_rejected())
+    with pytest.raises(providers.ProviderError):
+        provider.complete([providers.ChatMessage("user", "hi")], json_reply=True)
+    assert len(fake.calls) == 2                     # never more than one extra try
+
+
+def test_other_bad_requests_are_not_retried():
+    import groq
+    provider, fake = _groq_with(_groq_error(groq.BadRequestError, 400, {"error": {"code": "model_decommissioned"}}))
+    with pytest.raises(providers.ProviderError):
+        provider.complete([providers.ChatMessage("user", "hi")])
+    assert len(fake.calls) == 1
+
+
+def test_dropped_connections_get_one_quick_retry_but_timeouts_and_limits_none():
+    import groq
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    provider, fake = _groq_with(groq.APIConnectionError(request=request), _completion("Hello."))
+    assert provider.complete([providers.ChatMessage("user", "hi")]) == "Hello."
+    assert len(fake.calls) == 2
+
+    provider, fake = _groq_with(groq.APITimeoutError(request=request))
+    with pytest.raises(providers.ProviderTimeout):
+        provider.complete([providers.ChatMessage("user", "hi")])
+    assert len(fake.calls) == 1
+
+    provider, fake = _groq_with(_groq_error(groq.RateLimitError, 429, headers={"retry-after": "2.5"}))
+    with pytest.raises(providers.ProviderRateLimited) as caught:
+        provider.complete([providers.ChatMessage("user", "hi")])
+    assert len(fake.calls) == 1 and caught.value.retry_after == 3
+
+
+def test_the_sdk_itself_never_waits_out_a_rate_limit():
+    provider = providers.GroqProvider(api_key="test-key", model="openai/gpt-oss-120b")
+    assert provider._client.max_retries == 0
+    assert provider._client.timeout.connect == 5
+    assert provider._client.timeout.read == settings.ai_timeout_seconds
+
+
+def test_a_date_style_retry_after_header_is_ignored_not_a_crash():
+    import groq
+    provider, _ = _groq_with(_groq_error(groq.RateLimitError, 429,
+                                         headers={"retry-after": "Wed, 04 Nov 2026 07:28:00 GMT"}))
+    with pytest.raises(providers.ProviderRateLimited) as caught:
+        provider.complete([providers.ChatMessage("user", "hi")])
+    assert caught.value.retry_after is None
+
+
+def test_json_without_messages_is_never_shown_to_the_user(installation_id, fake_ai):
+    _, state = fake_ai
+    state["reply"] = json.dumps({"risk": "none"})
+    response = send(installation_id, "hello")
+    assert response.status_code == 502
+    assert "risk" not in response.json()["detail"]
+
+    state["reply"] = json.dumps({"risk": "self_harm", "messages": []})
+    body = send(installation_id, "I want to end my life").json()
+    assert body["source"] == "fallback" and body["support"] == "crisis"
+
+
+def test_crisis_messages_are_answered_even_when_the_database_is_down(installation_id, fake_ai, monkeypatch):
+    def database_down(_installation_id):
+        raise psycopg.OperationalError("connection refused")
+
+    monkeypatch.setattr(limits, "take", database_down)
+    body = send(installation_id, "I want to end my life").json()
+    assert body["source"] == "fallback" and body["support"] == "crisis"
+    assert send(installation_id, "hello").status_code == 503    # everyday messages: "database unavailable"
+
+
+def test_the_voice_risk_check_uses_a_small_steady_budget(monkeypatch):
+    from app.ced import risk
+
+    seen = {}
+
+    def complete(messages, json_reply=False, max_output_tokens=None, temperature=0.7):
+        seen.update(json_reply=json_reply, max_output_tokens=max_output_tokens, temperature=temperature)
+        return json.dumps({"risk": "distress"})
+
+    monkeypatch.setattr(providers, "is_configured", lambda: True)
+    monkeypatch.setattr(providers, "complete", complete)
+    assert risk.classify("I miss them so much") == "distress"
+    assert seen == {"json_reply": True, "max_output_tokens": 300, "temperature": 0}
+
+
+def test_earlier_ced_turns_are_sent_back_in_the_json_shape_ced_answers_in(installation_id, fake_ai):
+    calls, _ = fake_ai
+    send(installation_id, "We broke up.", "That sounds really hard.\n\nWhat happened?", "I miss them.")
+    sent = calls[0]
+    assert [m.role for m in sent] == ["system", "user", "assistant", "user"]
+    assert json.loads(sent[2].content) == {"messages": ["That sounds really hard.", "What happened?"]}
+    assert sent[1].content == "We broke up." and sent[3].content == "I miss them."

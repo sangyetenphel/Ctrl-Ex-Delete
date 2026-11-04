@@ -492,9 +492,9 @@ Ced's reply to the conversation so far. **Nothing is stored:** the app keeps the
 
 | Status | When | Body `detail` (shown to the user) |
 |---|---|---|
-| `429` | Per-installation (8/min, 60/day) or server-wide (25/min) limit, or the provider's own limit. `Retry-After` header. | "Ced needs a short pause…" / "…today's limit…" |
+| `429` | Per-installation (8/min, 60/day) or server-wide (25/min) limit, or the provider's own limit (answered at once, not waited out). `Retry-After` header. | "Ced needs a short pause…" / "…today's limit…" |
 | `503` | `GROQ_API_KEY` not set, or rejected | "Ced isn't available right now…" |
-| `504` / `502` | Provider timeout (20 s) / other provider error | "Ced is taking too long…" / "Ced couldn't answer just now…" |
+| `504` / `502` | Provider timeout (20 s, never retried) / other provider error (a dropped connection, a 5xx or a reply rejected as invalid JSON is retried once at once first) | "Ced is taking too long…" / "Ced couldn't answer just now…" |
 
 Crisis replies work even without a key and past the limits. Provider and model are set in `.env` (`AI_PROVIDER`, `AI_MODEL`); the app is unaffected by a switch.
 
