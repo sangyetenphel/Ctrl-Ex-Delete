@@ -656,13 +656,18 @@ def mark_scrapbook_uploaded(installation_id: UUID, photo_id: int) -> dict:
         ).fetchone()
 
 
-def delete_scrapbook_photo(installation_id: UUID, photo_id: int) -> None:
-    """Its memory (if any) is kept, without the photo (ON DELETE SET NULL)."""
+def delete_scrapbook_photo(installation_id: UUID, photo_id: int) -> str | None:
+    """
+    Deletes the photo row and returns its S3 key (None if it isn't this
+    installation's), so the caller deletes the file afterwards. Its memory, if
+    any, is kept without the photo (ON DELETE SET NULL).
+    """
     with _connect() as conn:
-        conn.execute(
-            "DELETE FROM scrapbook_photos WHERE id = %s AND installation_id = %s",
+        row = conn.execute(
+            "DELETE FROM scrapbook_photos WHERE id = %s AND installation_id = %s RETURNING object_key",
             (photo_id, installation_id),
-        )
+        ).fetchone()
+    return row["object_key"] if row else None
 
 
 # Uploads that never became part of a memory (the app was closed between the

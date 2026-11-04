@@ -152,3 +152,53 @@ def test_old_unused_uploads_are_cleaned_up(installation_id, fake_s3):
     with psycopg.connect(settings.database_url) as conn:
         ids = {r[0] for r in conn.execute("SELECT id FROM scrapbook_photos WHERE installation_id = %s", (installation_id,))}
     assert orphan_id not in ids and used_id in ids and legacy in ids
+
+
+def photo_row_exists(photo_id: int) -> bool:
+    import psycopg
+
+    from app.config import settings
+    with psycopg.connect(settings.database_url) as conn:
+        return conn.execute("SELECT 1 FROM scrapbook_photos WHERE id = %s", (photo_id,)).fetchone() is not None
+
+
+def test_deleting_a_photo_removes_its_row_before_its_file(installation_id, fake_s3, monkeypatch):
+    uploaded, _ = fake_s3
+    photo_id, key = start_upload(installation_id)
+    uploaded[key] = 1000
+    assert client.post(f"/scrapbook/photos/{photo_id}/complete", headers=headers(installation_id)).status_code == 200
+    seen = {}
+
+    def delete_file(deleted_key):
+        seen[deleted_key] = photo_row_exists(photo_id)      # is the row still there when the file goes?
+
+    monkeypatch.setattr(media, "delete", delete_file)
+    assert client.delete(f"/scrapbook/photos/{photo_id}", headers=headers(installation_id)).status_code == 204
+    assert seen == {key: False}
+
+
+def test_a_failed_file_delete_still_deletes_the_photo(installation_id, fake_s3, monkeypatch, caplog):
+    uploaded, _ = fake_s3
+    photo_id, key = start_upload(installation_id)
+    uploaded[key] = 1000
+    client.post(f"/scrapbook/photos/{photo_id}/complete", headers=headers(installation_id))
+
+    def s3_down(_key):
+        raise ConnectionError(f"S3 unreachable for {_key}")
+
+    monkeypatch.setattr(media, "delete", s3_down)
+    with caplog.at_level("WARNING", logger="ced"):
+        assert client.delete(f"/scrapbook/photos/{photo_id}", headers=headers(installation_id)).status_code == 204
+    assert not photo_row_exists(photo_id)
+    assert client.get(f"/scrapbook/photos/{photo_id}", headers=headers(installation_id)).status_code == 404
+    assert "ConnectionError" in caplog.text and key not in caplog.text   # the type only, never the key
+
+
+def test_a_too_large_photo_loses_its_row_before_its_file(installation_id, fake_s3, monkeypatch):
+    uploaded, _ = fake_s3
+    photo_id, key = start_upload(installation_id)
+    uploaded[key] = 6 * 1024 * 1024
+    seen = {}
+    monkeypatch.setattr(media, "delete", lambda deleted_key: seen.setdefault(deleted_key, photo_row_exists(photo_id)))
+    assert client.post(f"/scrapbook/photos/{photo_id}/complete", headers=headers(installation_id)).status_code == 413
+    assert seen == {key: False}

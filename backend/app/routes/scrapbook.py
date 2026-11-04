@@ -52,8 +52,8 @@ def complete_upload(photo_id: int, x_installation_id: InstallationId):
     if size is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "The photo hasn't been uploaded yet.")
     if size > MAX_BYTES:
-        media.delete(key)
         storage.delete_scrapbook_photo(x_installation_id, photo_id)
+        _delete_file(key)
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Photo is too large.")
 
     row = storage.mark_scrapbook_uploaded(x_installation_id, photo_id)
@@ -72,8 +72,19 @@ def get_photo(photo_id: int, x_installation_id: InstallationId):
 
 @router.delete("/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_photo(photo_id: int, x_installation_id: InstallationId):
-    key = storage.get_scrapbook_key(x_installation_id, photo_id)
+    """
+    The row goes first, then the file. If S3 fails, only an unreachable file is
+    left behind, never a row (or a memory) pointing at a missing photo.
+    """
+    key = storage.delete_scrapbook_photo(x_installation_id, photo_id)
     if key is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Photo not found.")
-    media.delete(key)
-    storage.delete_scrapbook_photo(x_installation_id, photo_id)
+    _delete_file(key)
+
+
+def _delete_file(key: str) -> None:
+    """After its row is gone: a failure here is logged (type only), not shown to the user."""
+    try:
+        media.delete(key)
+    except Exception as error:  # noqa: BLE001
+        logger.warning("Couldn't delete a photo from S3: %s", type(error).__name__)
