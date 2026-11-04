@@ -14,9 +14,10 @@ The schema is `backend/db/migrations/001_schema.sql` (see
 |---|---|
 | New Neon project in your account: PostgreSQL 18.6, AWS us-east-1, empty `neondb` | done |
 | Clean schema, seeds and `verify_database`, tested from scratch on empty local databases | done |
-| `staging` database in the Neon project, schema initialized | **next** (below) |
-| S3 buckets and IAM users (staging and production) | **needs you** (below) |
-| Render staging service | after the above |
+| Production database `neondb`: schema and catalogs initialized, `verify_database --fresh` passed | done (2026-11-04) |
+| Production bucket and `ced-production` IAM user: us-east-1, Block Public Access on, key limited to the bucket; `check_s3` and the phone's presigned upload/download verified | done (2026-11-04) |
+| Render service on the new setup | **next** (section 4) |
+| Staging database and bucket of their own | optional (sections 1 and 2) |
 | Production cutover | **needs your approval** |
 
 ## How settings are chosen
@@ -103,6 +104,10 @@ Two buckets and two IAM users, so staging can never touch production photos.
    ```bash
    CED_ENV_FILE=.env.staging python -m scripts.check_s3   # one test object, then deleted
    ```
+
+   On a Mac with Python from python.org, `CERTIFICATE_VERIFY_FAILED` means that
+   Python has no root certificates yet: run its "Install Certificates.command",
+   or prefix the command with `SSL_CERT_FILE=$(python -m certifi)`.
 
 ## 3. Try the backend locally against staging
 
