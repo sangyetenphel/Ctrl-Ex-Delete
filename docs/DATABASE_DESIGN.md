@@ -1,8 +1,10 @@
 # Database and photo storage: fresh-start design (proposal)
 
-Status: **proposal, awaiting approval.** Nothing here has been applied. The
-original Neon database and S3 bucket stay untouched as the backup; the new
-schema goes into new, empty resources in your own accounts.
+Status: **changes A–H implemented** on `refactor/final-optimization`
+(approved 2026-11-04; results in section 8). The S3 changes in section 4 are
+part of the setup step. The original Neon database and S3 bucket stay
+untouched as the backup; the new schema goes into new, empty resources in
+your own accounts (setup: `docs/MIGRATION.md`).
 
 ## 1. What exists today
 
@@ -192,7 +194,7 @@ A second Free web service (for example `ctrl-ex-delete-api-staging`) from
 
 The app reaches staging with the Debug launch argument `-CEDAPIBaseURL`.
 
-## 7. Risks and what needs approval
+## 7. Risks and what needs approval (as proposed)
 
 - **Approval needed:** the schema changes A–H (one implementation pass on this
   branch, tested against a local database and a new Neon database).
@@ -204,3 +206,39 @@ The app reaches staging with the Debug launch argument `-CEDAPIBaseURL`.
   response changes.
 - Cutover means users start fresh (new database): existing progress on the
   old service won't carry over, by your decision.
+
+## 8. Results of the implementation
+
+Tested from scratch on empty local PostgreSQL 18 databases:
+
+- **Fresh initialization:** `scripts.migrate` applies `001_schema.sql` and
+  seeds the catalogs; `scripts.verify_database --fresh` passes: 21 tables, no
+  triggers, 23 validated foreign keys, the key indexes, and every catalog row
+  as in the repo's data files (4 categories, 100 activities with their 109
+  research links, 6 research bases, 5 themes, 30 affirmations with their
+  notes, 11 sources, 17 theme links, 32 room messages covering every pattern),
+  with empty user tables. The original database fails it and `migrate`
+  refuses it.
+- **Tests:** 294 passed, including new tests for the database's own rules
+  (one check-in per day, 1,000-character notes, hardest-area limits,
+  last_seen_at at most daily, moving forward without stored answers, the
+  migrate guard).
+- **API compatibility:** the same 40-call walkthrough of every endpoint the
+  app uses gave identical responses on the old and new schemas (ids,
+  timestamps and photo links normalized), and the OpenAPI schema is
+  byte-for-byte the same. No iOS change is needed.
+- **`last_seen_at`:** only ever written (never read by the app, scripts or
+  tests), so day precision changes no behaviour.
+- **Dropped indexes** (60,000 synthetic check-ins, medians of 400 runs):
+
+  | Query | Old schema | New schema |
+  |---|---|---|
+  | Check-in for a day | index scan, 0.063 ms | index scan on the unique constraint, 0.043 ms |
+  | A user's check-ins, newest first | bitmap scan, 0.065 ms | bitmap scan, 0.063 ms |
+  | First check-in (journey start) | index-only scan, 0.043 ms | index-only scan, 0.039 ms |
+  | Active activities in order | sequential scan, 0.189 ms | sequential scan, 0.153 ms |
+  | Room messages for a pattern | sequential scan, 0.045 ms | sequential scan, 0.046 ms |
+  | Active affirmations | sequential scan, 0.058 ms | sequential scan, 0.057 ms |
+
+  The catalog indexes were never used (PostgreSQL scans tables of 30–100
+  rows directly), and each check-in insert now maintains one index fewer.

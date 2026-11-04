@@ -457,7 +457,7 @@ Everything the keepsake PDF is made from, for this installation only, **oldest f
   "moving_forward": null
 }
 ```
-- `check_ins`: one per day (migration 014's counting check-ins).
+- `check_ins`: one per day.
 - `completed_activities[].memory`: `null` if the user deleted that memory (the activity still counts as completed).
 - `journey_last_on`: the latest date of any record, including `moved_forward_on`.
 - `image_url`s are fresh private links on every request; the bucket stays private.
