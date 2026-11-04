@@ -114,19 +114,16 @@ private nonisolated final class PageWriter {
     }
 
     /// A section title that never sits alone at the bottom of a page.
-    func section(eyebrow: String, title: String, intro: String? = nil, keepWith next: CGFloat = 90) {
+    func section(eyebrow: String, title: String, keepWith next: CGFloat = 90) {
         let eyebrowText = Style.text(eyebrow.uppercased(), .eyebrow, Palette.primary, kern: 1.6)
         let titleText = Style.text(title, .title, Palette.foreground)
-        let introText = intro.map { Style.text($0, .body, Palette.muted) }
-        let needed = height(eyebrowText) + 4 + height(titleText) + 8
-            + (introText.map { height($0) + 14 } ?? 6) + next
+        let needed = height(eyebrowText) + 4 + height(titleText) + 14 + next
         if y > margin, room < needed { newPage() }
         // A little star beside the eyebrow.
         let eyebrowWidth = ceil(eyebrowText.size().width)
         star(center: CGPoint(x: margin + eyebrowWidth + 9, y: y + 5), radius: 4, color: Palette.sunrise)
         draw(eyebrowText, after: 4)
-        draw(titleText, after: 8)
-        if let introText { draw(introText, after: 14) } else { y += 6 }
+        draw(titleText, after: 14)
     }
 
     // MARK: Cover
@@ -168,8 +165,6 @@ private nonisolated final class PageWriter {
 
     func entries(_ entries: [ScrapbookContent.Entry]) {
         newPage()
-        section(eyebrow: "Small steps", title: "The moments you made your own",
-                intro: "The activities you completed, with the memories you kept.", keepWith: 0)
         for (index, entry) in entries.enumerated() {
             let header = Style.text("\(entry.date.uppercased())  \u{B7}  \(entry.category.uppercased())", .eyebrow, Palette.accent, kern: 1.2)
             let title = Style.text(entry.title, .entryTitle, Palette.foreground)
@@ -196,15 +191,25 @@ private nonisolated final class PageWriter {
     }
 
     func otherMemories(_ memories: [ScrapbookContent.Memory]) {
-        section(eyebrow: "Moments", title: "More memories", keepWith: 140)
+        // The heading moves with its first memory, so it's never alone on a page.
+        section(eyebrow: "Moments", title: "More memories",
+                keepWith: memories.first.map(otherMemoryHeight) ?? 140)
         for (index, memory) in memories.enumerated() {
-            let date = Style.text(memory.date.uppercased(), .eyebrow, Palette.accent, kern: 1.2)
-            startBlock(needed: height(date) + 8 + memoryHeight(memory, caption: memory.shortDate),
-                       opening: memory.photo != nil ? 250 : 90)
-            draw(date, after: 8)
+            if index > 0 {
+                startBlock(needed: otherMemoryHeight(memory), opening: memory.photo != nil ? 250 : 90)
+            }
+            draw(otherMemoryDate(memory), after: 8)
             memoryBody(memory, caption: memory.shortDate, index: index)
             divider(after: 16)
         }
+    }
+
+    private func otherMemoryDate(_ memory: ScrapbookContent.Memory) -> NSAttributedString {
+        Style.text(memory.date.uppercased(), .eyebrow, Palette.accent, kern: 1.2)
+    }
+
+    private func otherMemoryHeight(_ memory: ScrapbookContent.Memory) -> CGFloat {
+        height(otherMemoryDate(memory)) + 8 + memoryHeight(memory, caption: memory.shortDate)
     }
 
     private func memoryBody(_ memory: ScrapbookContent.Memory, caption: String, index: Int) {
