@@ -200,7 +200,6 @@ struct InsightsDTO: Decodable {
     let checkInDays: Int
     let completed: Int
     let urges: [UrgePointDTO]
-    let moods: [MoodCountDTO]
     let moodPoints: [MoodPointDTO]?     // the mood chart; nil from an older backend
     let categories: [CategoryShareDTO]
     let takeaway: TakeawayDTO
@@ -222,12 +221,6 @@ struct MoodPointDTO: Decodable {
     let start: String       // "YYYY-MM-DD"
     let value: Double?      // 1–10
     let answers: [MoodChange]
-}
-
-struct MoodCountDTO: Decodable {
-    let response: MoodChange
-    let label: String
-    let count: Int
 }
 
 struct CategoryShareDTO: Decodable {
@@ -319,19 +312,8 @@ struct MovingForwardDTO: Codable, Equatable {
 struct FarewellScrapbookDTO: Decodable {
     let journeyStartedOn: String?
     let journeyLastOn: String?
-    let checkIns: [FarewellCheckInDTO]
     let completedActivities: [FarewellActivityDTO]
     let otherMemories: [FarewellMemoryDTO]
-    let movingForward: MovingForwardDTO?
-}
-
-struct FarewellCheckInDTO: Decodable, Identifiable {
-    let id: Int
-    let localDate: String
-    let feeling: Emotion
-    let contactUrge: Int
-    let energyLevel: EnergyLevel
-    let hardestAreas: [HardestArea]
 }
 
 struct FarewellActivityDTO: Decodable, Identifiable {

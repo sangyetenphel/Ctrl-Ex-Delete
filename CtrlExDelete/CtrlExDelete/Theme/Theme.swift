@@ -47,14 +47,11 @@ enum CEDColor {
 // and registered at launch by FontRegistrar.
 
 enum CEDFontName: String, CaseIterable {
-    case loraRegular = "Lora-Regular"
-    case loraMedium = "Lora-Medium"
     case loraSemiBold = "Lora-SemiBold"
     case loraBold = "Lora-Bold"
     case loraItalic = "Lora-Italic"
     case loraMediumItalic = "Lora-MediumItalic"
     case nunitoRegular = "Nunito-Regular"
-    case nunitoMedium = "Nunito-Medium"
     case nunitoSemiBold = "Nunito-SemiBold"
     case nunitoBold = "Nunito-Bold"
     case nunitoExtraBold = "Nunito-ExtraBold"
@@ -105,7 +102,6 @@ struct CEDTextStyle {
     static let smallSnug = CEDTextStyle(font: .nunitoRegular, size: 10, lineHeight: 13.75, relativeTo: .caption2)
     static let smallBold = CEDTextStyle(font: .nunitoBold, size: 10, lineHeight: 15, relativeTo: .caption2)
     static let smallSemibold = CEDTextStyle(font: .nunitoSemiBold, size: 10, lineHeight: 15, relativeTo: .caption2)
-    static let tinyBold = CEDTextStyle(font: .nunitoBold, size: 9, lineHeight: 13.5, relativeTo: .caption2)
     static let navLabel = CEDTextStyle(font: .nunitoBold, size: 10, lineHeight: 15, tracking: 0.25, relativeTo: .caption2)
     static let tiny = CEDTextStyle(font: .nunitoRegular, size: 9, lineHeight: 13.5, relativeTo: .caption2)
     static let button = CEDTextStyle(font: .nunitoBold, size: 16, lineHeight: 24, relativeTo: .body)

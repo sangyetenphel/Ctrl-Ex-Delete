@@ -1,13 +1,12 @@
 import AVFoundation
 import Speech
 
-/// Who is using the microphone. Only one at a time: the plant game can't
-/// record during a Ced voice call, and a call can't start while the game
-/// records. (The app has no voice call yet; when one is added it must
-/// `acquire(.cedVoiceCall)` here too.)
+/// Who is using the microphone. Only the plant game asks today: a Ced
+/// voice call is full screen, so the game can't be open during one. A new
+/// microphone user should add a case here and `acquire` it too.
 @MainActor
 final class MicrophoneCoordinator {
-    enum Owner { case affirmationGame, cedVoiceCall }
+    enum Owner { case affirmationGame }
 
     static let shared = MicrophoneCoordinator()
     private(set) var owner: Owner?
