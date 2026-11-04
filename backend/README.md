@@ -127,7 +127,7 @@ To make the app use the server on your Mac instead:
    and start the server with `uvicorn app.main:app --reload --host 0.0.0.0`. Tap **Allow** when iOS asks about devices on your local network.
 4. Run from Xcode once after changing the file. The choice is built into the Debug app, so it also applies when the app is opened from the Home Screen. Comment `CED_BACKEND = local` out again (and run once) to go back to Render.
 
-A `-CEDAPIBaseURL http://…` launch argument still overrides everything, but only for runs started by Xcode (the shared scheme has it disabled).
+`CED_API_BASE_URL = <host>` in the same file points every Debug launch, Home Screen included, at another deployed backend (it wins over `CED_BACKEND`). A `-CEDAPIBaseURL http://…` launch argument still overrides everything, but only for runs started by Xcode (the shared scheme has it disabled).
 
 A phone reaches a backend on your Mac only while the Mac is awake, the server is running with `--host 0.0.0.0`, and both are on the same network (some guest or campus Wi-Fi blocks devices from reaching each other). Debug builds include a narrow App Transport Security exception (`NSAllowsLocalNetworking`, in `CtrlExDelete/Config/Debug-Info.plist`) that allows plain `http` only to local-network addresses. Release builds don't have it.
 
