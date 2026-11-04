@@ -1,6 +1,7 @@
 """The account-migration helpers: scripts/copy_s3.py and scripts/compare_databases.py."""
 import base64
 import hashlib
+from pathlib import Path
 
 from botocore.exceptions import ClientError
 
@@ -107,3 +108,16 @@ def test_database_option_changes_only_the_database_name():
     assert with_database(url, "rehearsal") == \
         "postgresql://u:p@ep-a-1-pooler.us-east-1.aws.neon.tech/rehearsal?sslmode=require&channel_binding=require"
     assert with_database(url, None) == url
+
+
+def test_ced_env_file_chooses_the_settings_file_for_everything(tmp_path):
+    import subprocess
+    import sys
+
+    staging = tmp_path / ".env.staging"
+    staging.write_text("DATABASE_URL=postgresql://u:p@localhost/ced_staging_example\nS3_BUCKET=staging-bucket\n")
+    env = {"PATH": "/usr/bin:/bin", "CED_ENV_FILE": str(staging)}
+    shown = subprocess.run(
+        [sys.executable, "-c", "from app.config import settings; print(settings.database_url, settings.s3_bucket)"],
+        capture_output=True, text=True, env=env, cwd=Path(__file__).resolve().parents[1])
+    assert shown.stdout.split() == ["postgresql://u:p@localhost/ced_staging_example", "staging-bucket"]
