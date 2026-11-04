@@ -20,8 +20,6 @@ enum CEDIcon: String {
     case sun = "icon-sun"
     case zap = "icon-zap"
     case users = "icon-users"
-    case chevronLeft = "icon-chevron-left"
-    case chevronRight = "icon-chevron-right"
     case xMark = "icon-x"
     case bookmark = "icon-bookmark"
     case bookmarkFilled = "icon-bookmark-filled"
@@ -33,7 +31,6 @@ enum CEDIcon: String {
     case star = "icon-star"
     case download = "icon-download"
     case info = "icon-info"
-    case mic = "icon-mic"
     case micBold = "icon-mic-bold"
     case send = "icon-send"
 }
