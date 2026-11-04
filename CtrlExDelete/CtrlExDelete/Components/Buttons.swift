@@ -16,20 +16,28 @@ struct PrimaryButton: View {
     var enabledTextColor = CEDColor.cream
     /// Smaller 14pt version used on the Talk screen and in the support sheet.
     var isCompact = false
+    /// An SF Symbol to the left of the title, centered with it.
+    var systemImage: String?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .cedTextStyle(isCompact ? .bodyBold : .button)
-                .foregroundStyle(isEnabled ? enabledTextColor : CEDColor.mutedForeground)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, isCompact ? 14 : 16)
-                .background(
-                    isEnabled ? CEDColor.primary : CEDColor.border,
-                    in: RoundedRectangle(cornerRadius: CEDRadius.xl)
-                )
-                .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.35), value: isEnabled)
+            HStack(spacing: 8) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+            }
+            .cedTextStyle(isCompact ? .bodyBold : .button)
+            .foregroundStyle(isEnabled ? enabledTextColor : CEDColor.mutedForeground)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, isCompact ? 14 : 16)
+            .background(
+                isEnabled ? CEDColor.primary : CEDColor.border,
+                in: RoundedRectangle(cornerRadius: CEDRadius.xl)
+            )
+            .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.35), value: isEnabled)
         }
         .buttonStyle(PressScaleButtonStyle())
         .disabled(!isEnabled)

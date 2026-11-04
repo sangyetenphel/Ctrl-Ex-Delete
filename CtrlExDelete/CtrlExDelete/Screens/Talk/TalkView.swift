@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// "Say it here first": write the message you want to send your ex,
-/// then talk it through with Ced instead of sending it.
+/// "Say it here first": write the message you want to send your ex, then
+/// send it to Ced in the text chat, or talk it through on a voice call.
 struct TalkView: View {
     @Environment(AppRouter.self) private var router
     @State private var message = ""
     @State private var isChatOpen = false
+    @State private var isCalling = false
+
+    private static let messageCardID = "unsentMessageCard"
 
     var body: some View {
         if isChatOpen {
@@ -25,28 +28,42 @@ struct TalkView: View {
         VStack(spacing: 0) {
             header
 
-            ScrollView {
-                VStack(spacing: 16) {
-                    unsentMessageCard
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 16) {
+                        unsentMessageCard
+                            .id(Self.messageCardID)
 
-                    VStack(spacing: 12) {
-                        PrimaryButton(title: "Talk it through with Ced", isCompact: true) {
-                            withAnimation(.easeInOut(duration: 0.25)) { isChatOpen = true }
-                        }
+                        VStack(spacing: 12) {
+                            PrimaryButton(title: "Talk it through with Ced", isCompact: true,
+                                          systemImage: "phone.fill") {
+                                isCalling = true
+                            }
+                            .accessibilityHint("Starts a voice call with Ced")
+                            .fullScreenCover(isPresented: $isCalling) {
+                                CallCedView()
+                            }
 
-                        Button("Return to my room") {
-                            router.go(to: .room)
+                            Button("Return to my room") {
+                                router.go(to: .room)
+                            }
+                            .cedTextStyle(.bodySemibold)
+                            .foregroundStyle(CEDColor.mutedForeground)
+                            .padding(.top, 4)
                         }
-                        .cedTextStyle(.bodySemibold)
-                        .foregroundStyle(CEDColor.mutedForeground)
-                        .padding(.top, 4)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 20)
+                }
+                .scrollIndicators(.hidden)
+                .scrollDismissesKeyboard(.interactively)
+                // The keyboard leaves little room here: keep the send button in view.
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(Self.messageCardID, anchor: .bottom)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
             }
-            .scrollIndicators(.hidden)
-            .scrollDismissesKeyboard(.interactively)
         }
         .background(CEDColor.background)
     }
@@ -55,7 +72,7 @@ struct TalkView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 IconBadge {
-                    CEDIconView(icon: .phone, size: 22, color: CEDColor.primary)
+                    GhostView(size: 28)
                 }
                 Text("Say it here first.")
                     .cedTextStyle(.cardTitle)
@@ -110,16 +127,27 @@ struct TalkView: View {
                 .tint(CEDColor.primary)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .padding(.bottom, 56) // room for the microphone button
+                .padding(.bottom, 56) // room for the send button
                 .accessibilityLabel("Your unsent message")
         }
         .background(CEDColor.card, in: RoundedRectangle(cornerRadius: CEDRadius.xl))
         .overlay(RoundedRectangle(cornerRadius: CEDRadius.xl).strokeBorder(CEDColor.border, lineWidth: 1))
         .overlay(alignment: .bottomTrailing) {
-            // Say it out loud instead: a voice call with Ced.
-            CallCedButton()
+            CircleIconButton(icon: .send, iconColor: canSend ? CEDColor.primary : CEDColor.hint,
+                             label: "Send message", hint: "Opens a text chat with Ced about this message",
+                             action: sendMessage)
+                .disabled(!canSend)
                 .padding(12)
         }
+    }
+
+    private var canSend: Bool {
+        !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func sendMessage() {
+        guard canSend, !isChatOpen else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { isChatOpen = true }
     }
 }
 
