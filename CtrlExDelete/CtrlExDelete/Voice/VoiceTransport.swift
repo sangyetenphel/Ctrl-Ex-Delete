@@ -138,7 +138,7 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
     private var sentBytes = 0
 
     func sendAudio(_ pcm: Data, level: Float) {
-        guard !isClosed else { return }
+        guard !isClosed, !isMuted else { return }
         sentChunks += 1
         sentBytes += pcm.count
         if sentChunks == 1 || sentChunks % 100 == 0 {
@@ -154,11 +154,12 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
         guard let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return "unreadable" }
         let type = json["type"] as? String ?? "?"
-        let detail = (json["state"] ?? json["code"] ?? json["support"] ?? json["reason"]) as? String
+        let detail = (json["state"] ?? json["code"] ?? json["reason"]) as? String
         return detail.map { "\(type) \($0)" } ?? type
     }
 
     func setMuted(_ muted: Bool) {
+        lock.withLock { self.muted = muted }
         task?.send(.string(muted ? #"{"type":"mute"}"# : #"{"type":"unmute"}"#)) { _ in }
     }
 
@@ -168,6 +169,9 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
     }
 
     private var isClosed: Bool { lock.withLock { closed } }
+    /// While muted, no microphone audio leaves the phone.
+    private var muted = false
+    private var isMuted: Bool { lock.withLock { muted } }
 }
 
 #if DEBUG

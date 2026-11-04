@@ -51,6 +51,8 @@ final class AppSession {
             restoredDay = today
             phase = .ready
             router.go(to: Self.startScreen(for: status))
+        } catch is CancellationError {
+            return
         } catch {
             // Keep whatever progress this device saved last time on hand.
             journey.showCachedProgress()

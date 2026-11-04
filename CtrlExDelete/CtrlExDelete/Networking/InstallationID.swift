@@ -33,7 +33,7 @@ enum InstallationID {
         cached = id
         #if DEBUG
         Logger(subsystem: "CtrlExDelete", category: "installation")
-            .info("Installation ID: \(id.uuidString, privacy: .public)")
+            .info("Installation ID: \(id.uuidString, privacy: .private)")
         #endif
         return id
     }
