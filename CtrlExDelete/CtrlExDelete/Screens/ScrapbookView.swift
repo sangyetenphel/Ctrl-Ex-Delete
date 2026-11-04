@@ -183,7 +183,9 @@ struct ScrapbookView: View {
                 .accessibilityAddTraits(.isHeader)
 
             VStack(alignment: .leading, spacing: 0) {
-                let milestones = journey.milestones
+                // The moving-forward milestone stays in the data; here the
+                // story just carries on past the last step shown.
+                let milestones = journey.milestones.filter { $0.label != Self.movingForwardMilestone }
                 ForEach(milestones.indices, id: \.self) { index in
                     let item = milestones[index]
                     HStack(alignment: .top, spacing: 12) {
@@ -195,7 +197,9 @@ struct ScrapbookView: View {
                             if index < milestones.count - 1 {
                                 Rectangle()
                                     .fill(item.isDone ? CEDColor.rose : CEDColor.border)
-                                    .frame(width: 2, height: 24)
+                                    .frame(width: 2, height: Self.connectorHeight)
+                            } else {
+                                storyContinues
                             }
                         }
                         VStack(alignment: .leading, spacing: 0) {
@@ -212,6 +216,23 @@ struct ScrapbookView: View {
                 }
             }
         }
+    }
+
+    private static let movingForwardMilestone = "Moving forward check-in"
+    private static let connectorHeight: CGFloat = 24
+
+    /// Tiny 3pt dots, 3pt apart, in place of the last milestone's line and
+    /// reaching just as far as one: the story goes on. Drawn on a marker-wide
+    /// canvas because separate 3pt views get nudged to whole pixels, just off
+    /// the marker's center.
+    private var storyContinues: some View {
+        Canvas { context, size in
+            for y in stride(from: 3, to: size.height, by: 6) {
+                let dot = CGRect(x: (size.width - 3) / 2, y: y, width: 3, height: 3)
+                context.fill(Path(ellipseIn: dot), with: .color(CEDColor.border))
+            }
+        }
+        .frame(width: 12, height: Self.connectorHeight)
     }
 }
 
