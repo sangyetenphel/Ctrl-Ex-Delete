@@ -11,12 +11,21 @@ Each activity: (slug, energy, minutes, research codes, involves movement,
 title, instructions, why someone might choose it). Slugs are stable ids: never
 reuse one for a different activity. 28 slugs come from the earlier catalog
 (same activity, same category), so their history stays attached; the other
-21 earlier activities were removed (migration 013).
+21 earlier activities were removed (legacy migration 013).
 
 energy = the activity's overall demand: physical, cognitive, social and
 preparation. It's separate from minutes: a long quiet activity can be low
 demand, and a short social one isn't automatically easy.
 """
+
+# The four categories: key, display name, order. The keys never change (the
+# app and the database both check them); the names show on cards and charts.
+CATEGORIES = [
+    ("outdoor_movement", "Outdoor & Movement", 1),
+    ("mindfulness_rest", "Mindfulness & Rest", 2),
+    ("solo_exploration", "Solo Exploration", 3),
+    ("social_connection", "Social Connection", 4),
+]
 
 RESEARCH_BASES = {
     "M": {

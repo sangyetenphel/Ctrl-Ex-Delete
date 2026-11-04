@@ -92,8 +92,8 @@ class Activity(BaseModel):
     slug: str
     title: str
     category: ActivityCategory
-    # The category's display name, e.g. "Mindfulness & Rest". Stored on the
-    # activity and kept in step with activity_categories by the database.
+    # The category's display name, e.g. "Mindfulness & Rest", from
+    # activity_categories (the one place it's stored).
     category_label: str
     # Overall demand (physical, cognitive, social, preparation), separate from
     # duration; a check-in's energy decides which levels are recommended.

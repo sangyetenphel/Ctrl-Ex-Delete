@@ -96,9 +96,10 @@ def test_movement_flag_separates_movement_from_being_outdoors():
 def test_database_has_the_catalog():
     with db() as conn:
         active = conn.execute(
-            """SELECT slug, category, category_label, energy_level, duration_minutes, title,
+            """SELECT slug, a.category, ac.label AS category_label, energy_level, duration_minutes, title,
                       involves_movement, evidence_note
-               FROM activities WHERE is_active ORDER BY sort_order"""
+               FROM activities a JOIN activity_categories ac ON ac.category = a.category
+               WHERE is_active ORDER BY a.sort_order"""
         ).fetchall()
         per_category = dict(conn.execute(
             "SELECT category, count(*) FROM activities WHERE is_active GROUP BY 1").fetchall())
@@ -149,9 +150,9 @@ def test_seed_never_deletes_user_history(installation_id, uploaded):
     # Two activities that left the catalog: one someone chose, one nobody used.
     with db() as conn:
         used, unused = [conn.execute(
-            """INSERT INTO activities (slug, title, category, category_label, energy_level, duration_minutes,
+            """INSERT INTO activities (slug, title, category, energy_level, duration_minutes,
                                        instructions, why_it_fits, sort_order)
-               VALUES (%s, 'Leaving', 'mindfulness_rest', '', 'low', 5, 'x', 'y', 500) RETURNING id""",
+               VALUES (%s, 'Leaving', 'mindfulness_rest', 'low', 5, 'x', 'y', 500) RETURNING id""",
             (slug,)).fetchone()[0] for slug in ("leaving_with_history", "leaving_unused")]
     try:
         client.post("/check-ins", json=CHECK_IN, headers=headers(installation_id))
@@ -195,8 +196,8 @@ def test_schema_constraints():
                     """INSERT INTO activity_research_bases (activity_id, code)
                        SELECT id, 'Z' FROM activities WHERE slug = 'body_scan'""")
         conn.rollback()
-    assert {"activities_energy_level_check", "activities_category_label_fkey",
-            "activities_category_check", "activities_slug_key"} <= constraints
+    # The four category keys are checked once, in activity_categories, which activities reference.
+    assert {"activities_energy_level_check", "activities_category_fkey", "activities_slug_key"} <= constraints
 
 
 # ── The app's flows ──────────────────────────

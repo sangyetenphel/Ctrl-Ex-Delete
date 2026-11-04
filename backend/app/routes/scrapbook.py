@@ -56,7 +56,7 @@ def complete_upload(photo_id: int, x_installation_id: InstallationId):
         storage.delete_scrapbook_photo(x_installation_id, photo_id)
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Photo is too large.")
 
-    row = storage.mark_scrapbook_uploaded(x_installation_id, photo_id, size)
+    row = storage.mark_scrapbook_uploaded(x_installation_id, photo_id)
     return ScrapbookPhoto(**row, image_url=media.download_url(key))
 
 
