@@ -20,7 +20,12 @@ def get_insights(
     The Progress screen for the calendar week (Mon–Sun) or month containing
     `today`. The app sends its own local date so week and month boundaries
     follow the user's time zone, like check-in and reflection dates do.
+    The month view's charts follow the user's own weeks (insights.journey_weeks).
     """
     start, end = insights.period_bounds(period, today)
     records = storage.get_insight_records(x_installation_id, start, end)
-    return insights.build(period, today, records)
+    if period == "week":
+        return insights.build(period, today, records)
+    weeks = insights.journey_weeks(storage.get_journey_start(x_installation_id), today)
+    week_records = storage.get_insight_records(x_installation_id, weeks[0][1], weeks[-1][2])
+    return insights.build(period, today, records, weeks, week_records)

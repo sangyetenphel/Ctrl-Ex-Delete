@@ -48,6 +48,8 @@ URGE_TREND_THRESHOLD = 1.0
 MIN_DAYS_FOR_TREND = 3
 # Fewest reflections in a category before describing how they felt.
 MIN_MOODS_PER_CATEGORY = 2
+# How many of the user's own weeks the month view's charts show at once.
+JOURNEY_WEEKS_SHOWN = 5
 
 
 def period_bounds(period: Period, today: date) -> tuple[date, date]:
@@ -59,29 +61,47 @@ def period_bounds(period: Period, today: date) -> tuple[date, date]:
     return start, today.replace(day=monthrange(today.year, today.month)[1])
 
 
-def _buckets(period: Period, start: date, end: date) -> list[tuple[str, date, date]]:
-    """Chart bars: one per day of the week, or one per week of the month (days 1–7 = W1, …)."""
+def journey_weeks(started_on: date | None, today: date) -> list[tuple[str, date, date]]:
+    """
+    The month view's chart bars: seven-day weeks counted from the user's first
+    check-in (W1 = days 1–7, W2 = days 8–14, …), whatever the calendar says.
+    Always JOURNEY_WEEKS_SHOWN bars: W1 onwards, then the latest weeks once the
+    journey is longer than that (W2–W6 on day 36). Before any check-in, W1
+    would start today.
+    """
+    first_day = started_on or today
+    current_week = (today - first_day).days // 7 + 1
+    first_week = max(current_week - JOURNEY_WEEKS_SHOWN + 1, 1)
+    return [
+        (f"W{week}", first_day + timedelta(weeks=week - 1), first_day + timedelta(weeks=week, days=-1))
+        for week in range(first_week, first_week + JOURNEY_WEEKS_SHOWN)
+    ]
+
+
+def _buckets(period: Period, start: date, today: date) -> list[tuple[str, date, date]]:
+    """Chart bars: one per day of the week, or the weeks of the user's journey."""
     if period == "week":
         return [
             ((start + timedelta(days=i)).strftime("%a"), start + timedelta(days=i), start + timedelta(days=i))
             for i in range(7)
         ]
-    buckets = []
-    first = start
-    week = 1
-    while first <= end:
-        last = min(first + timedelta(days=6), end)
-        buckets.append((f"W{week}", first, last))
-        first, week = last + timedelta(days=1), week + 1
-    return buckets
+    return journey_weeks(None, today)
 
 
 def _plural(n: int, word: str, plural: str | None = None) -> str:
     return f"{n} {word if n == 1 else (plural or word + 's')}"
 
 
-def build(period: Period, today: date, records: dict) -> InsightsResponse:
+def build(period: Period, today: date, records: dict, weeks: list | None = None,
+          week_records: dict | None = None) -> InsightsResponse:
+    """
+    `records` are the rows of the calendar week or month. The month view's two
+    charts instead use `weeks` (journey_weeks) and `week_records`, the rows
+    those weeks cover; everything else stays on the calendar period.
+    """
     start, end = period_bounds(period, today)
+    buckets = weeks or _buckets(period, start, today)
+    chart_records = week_records or records
     # Category names and order come from the database (activity_categories),
     # the same names the activity cards show.
     category_labels = {row["category"]: row["label"] for row in records["categories"]}
@@ -92,8 +112,8 @@ def build(period: Period, today: date, records: dict) -> InsightsResponse:
     for row in records["check_ins"]:
         daily[row["local_date"]].append(row["contact_urge"])
     urges = []
-    for label, first, last in _buckets(period, start, end):
-        ratings = [r for day, rs in daily.items() if first <= day <= last for r in rs]
+    for label, first, last in buckets:
+        ratings = [row["contact_urge"] for row in chart_records["check_ins"] if first <= row["local_date"] <= last]
         urges.append(UrgePoint(
             label=label,
             start=first,
@@ -111,11 +131,11 @@ def build(period: Period, today: date, records: dict) -> InsightsResponse:
     # day the activity was completed (its reflection's local date). Answers
     # without a known score are skipped, never guessed; no answers = a gap.
     answers_by_day: dict[date, list[str]] = defaultdict(list)
-    for row in records["moods"]:
+    for row in chart_records["moods"]:
         if row["mood_change"] in MOOD_SCORES:
             answers_by_day[row["local_date"]].append(row["mood_change"])
     mood_points = []
-    for label, first, last in _buckets(period, start, end):
+    for label, first, last in buckets:
         answers = [a for day in sorted(answers_by_day) if first <= day <= last for a in answers_by_day[day]]
         scores = [MOOD_SCORES[a] for a in answers]
         mood_points.append(MoodPoint(

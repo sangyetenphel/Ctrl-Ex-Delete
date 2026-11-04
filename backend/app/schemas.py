@@ -269,8 +269,8 @@ class ProgressSummary(BaseModel):
 # ─────────────────────────────────────────────
 
 class UrgePoint(BaseModel):
-    """One bar: a day (week view) or a week of the month (month view)."""
-    label: str                 # "Mon" … "Sun", or "W1" … "W5"
+    """One bar: a day (week view) or a seven-day week of the user's journey (month view)."""
+    label: str                 # "Mon" … "Sun", or "W1", "W2", …
     start: date
     end: date
     value: int | None          # average urge (1–10); null = no check-in
@@ -279,12 +279,13 @@ class UrgePoint(BaseModel):
 
 class MoodPoint(BaseModel):
     """
-    One bar of "Mood after activities": a day (week view) or a week of the
-    month (month view). `value` is the average of the internal scores of the
-    answers given then (see insights.MOOD_SCORES), only for sizing the bar;
-    it is not a rating the user entered. null = no completed activity.
+    One bar of "Mood after activities": a day (week view) or a seven-day week
+    of the user's journey (month view). `value` is the average of the internal
+    scores of the answers given then (see insights.MOOD_SCORES), only for
+    sizing the bar; it is not a rating the user entered. null = no completed
+    activity.
     """
-    label: str                 # "Mon" … "Sun", or "W1" … "W5"
+    label: str                 # "Mon" … "Sun", or "W1", "W2", …
     start: date
     end: date
     value: float | None        # 1–10 scale, one decimal; null = gap

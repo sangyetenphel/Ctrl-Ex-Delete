@@ -14,7 +14,7 @@ enum InsightsPeriod: String, CaseIterable, Identifiable {
 /// One bar. `value` sizes the bar on a fixed 0–10 scale and is never shown
 /// as a number; nil = nothing recorded (a gap: a short grey stub, not zero).
 struct ChartPoint: Identifiable {
-    let label: String              // "Mon" … "Sun", or "W1" … "W5"
+    let label: String              // "Mon" … "Sun", or "W1", "W2", … (the user's own weeks)
     let value: Double?
     let accessibilityText: String  // the date and what was recorded, in words
     var id: String { label }
