@@ -12,8 +12,10 @@ deletes, resets or changes them.
 | Inventory: Neon PostgreSQL 18.6, 21 tables, 9.7 MB; S3 (us-east-2) 14 objects, 7.4 MiB | done (2026-11-04) |
 | Backups: `pg_dump` of Neon and a copy of every S3 object, in `.local-backup/2026-11-04/` (git-ignored, user data) | done, every object passed its size and MD5 check |
 | Rehearsal: `scripts.copy_database` into an empty local PostgreSQL, then `scripts.compare_databases` | done: all 21 tables, row checksums, constraints, indexes, sequences and migrations match |
-| New Neon project and S3 bucket in your accounts | **needs you** (below) |
-| Copy into them and verify | ready to run |
+| New Neon project in your account: PostgreSQL 18.6, AWS us-east-1, empty `neondb` | done (2026-11-04) |
+| Rehearsal in the new project: `copy_database --database rehearsal`, then the backend's reads and writes against it | done: everything matched; reads and writes worked |
+| New S3 bucket in your account | **needs you** (below) |
+| Final copy into `neondb`, photos into the new bucket | at cutover |
 | Render cutover | **needs your approval** |
 
 ## 1. What to create
@@ -76,14 +78,16 @@ TARGET_S3_BUCKET=...
 From `backend/` with the venv active:
 
 ```bash
-set -a; source .env.migration; set +a
 export PG_BIN=/opt/homebrew/opt/postgresql@18/bin   # Homebrew's PostgreSQL client tools
 
-# Rehearsal: in Neon's SQL editor run  CREATE DATABASE rehearsal;  then
-TARGET_DATABASE_URL="$(echo "$TARGET_DATABASE_URL" | sed 's#/neondb?#/rehearsal?#')" python -m scripts.copy_database
+# Rehearsal into a second, empty database on the new server (Databases -> Add database "rehearsal")
+python -m scripts.copy_database --database rehearsal
 python -m scripts.copy_s3 --dry-run
 python -m scripts.copy_s3            # safe to repeat: identical objects are skipped
 ```
+
+The scripts read `backend/.env.migration` themselves. Don't `source` it:
+Neon's connection string contains `?` and `&`, which the shell misreads.
 
 `copy_database` dumps the current database (read-only), restores it into the
 empty target and runs `compare_databases`: same tables, row counts and row
@@ -91,14 +95,9 @@ checksums, constraints, indexes, sequence positions and migrations.
 `copy_s3` keeps every key, so the database's `scrapbook_photos.object_key`
 values need no change; uploads carry their MD5 so a corrupted copy is refused.
 
-Then check the backend against the new resources locally before anyone
-depends on them:
-
-```bash
-DATABASE_URL="$TARGET_DATABASE_URL" AWS_ACCESS_KEY_ID="$TARGET_AWS_ACCESS_KEY_ID" \
-AWS_SECRET_ACCESS_KEY="$TARGET_AWS_SECRET_ACCESS_KEY" AWS_REGION="$TARGET_AWS_REGION" \
-S3_BUCKET="$TARGET_S3_BUCKET" python -m scripts.check_s3      # one test object, deleted again
-```
+Then check the backend against the new database and bucket locally before
+anyone depends on them: health, an existing user's reads, and a throwaway
+user's check-in, activity choice and moving-forward save, deleted afterwards.
 
 Don't run `pytest` against a hosted database: the tests edit the shared
 catalogs while they run (and the ones that wipe data only run locally).
