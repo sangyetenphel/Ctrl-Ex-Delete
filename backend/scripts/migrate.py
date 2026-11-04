@@ -16,8 +16,10 @@ applied; add a new numbered file instead.
 earlier files are kept in db/migrations/legacy/ for reference only; a database
 that applied them (the original one) is refused, never "upgraded".
 """
+import os
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import psycopg
 
@@ -47,6 +49,8 @@ def applied_versions(conn: psycopg.Connection) -> set[str]:
 
 def main() -> None:
     show_status_only = "--status" in sys.argv
+    print(f"Settings from {os.environ.get('CED_ENV_FILE', '.env')}; "
+          f"database '{urlsplit(settings.database_url).path.lstrip('/')}'")
 
     with psycopg.connect(settings.database_url) as conn:
         done = applied_versions(conn)

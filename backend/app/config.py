@@ -1,4 +1,5 @@
 import logging
+import os
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,7 +18,12 @@ DEFAULT_GEMINI_VOICE = "Vindemiatrix"
 
 
 class Settings(BaseSettings):
-    """Reads settings from backend/.env (run uvicorn from the backend/ folder)."""
+    """
+    Reads settings from backend/.env (run uvicorn from the backend/ folder), or
+    from the file named by CED_ENV_FILE, e.g. CED_ENV_FILE=.env.staging: one
+    switch for the server and every script, so a migration and its seeds can
+    never end up in different databases.
+    """
     database_url: str
 
     # AWS S3 for scrapbook photos. Optional: without them the API still runs,
@@ -64,7 +70,7 @@ class Settings(BaseSettings):
         return DEFAULT_GEMINI_VOICE
 
     # extra="ignore": an unrelated line in .env must never stop the server.
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=os.environ.get("CED_ENV_FILE", ".env"), extra="ignore")
 
     @property
     def s3_configured(self) -> bool:
