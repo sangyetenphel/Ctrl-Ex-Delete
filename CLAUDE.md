@@ -2,7 +2,7 @@
 
 iOS breakup-recovery app (UNCG senior capstone). SwiftUI app (`CtrlExDelete/`) + FastAPI backend (`backend/`) + Neon PostgreSQL + AWS S3 (photos) + Groq (Ced text chat) + Gemini Live (Ced voice calls, relayed by the backend). Anonymous users: a Keychain UUID sent as `X-Installation-ID`.
 
-For the current state of the AI/voice work, read `docs/AI_INTEGRATION_HANDOFF.md`. The API contract is `docs/api.md` — update it with any endpoint change. Schema design: `docs/DATABASE_DESIGN.md`; setting up your own Neon/S3 (fresh start): `docs/MIGRATION.md`.
+For the current state of the AI/voice work, read `docs/AI_INTEGRATION_HANDOFF.md`. The API contract is `docs/api.md` — update it with any endpoint change. Schema design: `docs/DATABASE_DESIGN.md`; setting up your own Neon/S3 (fresh start): `docs/MIGRATION.md`. **Current deployment work (start here): `docs/RENDER_DEPLOYMENT_HANDOFF.md`.**
 
 ## Rules
 - Never push, merge, or modify `main` or teammates' branches without explicit permission. Ask before committing the user's own uncommitted changes.
