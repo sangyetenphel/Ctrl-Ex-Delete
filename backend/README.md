@@ -12,9 +12,10 @@ backend/
 │   ├── recommendation_rules.py  # which activities to suggest after a check-in
 │   ├── dependencies.py          # the X-Installation-ID header
 │   └── routes/                  # health, check_ins, recommendations
-├── db/migrations/               # numbered .sql files that build the database
+├── db/migrations/               # 001_schema.sql builds a new database; legacy/ is the old history (reference)
 ├── scripts/
 │   ├── migrate.py               # applies new migrations, then loads the catalog
+│   ├── verify_database.py       # checks the schema and catalogs (read-only)
 │   ├── catalog_data.py          # the 100-activity catalog and research sources
 │   ├── seed_catalog.py          # loads the catalog (never deletes user history)
 │   ├── reset_dev_data.py        # DEV ONLY: deletes all user data and test uploads
@@ -75,21 +76,13 @@ It inserts or updates activities by `slug`. An activity that isn't in the file a
 
 | Migration | What it does |
 |---|---|
-| `001_baseline.sql` | `installations`, `check_ins`, `activities`, `activity_logs` (Alexa's original schema; skipped if the tables already exist) |
-| `002_recommendations.sql` | Adds card fields to `activities`; creates `recommendations` and `activity_selections` |
-| `003_seed_activities.sql` | Adds the three prototype activities to the catalog |
-| `009_neutral_why_it_fits.sql` | Rewords one activity's "why it fits" text so it doesn't assume an answer |
-| `010_single_reflection_note.sql` | One reflection text answer: moves `noticed` into `note`, drops `noticed` |
-| `011_category_labels.sql` | `activity_categories` defines each category's display name; `category_label` is kept in step by the database |
-| `012_activity_energy_and_research.sql` | Adds `energy_level`, `involves_movement`, `evidence_note`, and the `research_bases` / `activity_research_bases` tables. The catalog itself comes from `scripts/seed_catalog.py` |
-| `013_remove_legacy_activities.sql` | Deletes the 21 earlier activities the new catalog replaced, or retires the ones that have user history (the other 28 earlier activities are part of the catalog) |
-| `014_one_check_in_per_day.sql` | One check-in per installation per local day: a unique index on `(installation_id, local_date)`. Nothing is deleted: same-day duplicates from before keep their rows, and only the latest of them counts for the day (`counts_for_day`) |
-| `015_moving_forward.sql` | `moving_forward_check_ins`: one moving-forward reflection per installation (ticked questions, optional note, the day it was chosen). Nothing else changes |
-| `016_moving_forward_readiness_only.sql` | Drops the moving-forward `note` column: the check-in is now the five readiness questions only, and the API requires all five |
-| `017_affirmations.sql` | The Grow with Kindness catalog: `affirmation_themes`, `affirmations` (stable id, text, theme, language, active, timestamps), `affirmation_sources`, `affirmation_theme_sources` (principle and rationale per source) and `affirmation_notes` (editorial, never shown). Filled by `scripts/seed_affirmations.py`, which `migrate` runs; it never deletes, only retires. After changing `scripts/affirmation_data.py`, also run `python -m scripts.export_affirmations` to update the app's bundled copy |
-| `018_room_messages.sql` | Ced's room message: the `room_messages` catalog (filled by `scripts/seed_room_messages.py`, run by `migrate`; never deletes, only retires) and `check_in_room_messages` (the message and text given to each check-in, one per check-in). The rules are in `app/room_messages.py` |
+| `001_schema.sql` | The whole schema for a new, empty database: tables, keys, constraints and indexes (see `docs/DATABASE_DESIGN.md`). The catalogs come from the seed scripts that `migrate` runs afterwards |
 
-To change the database later, **add a new numbered file** (e.g. `004_add_something.sql`). Don't edit a migration that has already been applied.
+The 19 earlier migrations are kept in `db/migrations/legacy/` for reference. They describe the original database, which `migrate` refuses to touch: it is kept only as a backup.
+
+Check a database with `python -m scripts.verify_database` (add `--fresh` on a new one: user tables must be empty).
+
+To change the schema later, **add a new numbered file** (e.g. `002_add_something.sql`). Don't edit a migration that has already been applied.
 
 ## Starting the server (every time)
 
@@ -206,7 +199,7 @@ It only drops this project's tables: `activity_research_bases`, `research_bases`
 | `database_url Field required` | `backend/.env` is missing or has no `DATABASE_URL` line. See "Add the database connection string". |
 | API returns `503` "The database is unavailable" | The server can't reach Neon. Check your internet connection and the string in `.env`. |
 | `Address already in use` | The server is already running in another Terminal tab. Stop that one with Ctrl + C. |
-| Migration 003 fails on `SET NOT NULL` | The `activities` table has old rows without a `slug`. Delete them, or reset the dev database. |
+| `migrate` says the database has the old schema history | It's the original database (kept as a backup). Use a new, empty database instead. |
 | `422` response | The request doesn't match `docs/api.md`. The `loc` field in the error shows which field is wrong. |
 | App says "Couldn't reach the server" | The backend isn't running, or (on a phone) the base URL / `--host 0.0.0.0` step was missed. |
 | New packages were added by a teammate | Pull, activate the venv, then run `pip install -r requirements-dev.txt` again. |

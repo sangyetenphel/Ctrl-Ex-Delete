@@ -1,58 +1,83 @@
-# Moving the database and photo storage to new accounts
+# Setting up your own Neon and S3 (fresh start)
 
-The Neon database and the S3 bucket were created in Leo's accounts. This is
-how to move both to accounts you own without losing data or downtime that
-matters. The old database and bucket are only ever read: nothing here
-deletes, resets or changes them.
+CED moves to a new Neon project and new S3 buckets in your own accounts,
+starting **without** the old user data (your decision, 2026-11-04). The
+original Neon database and S3 bucket in Leo's accounts stay untouched as the
+backup; nothing here reads from or writes to them.
+
+The schema is `backend/db/migrations/001_schema.sql` (see
+`docs/DATABASE_DESIGN.md`); the shared catalogs come from the seed scripts.
 
 ## Where it stands
 
 | Step | Status |
 |---|---|
-| Inventory: Neon PostgreSQL 18.6, 21 tables, 9.7 MB; S3 (us-east-2) 14 objects, 7.4 MiB | done (2026-11-04) |
-| Backups: `pg_dump` of Neon and a copy of every S3 object, in `.local-backup/2026-11-04/` (git-ignored, user data) | done, every object passed its size and MD5 check |
-| Rehearsal: `scripts.copy_database` into an empty local PostgreSQL, then `scripts.compare_databases` | done: all 21 tables, row checksums, constraints, indexes, sequences and migrations match |
-| New Neon project in your account: PostgreSQL 18.6, AWS us-east-1, empty `neondb` | done (2026-11-04) |
-| Rehearsal in the new project: `copy_database --database rehearsal`, then the backend's reads and writes against it | done: everything matched; reads and writes worked |
-| New S3 bucket in your account | **needs you** (below) |
-| Final copy into `neondb`, photos into the new bucket | at cutover |
-| Render cutover | **needs your approval** |
+| New Neon project in your account: PostgreSQL 18.6, AWS us-east-1, empty `neondb` | done |
+| Clean schema, seeds and `verify_database`, tested from scratch on empty local databases | done |
+| `staging` database in the Neon project, schema initialized | **next** (below) |
+| S3 buckets and IAM users (staging and production) | **needs you** (below) |
+| Render staging service | after the above |
+| Production cutover | **needs your approval** |
 
-## 1. What to create
+## How settings are chosen
 
-Put every value in `backend/.env.migration` (git-ignored by the `.env.*`
-rule). Don't paste them into chat or commit them.
+Every command reads `backend/.env`, unless `CED_ENV_FILE` names another file.
+Keep one git-ignored file per environment, so a command can never mix them up:
+
+| File | Database | Bucket |
+|---|---|---|
+| `backend/.env` | the original database (backup) | the original bucket |
+| `backend/.env.staging` | Neon `staging` | the staging bucket |
+| `backend/.env.production` | Neon `neondb` | the production bucket |
 
 ```bash
-# backend/.env.migration
-TARGET_DATABASE_URL=postgresql://...neon.tech/neondb?sslmode=require
-TARGET_AWS_ACCESS_KEY_ID=...
-TARGET_AWS_SECRET_ACCESS_KEY=...
-TARGET_AWS_REGION=us-east-1
-TARGET_S3_BUCKET=...
+# backend/.env.staging (same layout for .env.production)
+DATABASE_URL=postgresql://...-pooler.us-east-1.aws.neon.tech/staging?sslmode=require&channel_binding=require
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+S3_BUCKET=ced-photos-staging-...
+GROQ_API_KEY=...
+GROQ_MODEL=openai/gpt-oss-120b
+GEMINI_API_KEY=...
 ```
 
-### Neon
+Paste values only into these files: never into chat, commits or docs.
 
-1. Sign in at console.neon.tech with your own account and create a project:
-   **PostgreSQL 18** (the same major version as today) and region **AWS US
-   East (N. Virginia)**, next to the Render service (Virginia). Today's
-   database is in Ohio, so every query also crosses regions.
-2. On the project dashboard, open **Connect**, keep **Connection pooling**
-   on, copy the connection string (it ends in `?sslmode=require`) into
-   `TARGET_DATABASE_URL`.
-3. Leave the database empty. `copy_database` refuses a database that already
-   has tables, so nothing can be overwritten by mistake.
+## 1. Neon
 
-### AWS S3
+The project exists. For staging:
 
-1. In your AWS account, create a bucket in **us-east-1** (or keep
-   **us-east-2**; photos download straight to the phone, so either is fine).
-   Keep the defaults: **Block all public access** on, ACLs disabled, SSE-S3
-   encryption. No CORS rule is needed: the app uploads with presigned URLs
-   from iOS, not from a browser.
-2. In IAM, create a user (for example `ced-backend`) with no console access
-   and this inline policy, using your bucket name:
+1. In the Neon console, **Postgres database → Databases → Add database**,
+   name `staging`, the default owner.
+2. **Connect** → database `staging`, **Connection pooling** on → copy the
+   string into `DATABASE_URL` in `backend/.env.staging`. Production later uses
+   database `neondb` the same way, in `backend/.env.production`.
+3. From `backend/` with the venv active:
+
+   ```bash
+   CED_ENV_FILE=.env.staging python -m scripts.migrate                 # schema, then the catalogs
+   CED_ENV_FILE=.env.staging python -m scripts.verify_database --fresh # schema, catalogs, empty user tables
+   ```
+
+   `migrate` prints which settings file and database it uses. It refuses a
+   database that has the old migration history.
+
+## 2. AWS S3
+
+Two buckets and two IAM users, so staging can never touch production photos.
+
+1. **Buckets** (S3 → Create bucket), one per environment, for example
+   `ced-photos-staging-<suffix>` and `ced-photos-prod-<suffix>`:
+   - Region **us-east-1** (next to Render and the new Neon).
+   - **Block all public access**: on. **Object Ownership**: ACLs disabled
+     (bucket owner enforced). **Default encryption**: SSE-S3. **Versioning**:
+     off (a deleted photo is really gone).
+   - No CORS rule, no bucket policy: the app uploads and downloads through
+     short-lived presigned links from the backend.
+2. **IAM users** (IAM → Users → Create user), for example `ced-staging` and
+   `ced-production`, no console access, each with this inline policy for its
+   own bucket:
 
    ```json
    {
@@ -68,64 +93,65 @@ TARGET_S3_BUCKET=...
    }
    ```
 
-   `ListBucket` lets the backend tell a missing photo (404) from a refused
-   one (403). Nothing in the app needs more.
-3. Create an access key for that user ("Application running outside AWS")
-   and put it in `TARGET_AWS_ACCESS_KEY_ID` / `TARGET_AWS_SECRET_ACCESS_KEY`.
+   `ListBucket` lets the backend tell a missing photo (404) from a refused one
+   (403); `GetBucketPublicAccessBlock` lets `check_s3` confirm the bucket is
+   private.
+3. **Access keys**: each user → Security credentials → Create access key
+   ("Application running outside AWS") → into that environment's file.
+4. Check:
 
-## 2. Rehearse, then copy
+   ```bash
+   CED_ENV_FILE=.env.staging python -m scripts.check_s3   # one test object, then deleted
+   ```
 
-From `backend/` with the venv active:
+## 3. Try the backend locally against staging
 
 ```bash
-export PG_BIN=/opt/homebrew/opt/postgresql@18/bin   # Homebrew's PostgreSQL client tools
-
-# Rehearsal into a second, empty database on the new server (Databases -> Add database "rehearsal")
-python -m scripts.copy_database --database rehearsal
-python -m scripts.copy_s3 --dry-run
-python -m scripts.copy_s3            # safe to repeat: identical objects are skipped
+CED_ENV_FILE=.env.staging uvicorn app.main:app --port 8001
 ```
 
-The scripts read `backend/.env.migration` themselves. Don't `source` it:
-Neon's connection string contains `?` and `&`, which the shell misreads.
+Then run the app in the Simulator from Xcode with the launch argument
+`-CEDAPIBaseURL http://127.0.0.1:8001` and try a check-in, an activity, a
+reflection with a photo, Story, Insights, the scrapbook and Ced. (For a phone,
+add `--host 0.0.0.0` and use your Mac's address.)
 
-`copy_database` dumps the current database (read-only), restores it into the
-empty target and runs `compare_databases`: same tables, row counts and row
-checksums, constraints, indexes, sequence positions and migrations.
-`copy_s3` keeps every key, so the database's `scrapbook_photos.object_key`
-values need no change; uploads carry their MD5 so a corrupted copy is refused.
+## 4. Render staging (dashboard only)
 
-Then check the backend against the new database and bucket locally before
-anyone depends on them: health, an existing user's reads, and a throwaway
-user's check-in, activity choice and moving-forward save, deleted afterwards.
+A second Free web service, so the live one is never touched:
 
-Don't run `pytest` against a hosted database: the tests edit the shared
-catalogs while they run (and the ones that wipe data only run locally).
+- **New → Web Service**, this repository, branch `refactor/final-optimization`,
+  root directory `backend`, build `pip install -r requirements.txt`, start
+  `uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"`,
+  health check `/health`, **Auto-Deploy: off**.
+- **Environment**: `PYTHON_VERSION=3.11` and the values from
+  `backend/.env.staging` (Render's "Add from .env" accepts the file's
+  contents). Leave `CED_VOICE_DIAGNOSTICS` unset (off).
+- Don't add it to `render.yaml`: that file describes the live service.
 
-## 3. Cutover (needs your approval)
+## 5. Production cutover (needs your approval)
 
-Usage is low, so the final copy is simply made at cutover time:
+1. `CED_ENV_FILE=.env.production python -m scripts.migrate`, then
+   `verify_database --fresh` (database `neondb`, production bucket).
+2. Merge `refactor/final-optimization` into `integration/ai-room-progress`.
+3. In the live Render service's **Environment**, replace `DATABASE_URL`,
+   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` (and
+   the AI keys if you made new ones) with the production values, then
+   **Save, rebuild, and deploy**.
+4. Check `/health/db`, then the app end to end. Users start fresh.
 
-1. Copy into the empty `neondb` database: `python -m scripts.copy_database`.
-2. Run `python -m scripts.copy_s3` again to pick up any new photos.
-3. In Render, service `ctrl-ex-delete-api` → **Environment**, change
-   `DATABASE_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
-   and `S3_BUCKET` to the new values, then **Save, rebuild, and deploy**.
-4. Check `https://ctrl-ex-delete-api.onrender.com/health`, then in the app:
-   Story (old photos load), a new reflection with a photo, the scrapbook.
-5. Update your own `backend/.env` to the new values.
+The new backend code expects the new schema: deploy it only together with the
+new database. **Rollback:** restore the old values in Render and redeploy the
+previous commit (`integration/ai-room-progress` before the merge); the
+original database and bucket are untouched.
 
-Anything written between step 1 and the deploy in step 3 stays only in the
-old database, so do it when nobody is using the app.
+## 6. Clean-up afterwards
 
-**Rollback:** put the old values back in Render (keep them in a password
-manager until the move is final). The old database and bucket are
-untouched, so switching back works; anything written to the new ones in
-between would need copying back.
+- Delete the `rehearsal` database in the new Neon project (it holds a copy of
+  old user data from the migration rehearsal).
+- Delete `backend/.env.migration` and the dumps in `.local-backup/` once the
+  new setup is live.
+- After grading, ask Leo to delete the original database and bucket and to
+  revoke the old access key. Rotate the keys that were pasted into chat.
 
-## 4. Afterwards
-
-Keep Leo's database and bucket until after the final presentation and
-grading, then ask Leo to delete them and to revoke the old access key. The
-keys that were pasted into chat during development should be rotated in any
-case.
+The copy tooling from the earlier plan (`scripts.copy_database`,
+`compare_databases`, `copy_s3`) stays in the repo, unused for the fresh start.
