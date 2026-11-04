@@ -155,10 +155,10 @@ Changes:
 2. **Bucket settings:** region `us-east-1` (next to Render and the new Neon),
    Block all public access on, Object Ownership "bucket owner enforced",
    default encryption SSE-S3, versioning off (so a deleted photo is really gone).
-3. **Delete order fixed:** `DELETE /scrapbook/photos/{id}` deletes the file
-   before the database row; it should delete the row first (a failed file
-   delete then leaves only an unreferenced object, never a row pointing at
-   nothing), like reflections already do.
+3. **Delete order fixed** (done): `DELETE /scrapbook/photos/{id}` and the
+   too-large check now delete the database row first, then the file, like
+   reflections do; a failed file delete leaves only an unreferenced object,
+   never a row pointing at nothing.
 4. **Keys stay random** (`scrapbook/<random>.jpg`). Adding the installation
    to the key would help nothing the database doesn't already do, and the
    installation ID is the user's only credential: it must not appear in
