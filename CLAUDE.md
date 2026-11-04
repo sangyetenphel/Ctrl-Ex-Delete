@@ -23,7 +23,7 @@ python -m scripts.reset_installation <id> [--execute [--production]]   # ONE ins
 CED_ENV_FILE=.env.staging python -m scripts.migrate   # any command against another environment's settings
 cd CtrlExDelete && xcodebuild -scheme CtrlExDelete -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
-Debug launch args: `-CEDStartScreen <screen>`, `-CEDAPIBaseURL <url>` (Xcode runs only), `-CEDMockVoice YES`. For a backend that also applies to Home Screen launches: `CED_API_BASE_URL = <host>` in the git-ignored `Config/DeveloperSettings.xcconfig`.
+Debug launch args: `-CEDStartScreen <screen>`, `-CEDAPIBaseURL <url>` (Xcode runs only), `-CEDMockVoice YES`, `-CEDClearLocalJourneyCache YES` (clears the on-phone journey caches once per value; keeps the installation ID). For a backend that also applies to Home Screen launches: `CED_API_BASE_URL = <host>` in the git-ignored `Config/DeveloperSettings.xcconfig`.
 
 ## Gotchas
 - Project uses MainActor default isolation: audio/network callbacks need `nonisolated` types and `@Sendable` closures; avoid `async let` in `JourneyStore`.

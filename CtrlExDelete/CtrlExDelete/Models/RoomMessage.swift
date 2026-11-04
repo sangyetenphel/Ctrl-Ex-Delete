@@ -19,11 +19,7 @@ struct RoomMessageRecord: Codable, Equatable {
 
 /// The last room message, on the phone (one small file).
 enum RoomMessageCache {
-    private static var url: URL? {
-        try? FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appending(path: "room-message.json")
-    }
+    private static var url: URL? { LocalJourneyFiles.url(LocalJourneyFiles.roomMessage) }
 
     /// The saved message, if it belongs to this installation and this backend.
     static func load() -> RoomMessageRecord? {
