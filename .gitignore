@@ -21,3 +21,6 @@ CtrlExDelete/Config/DeveloperSettings.xcconfig
 
 # Local Figma reference exports (not committed)
 /CtrlExDelete/CED-Figma-Reference/
+
+# Local database and S3 backups (they hold user data)
+.local-backup/
