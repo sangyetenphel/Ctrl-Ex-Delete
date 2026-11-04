@@ -19,6 +19,8 @@ and the resources; other messages get a friendly error.
 import json
 from uuid import UUID
 
+import psycopg
+
 from app.ced import bubbles, limits, prompt, providers, safety
 from app.ced.providers import ChatMessage
 from app.schemas import CedChatRequest, CedChatResponse
@@ -41,7 +43,14 @@ def _context(request: CedChatRequest, flagged: str | None) -> list[ChatMessage]:
     for turn in reversed(request.messages[-MAX_TURNS:]):
         if kept and total + len(turn.content) > MAX_CONTEXT_CHARS:
             break
-        kept.append(ChatMessage(turn.role, turn.content))
+        # Ced's earlier turns go back in the JSON shape it must answer in, one
+        # item per bubble (the app joins bubbles with a blank line). As plain
+        # text the model copies them and answers in plain text, which Groq's
+        # JSON mode rejects (most second replies failed that way).
+        content = (json.dumps({"messages": [b.strip() for b in turn.content.split("\n\n") if b.strip()]},
+                              ensure_ascii=False)
+                   if turn.role == "assistant" else turn.content)
+        kept.append(ChatMessage(turn.role, content))
         total += len(turn.content)
     kept.reverse()
 
@@ -55,16 +64,22 @@ def _context(request: CedChatRequest, flagged: str | None) -> list[ChatMessage]:
 
 
 def _parse(raw: str) -> tuple[list[str], str]:
-    """(bubbles, risk) from the model's JSON. Plain text still works, rated "none"."""
+    """
+    (bubbles, risk) from the model's JSON. Plain text still works, rated
+    "none". JSON without any message is a failed reply, never shown as is.
+    """
     try:
         data = json.loads(raw)
-        parts = [m for m in data.get("messages", []) if isinstance(m, str) and m.strip()]
-        risk = data.get("risk")
-        if parts:
-            return parts, risk if risk in safety.RISK_ORDER else "none"
-    except (json.JSONDecodeError, AttributeError):
-        pass
-    return [raw], "none"
+    except json.JSONDecodeError:
+        return [raw], "none"
+    if isinstance(data, str) and data.strip():
+        return [data], "none"
+    messages = data.get("messages") if isinstance(data, dict) else None
+    parts = [m for m in messages if isinstance(m, str) and m.strip()] if isinstance(messages, list) else []
+    if not parts:
+        raise providers.ProviderError("no messages in the reply")
+    risk = data.get("risk")
+    return parts, risk if risk in safety.RISK_ORDER else "none"
 
 
 def _response(parts: list[str], risk: str, source: str) -> CedChatResponse:
@@ -95,15 +110,16 @@ def respond(installation_id: UUID, request: CedChatRequest) -> CedChatResponse:
             return _fallback(flagged)
         raise providers.ProviderUnavailable()
     try:
+        # The daily count lives in the database, so a database outage lands
+        # here too: crisis messages are still answered.
         limits.take(installation_id)
-        raw = providers.complete(_context(request, flagged), json_reply=True)
+        parts, model_risk = _parse(providers.complete(_context(request, flagged), json_reply=True))
     except (limits.LimitReached, providers.ProviderRateLimited, providers.ProviderUnavailable,
-            providers.ProviderTimeout, providers.ProviderError):
+            providers.ProviderTimeout, providers.ProviderError, psycopg.Error):
         if is_crisis:
             return _fallback(flagged)
         raise
 
-    parts, model_risk = _parse(raw)
     risk = safety.more_serious(flagged or "none", model_risk)
 
     # Anything that crosses a boundary is replaced with a safe reply.

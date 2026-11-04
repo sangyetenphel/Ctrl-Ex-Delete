@@ -29,9 +29,12 @@ def classify(text: str) -> str | None:
     if not providers.is_configured():
         return None
     try:
+        # A one-word answer: a small budget keeps it from eating into the
+        # shared per-minute token limit that text chat needs, and
+        # temperature 0 rates the same words the same way every time.
         raw = providers.complete(
             [ChatMessage("system", CLASSIFIER_PROMPT), ChatMessage("user", text[:2000])],
-            json_reply=True,
+            json_reply=True, max_output_tokens=300, temperature=0,
         )
         risk = json.loads(raw).get("risk")
     except (providers.ProviderRateLimited, providers.ProviderUnavailable, providers.ProviderTimeout,
