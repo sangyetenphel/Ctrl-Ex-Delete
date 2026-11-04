@@ -23,6 +23,7 @@ from app.schemas import (
     CheckInAnswers,
     CheckInCreate,
     CheckInStatus,
+    InstallationMarker,
     RoomMessage,
     Bookshelf,
     ShelfBook,
@@ -188,8 +189,11 @@ def get_check_in_status(installation_id: UUID, local_date: date) -> CheckInStatu
             message = check_in.room_message
         else:
             message = _before_check_in_message(conn, installation_id, local_date)
+        created = conn.execute("SELECT created_at FROM installations WHERE id = %s", (installation_id,)).fetchone()
     return CheckInStatus(local_date=local_date, check_in=check_in, has_any_check_in=has_any,
-                         room_message=message)
+                         room_message=message,
+                         installation=InstallationMarker(exists=created is not None,
+                                                         created_at=created["created_at"] if created else None))
 
 
 # ─────────────────────────────────────────────

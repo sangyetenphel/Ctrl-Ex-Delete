@@ -1,0 +1,49 @@
+#!/bin/sh
+# DEVELOPER ONLY: reset ONE CED installation (one phone) in production, e.g.
+# before a demo. A thin wrapper around backend/scripts/reset_installation.py:
+# it shows what would be deleted, asks you to confirm (paste the ID again,
+# then type RESET PRODUCTION), deletes only that installation's rows and
+# photo files, and checks that they're gone. There is no "reset all".
+#
+#   ./ced-reset <installation-id>             # summary, confirm, reset, verify
+#   ./ced-reset <installation-id> --dry-run   # summary only, nothing changes
+#   ./ced-reset                               # asks you to paste the ID
+#
+# The installation ID: run the Debug app from Xcode and look for
+# "Installation ID: …" in the console (either case works).
+# Uses backend/venv and backend/.env.production (CED_ENV_FILE may name another
+# settings file; the script's own guards still decide what it may touch).
+set -eu
+
+root=$(cd "$(dirname "$0")" && pwd)
+cd "$root/backend"
+python=venv/bin/python
+env_file=${CED_ENV_FILE:-.env.production}
+
+[ -x "$python" ] || { echo "backend/venv is missing: see backend/README.md (First-time setup)."; exit 1; }
+[ -f "$env_file" ] || { echo "backend/$env_file is missing."; exit 1; }
+
+id=${1:-}
+mode=${2:-}
+if [ $# -gt 2 ] || { [ -n "$mode" ] && [ "$mode" != "--dry-run" ]; }; then
+    echo "Usage: ./ced-reset <installation-id> [--dry-run]"; exit 64
+fi
+if [ -z "$id" ]; then
+    printf "Paste the installation ID to reset: "
+    read -r id
+fi
+# Pasted IDs often come with quotes, spaces or a line break.
+id=$(printf '%s' "$id" | tr -d " \"'\r\n\t")
+
+export CED_ENV_FILE="$env_file"
+SSL_CERT_FILE=$("$python" -m certifi)
+export SSL_CERT_FILE
+export CED_RESET_RETRY_COMMAND="./ced-reset $id"
+
+if [ "$mode" = "--dry-run" ]; then
+    exec "$python" -m scripts.reset_installation "$id" --dry-run
+fi
+if [ "$env_file" = ".env.production" ]; then
+    exec "$python" -m scripts.reset_installation "$id" --execute --production
+fi
+exec "$python" -m scripts.reset_installation "$id" --execute

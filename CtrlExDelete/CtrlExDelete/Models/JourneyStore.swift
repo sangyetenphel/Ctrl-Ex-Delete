@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 // The user's journey after the check-in, shared by the room, activities,
@@ -139,9 +140,38 @@ final class JourneyStore {
     /// is decided from the error (no new user, no extra check-in).
     func restoreSession(today: String) async throws -> CheckInStatusDTO {
         let status = try await APIClient.shared.checkInStatus(localDate: today)
+        forgetLocalJourneyIfReset(status.installation)
         applyRoomMessage(status.roomMessage, checkInId: status.checkIn?.id, localDate: status.localDate)
         try await reloadStory()
         return status
+    }
+
+    /// After a server-side reset of this installation (seen in a successful
+    /// response, never from an error), forgets the on-phone copies of the old
+    /// journey and what's on screen from them, so a fresh day 1 shows. The
+    /// installation ID stays the same.
+    private func forgetLocalJourneyIfReset(_ marker: InstallationMarkerDTO?) {
+        guard let id = try? InstallationID.current() else { return }
+        let key = ServerResetCheck.defaultsKey(backendID: APIConfig.backendID)
+        let decision = ServerResetCheck.decide(
+            stored: UserDefaults.standard.string(forKey: key), installationID: id.uuidString,
+            marker: marker.map { .init(exists: $0.exists, createdAt: $0.createdAt) },
+            cacheSavedAt: JourneyCache.load()?.savedAt,
+            hasPersonalRoomMessage: RoomMessageCache.load()?.isPersonal == true)
+        if decision.forgetLocalJourney {
+            let result = LocalJourneyFiles.purge(directory: LocalJourneyFiles.directory(create: false),
+                                                 defaults: .standard)
+            roomMessage = nil
+            books = []
+            selectedActivity = nil
+            memories = []
+            summary = nil
+            cachedAt = nil
+            Logger(subsystem: "CtrlExDelete", category: "journey").notice(
+                "This installation was reset on the server: forgot the local journey (removed \(result.removedFiles.count) file(s)).")
+            guard result.failedFiles.isEmpty else { return }   // not remembered: checked again next time
+        }
+        if let remember = decision.remember { UserDefaults.standard.set(remember, forKey: key) }
     }
 
     // MARK: Ced's room message

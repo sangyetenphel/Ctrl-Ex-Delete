@@ -101,5 +101,74 @@ do {  // The launch argument is read from the launch arguments only, never saved
     UserDefaults.standard.removeObject(forKey: LocalJourneyCacheReset.argument)
 }
 
+print("ServerResetCheck (automatic, after a server-side reset)")
+
+let A = "AAAAAAAA-0000-4000-8000-000000000001", B = "BBBBBBBB-0000-4000-8000-000000000002"
+let t1 = "2026-11-04T10:41:16.178787Z", t2 = "2026-11-04T12:00:00.5Z"
+let before = ServerResetCheck.parseDate(t1)!.addingTimeInterval(-3600)
+let after = ServerResetCheck.parseDate(t1)!.addingTimeInterval(60)
+func decide(_ stored: String?, _ marker: ServerResetCheck.Marker?, id: String = A, saved: Date? = nil,
+            personal: Bool = false) -> ServerResetCheck.Decision {
+    ServerResetCheck.decide(stored: stored, installationID: id, marker: marker, cacheSavedAt: saved,
+                            hasPersonalRoomMessage: personal)
+}
+let none = ServerResetCheck.Marker(exists: false, createdAt: nil)
+let rec1 = ServerResetCheck.Marker(exists: true, createdAt: t1), rec2 = ServerResetCheck.Marker(exists: true, createdAt: t2)
+let a = A.lowercased()
+check(ServerResetCheck.parseDate("2026-11-04T12:39:21.400478-05:00") == ServerResetCheck.parseDate("2026-11-04T17:39:21.400Z"),
+      "parses the server's format (microseconds, offset)")
+check(ServerResetCheck.parseDate("2026-11-04T17:39:21+00:00") != nil, "parses without fractional seconds")
+
+check(decide("\(a)|\(t1)", nil, saved: before, personal: true) == .init(forgetLocalJourney: false, remember: nil),
+      "older backend (no marker): nothing forgotten, nothing stored")
+check(decide("\(a)|\(t1)", .init(exists: true, createdAt: nil)) == .init(forgetLocalJourney: false, remember: nil),
+      "incomplete marker: no decision")
+check(decide("\(a)|\(t1)", rec1, saved: before) == .init(forgetLocalJourney: false, remember: nil),
+      "same record as last time: kept")
+check(decide("\(a)|\(t1)", none, saved: after) == .init(forgetLocalJourney: true, remember: "\(a)|none"),
+      "record gone (reset): forget")
+check(decide("\(a)|\(t1)", rec2, saved: after) == .init(forgetLocalJourney: true, remember: "\(a)|\(t2)"),
+      "new record (reset, then a new write): forget")
+check(decide("\(a)|none", rec1, saved: after) == .init(forgetLocalJourney: false, remember: "\(a)|\(t1)"),
+      "first write after a fresh start: nothing to forget")
+check(decide("\(a)|none", none) == .init(forgetLocalJourney: false, remember: nil),
+      "still nothing on the server: no change (an empty journey is not a reset)")
+check(decide(nil, none) == .init(forgetLocalJourney: false, remember: "\(a)|none"),
+      "new phone, nothing anywhere: remembered, nothing forgotten")
+check(decide(nil, none, saved: after) == .init(forgetLocalJourney: true, remember: "\(a)|none"),
+      "updated after a reset (no record, but a progress copy): forget")
+check(decide(nil, none, personal: true).forgetLocalJourney, "updated after a reset (old personal room message): forget")
+check(decide(nil, rec1, saved: before).forgetLocalJourney, "copy older than the server record: forget")
+check(!decide(nil, rec1, saved: after).forgetLocalJourney, "copy newer than the server record: kept")
+check(decide("\(B.lowercased())|\(t1)", rec1, id: A, saved: after) == .init(forgetLocalJourney: false, remember: "\(a)|\(t1)"),
+      "a value saved for another installation ID is ignored")
+
+do {  // Two phones: A is reset, B isn't. Only A forgets.
+    let (dirA, defaultsA) = setUp(), (dirB, defaultsB) = setUp()
+    let key = ServerResetCheck.defaultsKey(backendID: "ctrl-ex-delete-api.onrender.com")
+    defaultsA.set("\(a)|\(t1)", forKey: key)
+    defaultsB.set("\(B.lowercased())|\(t2)", forKey: key)
+    let dA = ServerResetCheck.decide(stored: defaultsA.string(forKey: key), installationID: A, marker: none,
+                                     cacheSavedAt: after, hasPersonalRoomMessage: true)
+    let dB = ServerResetCheck.decide(stored: defaultsB.string(forKey: key), installationID: B, marker: rec2,
+                                     cacheSavedAt: after, hasPersonalRoomMessage: true)
+    if dA.forgetLocalJourney { _ = LocalJourneyFiles.purge(directory: dirA, defaults: defaultsA) }
+    if dB.forgetLocalJourney { _ = LocalJourneyFiles.purge(directory: dirB, defaults: defaultsB) }
+    check(!exists(dirA, "journey-cache.json") && !exists(dirA, "room-message.json")
+          && defaultsA.object(forKey: "roomBookshelfShown") == nil, "phone A: old journey copies forgotten")
+    check(keptUnrelated(dirA, defaultsA), "phone A: photos/PDF/affirmations/other settings kept")
+    check(exists(dirB, "journey-cache.json") && exists(dirB, "room-message.json")
+          && defaultsB.integer(forKey: "roomBookshelfShown") == 5, "phone B: unaffected")
+}
+
+do {  // A failed request never reaches decide(): nothing happens without a marker.
+    let (dir, defaults) = setUp()
+    let d = ServerResetCheck.decide(stored: nil, installationID: A, marker: nil, cacheSavedAt: after,
+                                    hasPersonalRoomMessage: true)
+    if d.forgetLocalJourney { _ = LocalJourneyFiles.purge(directory: dir, defaults: defaults) }
+    check(exists(dir, "journey-cache.json") && defaults.integer(forKey: "roomBookshelfShown") == 5,
+          "no marker (failure or older backend): local progress kept")
+}
+
 print(failures == 0 ? "All passed." : "\(failures) FAILED.")
 exit(failures == 0 ? 0 : 1)

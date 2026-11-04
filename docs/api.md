@@ -140,10 +140,12 @@ Has the user checked in on their local day? The app asks on every start (includi
 
 **Response `200`**
 ```json
-{"local_date": "2026-10-17", "check_in": null, "has_any_check_in": true}
+{"local_date": "2026-10-17", "check_in": null, "has_any_check_in": true,
+ "installation": {"exists": true, "created_at": "2026-10-01T09:12:44.120Z"}}
 ```
 - `check_in`: that day's check-in (same shape as above), or `null` if there isn't one yet.
 - `has_any_check_in`: `false` for someone who has never checked in (the app shows the welcome screen).
+- `installation`: which server record this installation ID has. `exists` is `false` (and `created_at` `null`) before the first write and after the installation was reset (`./ced-reset`); after the next write it is a new record with a new `created_at`. The app remembers the last one it saw and, when a successful response shows a different one, forgets its on-phone copies of the old journey (`journey-cache.json`, `room-message.json`, the bookshelf counter) and shows a fresh day 1; the installation ID stays. Only ever about the caller's own installation. Added 2026-11-04; older app builds ignore it, and the app ignores its absence (older backend).
 
 If this request fails, the app shows a connection message with Try again. It never treats a failure as "hasn't checked in".
 

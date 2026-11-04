@@ -69,6 +69,18 @@ class CheckIn(CheckInCreate):
     room_message: RoomMessage | None = None
 
 
+class InstallationMarker(BaseModel):
+    """
+    Which server-side record this installation ID currently has. It changes
+    only when the installation is reset (scripts/reset_installation.py deletes
+    the row; the next write creates a new one), so the app can tell that its
+    on-phone copies of the journey are out of date. Only ever about the
+    caller's own installation; nothing personal.
+    """
+    exists: bool                       # false until the first write, and after a reset
+    created_at: datetime | None = None
+
+
 class CheckInStatus(BaseModel):
     """
     GET /check-ins/today: has the user checked in on their local day?
@@ -80,6 +92,7 @@ class CheckInStatus(BaseModel):
     # Ced's room message: the check-in's assigned one, or a "let's check in"
     # message when there's no check-in yet today (null only if none could load).
     room_message: RoomMessage | None = None
+    installation: InstallationMarker | None = None
 
 
 # ─────────────────────────────────────────────

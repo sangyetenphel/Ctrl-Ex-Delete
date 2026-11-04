@@ -175,19 +175,19 @@ The backend runs as one **Render Free** web service, described in `render.yaml` 
 
 It only runs against a local database (with no real S3 settings) or the production Neon `neondb` together with its bucket, recognised by SHA-256 fingerprints in the script; any other database, such as the original one, is refused before anything is read. A dry run is the default.
 
+**One command** (from the repository root; it uses `backend/venv` and `backend/.env.production` by itself):
+
 ```bash
-cd backend && source venv/bin/activate
-# 1. Dry run: counts per table and photo files, nothing changes
-CED_ENV_FILE=.env.production python -m scripts.reset_installation <installation-id>
-# 2. Reset: asks you to type the full installation ID, then RESET PRODUCTION
-CED_ENV_FILE=.env.production python -m scripts.reset_installation <installation-id> --execute --production
+./ced-reset <installation-id>             # summary → paste the ID again → RESET PRODUCTION → reset → verified
+./ced-reset <installation-id> --dry-run   # summary only
+./ced-reset                               # asks you to paste the ID
 ```
 
-On this Mac add `SSL_CERT_FILE=$(python -m certifi)` in front for S3. Without `CED_ENV_FILE` it uses `.env` (a local database works the same way, without `--production`). The installation row is locked, its photo files are deleted from S3, then its rows are deleted in the same transaction and checked; if S3 fails nothing in the database changes, and if the database step fails it is rolled back. Either way it says what is left: run the same command again to finish. Output is counts only (no memory text, keys or links). Exit codes: 0 done or dry run, 1 cancelled, 2 not found, 3 not finished (retry), 4 refused.
+It is a thin wrapper around the script below (same guards and confirmations). The same steps by hand, from `backend/` with the venv active: `SSL_CERT_FILE=$(python -m certifi) CED_ENV_FILE=.env.production python -m scripts.reset_installation <installation-id> [--execute --production]`. Without `CED_ENV_FILE` the script uses `.env` (a local database works the same way, without `--production`). The installation row is locked, its photo files are deleted from S3, then its rows are deleted in the same transaction and checked; if S3 fails nothing in the database changes, and if the database step fails it is rolled back. Either way it says what is left: run the same command again to finish. Output is counts only (no memory text, keys or links). Exit codes: 0 done or dry run, 1 cancelled, 2 not found, 3 not finished (retry), 4 refused.
 
 **Finding the phone's installation ID:** run the Debug app from Xcode; its console logs `Installation ID: …` the first time the app contacts the server (Debug builds only; private in other logs). The ID may be upper-case; either case works.
 
-**The phone afterwards:** the app keeps its installation ID (Keychain), so the reset phone reconnects as the same installation with no history; nothing on the phone has to be deleted. Its on-phone copies (`journey-cache.json`, `room-message.json`) are only shown when the server can't be reached, but to rule out old progress or an old room message entirely, clear them once with the Debug-only launch argument `-CEDClearLocalJourneyCache YES` (Xcode ▸ Product ▸ Scheme ▸ Edit Scheme ▸ Run ▸ Arguments ▸ +, then Run). It removes those two files and the bookshelf's "books shown" counter, and logs `Local journey cache cleared` (subsystem `CtrlExDelete`, category `debug-reset`). It keeps the installation ID, photos, the saved scrapbook PDF, the affirmations cache and other settings, makes no network request, and isn't in Release builds. It runs once per value: later runs with the same value skip it, so untick the argument after use (to clear again another time, use a new value such as `2`). The Keychain ID survives deleting the app, so reinstalling does **not** give a new ID; to demo as a brand-new installation without resetting, use a different phone or simulator. Mac-side tests: `cd CtrlExDelete && ./DevTests/run.sh`.
+**The phone afterwards: nothing to do.** It keeps its installation ID (Keychain) and, the next time it opens (Home Screen is fine), `GET /check-ins/today` reports that the installation's server record is gone or new (`installation` in docs/api.md). The app then forgets its on-phone copies of the old journey (`journey-cache.json`, `room-message.json`, the bookshelf's "books shown" counter) and shows a fresh day 1. It decides only from a successful response that has the field: a failed request, an empty journey or an older backend clears nothing. Photos, the scrapbook PDF, the affirmations cache and other settings are kept. This needs the backend and app from 2026-11-04 or later. A manual fallback remains for Debug builds: the Xcode launch argument `-CEDClearLocalJourneyCache YES` (once per value; untick after use). The Keychain ID survives deleting the app, so reinstalling does **not** give a new ID; to demo as a brand-new installation without resetting, use a different phone or simulator. Mac-side tests: `cd CtrlExDelete && ./DevTests/run.sh`.
 
 ## Clearing test data
 
