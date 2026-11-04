@@ -101,6 +101,8 @@ final class JourneyStore {
     func refresh() async {
         do {
             try await reloadStory()
+        } catch is CancellationError {
+            return   // the screen went away; what's shown stays as it was
         } catch {
             loadError = error.localizedDescription
         }

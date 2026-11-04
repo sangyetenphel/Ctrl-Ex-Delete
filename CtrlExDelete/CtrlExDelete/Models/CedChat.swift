@@ -24,6 +24,11 @@ enum CedChat {
     /// How many recent messages the app sends; the server trims further.
     static let maxMessagesSent = 20
 
+    /// The server's limit for one turn. A longer one (a long unsent letter,
+    /// or several bubbles merged into one turn) would be refused, and with
+    /// it every later message, so each turn keeps its latest characters.
+    static let maxCharactersPerTurn = 2000
+
     /// The request for Ced's next reply. `startedFromUnsentMessage`: the first
     /// message was written on "Say it here first" (words for the ex, not sent).
     static func request(for messages: [ChatMessage], startedFromUnsentMessage: Bool) -> CedChatRequest {
@@ -37,7 +42,9 @@ enum CedChat {
                 turns.append(.init(role: role, content: message.text))
             }
         }
-        let recent = Array(turns.suffix(maxMessagesSent))
+        let recent = turns.suffix(maxMessagesSent).map { turn in
+            CedChatRequest.Turn(role: turn.role, content: String(turn.content.suffix(maxCharactersPerTurn)))
+        }
         return CedChatRequest(
             messages: recent,
             mode: startedFromUnsentMessage && recent.count == turns.count ? "unsent_message" : "chat"

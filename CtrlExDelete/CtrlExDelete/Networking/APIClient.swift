@@ -92,7 +92,7 @@ struct APIClient {
                 throw APIError.unexpectedResponse
             }
         } catch let error as URLError {
-            throw APIError(urlError: error)
+            throw APIError.failure(error)
         }
 
         return try await send("POST", "scrapbook/photos/\(ticket.id)/complete")
@@ -170,7 +170,7 @@ struct APIClient {
             }
             return data
         } catch let error as URLError {
-            throw APIError(urlError: error)
+            throw APIError.failure(error)
         }
     }
 
@@ -200,7 +200,7 @@ struct APIClient {
         do {
             (data, response) = try await session.data(for: request)
         } catch let error as URLError {
-            throw APIError(urlError: error)
+            throw APIError.failure(error)
         }
 
         guard let http = response as? HTTPURLResponse else {
@@ -227,6 +227,13 @@ enum APIError: LocalizedError {
     case timedOut
     case server(status: Int, detail: String?)
     case unexpectedResponse
+
+    /// What a URLSession error means here. A cancelled request (the user
+    /// left the screen, or a newer request took over) isn't a failure to
+    /// show, so it becomes a CancellationError, which callers ignore.
+    static func failure(_ error: URLError) -> Error {
+        error.code == .cancelled ? CancellationError() : APIError(urlError: error)
+    }
 
     init(urlError: URLError) {
         switch urlError.code {
