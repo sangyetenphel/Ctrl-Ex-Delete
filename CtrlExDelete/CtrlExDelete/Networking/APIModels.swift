@@ -45,6 +45,14 @@ struct CheckInStatusDTO: Decodable {
     let hasAnyCheckIn: Bool         // false for someone who has never checked in
     /// Today's room message: the check-in's, or a "let's check in" one before it.
     let roomMessage: RoomMessageDTO?
+    /// Which server record this installation ID has (nil from an older backend).
+    let installation: InstallationMarkerDTO?
+}
+
+/// `installation` in `GET /check-ins/today`: changes only when the installation is reset.
+struct InstallationMarkerDTO: Decodable {
+    let exists: Bool
+    let createdAt: String?
 }
 
 /// Response of `GET /recommendations/latest`.

@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import sys
 import uuid
@@ -400,11 +401,23 @@ def main(argv: list[str] | None = None, ask=input) -> int:
             if target == "production" and ask("This is PRODUCTION. Type RESET PRODUCTION: ").strip() != "RESET PRODUCTION":
                 print("Cancelled. Nothing was changed.")
                 return 1
+            retry = os.environ.get("CED_RESET_RETRY_COMMAND") or "the same command"
             try:
                 report = execute_reset(conn, installation_id, s3, bucket)
             except PartialReset as error:
                 print(f"NOT FINISHED: {error}")
                 print("Report:", {k: v for k, v in error.report.items() if v not in (None, {})})
+                print(f"Safe to retry: run {retry} again (it only ever touches this installation).")
+                return 3
+
+            # Check afterwards, read-only: no rows for this ID, none of its files left.
+            with conn.transaction():
+                conn.execute("SET TRANSACTION READ ONLY")
+                after = make_plan(conn, installation_id)
+            files_left = sum(_exists_in_s3(s3, bucket, k) for k in plan.photo_keys) if s3 is not None else 0
+            if after.exists or any(after.counts.values()) or files_left:
+                print(f"NOT VERIFIED: {sum(after.counts.values())} row(s) and {files_left} photo file(s) are still "
+                      f"there. Run {retry} again.")
                 return 3
     except Refused as error:
         print(f"Refused: {error}")
@@ -413,6 +426,9 @@ def main(argv: list[str] | None = None, ask=input) -> int:
           f"({', '.join(f'{t} {n}' for t, n in report['deleted_rows'].items() if n)}),",
           f"{report['s3_deleted']} photo file(s) deleted" if s3 else "S3 not configured here",
           "| other installations unchanged.")
+    print(f"Verified: installation {installation_id} has no rows left"
+          + (" and none of its photo files remain." if s3 else ".")
+          + " The phone keeps its ID and starts fresh the next time it opens the app.")
     return 0
 
 
