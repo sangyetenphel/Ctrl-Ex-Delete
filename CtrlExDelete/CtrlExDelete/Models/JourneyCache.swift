@@ -19,11 +19,7 @@ enum JourneyCache {
         var backend: String?            // APIConfig.backendID; nil in older copies (production)
     }
 
-    private static var fileURL: URL? {
-        try? FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appending(path: "journey-cache.json")
-    }
+    private static var fileURL: URL? { LocalJourneyFiles.url(LocalJourneyFiles.journeyCache) }
 
     static func save(selection: SelectedActivityDTO?, reflections: [ReflectionDTO], summary: ProgressSummaryDTO,
                      books: [ShelfBookDTO]) {

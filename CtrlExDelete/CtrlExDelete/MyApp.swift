@@ -5,6 +5,8 @@ import SwiftUI
         FontRegistrar.registerBundledFonts()
         #if DEBUG
         APIConfig.logActiveBackend()
+        // Only with the Xcode launch argument -CEDClearLocalJourneyCache (once per value).
+        LocalJourneyCacheReset.runAtLaunch()
         #endif
     }
 
