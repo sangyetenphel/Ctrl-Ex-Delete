@@ -71,11 +71,100 @@ def test_urges_average_per_day_and_gaps_stay_empty():
     assert result.check_in_days == 2
 
 
-def test_month_has_one_bar_per_week_of_the_month():
-    result = insights.build("month", TODAY, records(check_ins=[(date(2026, 10, 3), 8), (date(2026, 10, 30), 3)]))
+def month_view(started_on, today, week_rows):
+    """The month view for a journey, with its chart rows and empty calendar records."""
+    weeks = insights.journey_weeks(started_on, today)
+    return insights.build("month", today, records(), weeks, week_rows)
+
+
+def test_journey_weeks_are_seven_day_blocks_from_the_first_check_in():
+    weeks = insights.journey_weeks(date(2026, 10, 24), date(2026, 10, 31))
+    assert weeks == [
+        ("W1", date(2026, 10, 24), date(2026, 10, 30)),
+        ("W2", date(2026, 10, 31), date(2026, 11, 6)),
+        ("W3", date(2026, 11, 7), date(2026, 11, 13)),
+        ("W4", date(2026, 11, 14), date(2026, 11, 20)),
+        ("W5", date(2026, 11, 21), date(2026, 11, 27)),
+    ]
+
+
+def test_journey_weeks_cross_year_and_leap_day_boundaries():
+    assert insights.journey_weeks(date(2026, 12, 29), date(2027, 1, 5))[1] == (
+        "W2", date(2027, 1, 5), date(2027, 1, 11))
+    assert insights.journey_weeks(date(2028, 2, 25), date(2028, 2, 26))[0] == (
+        "W1", date(2028, 2, 25), date(2028, 3, 2))   # includes Feb 29
+
+
+def test_journey_weeks_show_the_latest_five_after_week_five():
+    started = date(2026, 1, 1)
+    day = lambda n: date.fromordinal(started.toordinal() + n - 1)
+    labels = lambda n: [w[0] for w in insights.journey_weeks(started, day(n))]
+    assert labels(1) == labels(35) == ["W1", "W2", "W3", "W4", "W5"]
+    assert labels(36) == ["W2", "W3", "W4", "W5", "W6"]
+    assert labels(71) == ["W7", "W8", "W9", "W10", "W11"]
+
+
+def test_journey_weeks_before_any_check_in_or_with_a_later_first_date():
+    today = date(2026, 10, 31)
+    assert insights.journey_weeks(None, today)[0] == ("W1", today, date(2026, 11, 6))
+    # A first check-in dated "tomorrow" (the phone changed time zone) is still W1.
+    assert insights.journey_weeks(date(2026, 11, 1), today)[0][0] == "W1"
+
+
+def test_month_chart_starts_at_w1_for_a_user_who_started_late_in_the_month():
+    started = date(2026, 10, 24)
+    result = month_view(started, date(2026, 10, 31), records(check_ins=[(started, 8), (date(2026, 10, 31), 4)]))
     assert [p.label for p in result.urges] == ["W1", "W2", "W3", "W4", "W5"]
-    assert (result.urges[4].start, result.urges[4].end) == (date(2026, 10, 29), date(2026, 10, 31))
-    assert [p.value for p in result.urges] == [8, None, None, None, 3]
+    assert [p.value for p in result.urges] == [8, 4, None, None, None]   # later weeks stay gaps
+
+
+def test_month_chart_puts_each_day_in_the_right_week():
+    started = date(2026, 10, 1)
+    days = {1: 2, 7: 4, 8: 6, 14: 8, 15: 9, 28: 3, 29: 5, 35: 7}   # journey day: urge
+    rows = [(date.fromordinal(started.toordinal() + n - 1), urge) for n, urge in days.items()]
+    result = month_view(started, date(2026, 11, 4), records(check_ins=rows))
+    assert [p.value for p in result.urges] == [3, 7, 9, 3, 6]
+    assert [p.check_ins for p in result.urges] == [2, 2, 1, 1, 2]
+
+
+def test_month_chart_groups_across_a_month_boundary():
+    # W2 = Oct 31–Nov 6: one bar holds days from both months.
+    rows = records(
+        check_ins=[(date(2026, 10, 30), 9), (date(2026, 10, 31), 6), (date(2026, 11, 3), 2)],
+        moods=[(date(2026, 10, 31), "worse", "outdoor_movement"),
+               (date(2026, 11, 2), "much_better", "outdoor_movement")],
+    )
+    result = month_view(date(2026, 10, 24), date(2026, 11, 3), rows)
+    assert [p.value for p in result.urges][:2] == [9, 4]
+    assert result.urges[1].check_ins == 2
+    assert [p.value for p in result.mood_points][:2] == [None, 5.5]
+    assert result.mood_points[1].answers == ["worse", "much_better"]
+
+
+def test_month_chart_leaves_weeks_with_nothing_recorded_as_gaps():
+    started = date(2026, 10, 1)
+    rows = records(check_ins=[(started, 5), (date(2026, 10, 30), 3)])   # W1 and W5 only
+    result = month_view(started, date(2026, 10, 30), rows)
+    assert [p.value for p in result.urges] == [5, None, None, None, 3]
+    assert [p.value for p in result.mood_points] == [None] * 5
+
+
+def test_month_chart_counts_only_the_weeks_it_shows():
+    started = date(2026, 9, 1)
+    result = month_view(started, date(2026, 10, 7), records(check_ins=[(started, 9)]))  # day 37
+    assert [p.label for p in result.urges] == ["W2", "W3", "W4", "W5", "W6"]
+    assert all(p.value is None for p in result.urges)   # W1's check-in is off the chart
+
+
+def test_month_totals_stay_on_the_calendar_month():
+    calendar = records(check_ins=[(date(2026, 11, 1), 4)])
+    chart = records(check_ins=[(date(2026, 10, 24), 8), (date(2026, 11, 1), 4)])
+    today = date(2026, 11, 2)
+    result = insights.build("month", today, calendar, insights.journey_weeks(date(2026, 10, 24), today), chart)
+    assert (result.start, result.end) == (date(2026, 11, 1), date(2026, 11, 30))
+    assert result.check_in_days == 1
+    assert result.observations == ["You checked in on 1 day this month."]
+    assert [p.value for p in result.urges][:2] == [8, 4]
 
 
 def test_categories_count_completed_only_with_percentages():
@@ -149,7 +238,7 @@ def test_mood_chart_only_uses_this_weeks_days():
 
 
 def test_mood_chart_month_view_averages_each_week():
-    result = insights.build("month", TODAY, records(moods=[
+    result = month_view(date(2026, 10, 1), TODAY, records(moods=[
         (date(2026, 10, 2), "worse", "outdoor_movement"),
         (date(2026, 10, 5), "much_better", "outdoor_movement"),
     ]))
@@ -267,7 +356,34 @@ def test_api_week_and_month_use_their_own_boundaries(installation_id):
     month = get_insights(installation_id, "month")
     assert week["check_in_days"] == 1
     assert month["check_in_days"] == 2
-    assert [p["value"] for p in month["urges"]][:2] == [9, 3]
+    # The chart's weeks start on the first check-in (Sep 30), so it is W1 with Oct 2.
+    assert month["urges"][0]["start"] == "2026-09-30"
+    assert [p["value"] for p in month["urges"]][:2] == [7, 3]
+
+
+def test_api_month_chart_follows_the_journey_across_months(installation_id):
+    check_in(installation_id, "2026-10-24", 8)
+    check_in(installation_id, "2026-10-30", 6)
+    complete_activity(installation_id, 0, "2026-10-30", "much_better")
+    check_in(installation_id, "2026-11-01", 4)
+
+    month = get_insights(installation_id, "month", today="2026-11-02")
+    assert [p["label"] for p in month["urges"]] == ["W1", "W2", "W3", "W4", "W5"]
+    assert [p["value"] for p in month["urges"]] == [7, 4, None, None, None]
+    assert [p["value"] for p in month["mood_points"]] == [9, None, None, None, None]
+    # The totals on the rest of the screen are still November's alone.
+    assert month["start"] == "2026-11-01" and month["check_in_days"] == 1 and month["completed"] == 0
+
+    week = get_insights(installation_id, "week", today="2026-11-02")   # Mon Oct 26–Sun Nov 1 is last week
+    assert week["start"] == "2026-11-02" and week["check_in_days"] == 0
+
+
+def test_api_month_chart_before_any_check_in(installation_id):
+    month = get_insights(installation_id, "month", today="2026-10-31")
+    assert month["has_data"] is False
+    assert [p["label"] for p in month["urges"]] == ["W1", "W2", "W3", "W4", "W5"]
+    assert month["urges"][0]["start"] == "2026-10-31"
+    assert all(p["value"] is None for p in month["urges"] + month["mood_points"])
 
 
 def test_api_deleting_a_memory_keeps_the_completion(installation_id):

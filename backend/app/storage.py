@@ -988,6 +988,16 @@ def get_uploaded_photo_key(installation_id: UUID, photo_id: int) -> tuple[str, d
 # Insights (raw records; app/insights.py does the calculations)
 # ─────────────────────────────────────────────
 
+def get_journey_start(installation_id: UUID) -> date | None:
+    """The local date of the first check-in, day 1 of the journey ("Day N")."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT min(local_date) AS started_on FROM check_ins WHERE installation_id = %s",
+            (installation_id,),
+        ).fetchone()
+    return row["started_on"]
+
+
 def get_insight_records(installation_id: UUID, start: date, end: date) -> dict:
     """
     Everything the Progress screen needs between start and end (inclusive),
