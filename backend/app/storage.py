@@ -4,12 +4,14 @@ This is the ONLY file that talks to the database. The routes call these
 functions and don't care how the data is stored.
 """
 from datetime import date
+from functools import cache
 from uuid import UUID
 
 import logging
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 from app import recommendation_rules, room_messages
 from app.config import settings
@@ -59,12 +61,40 @@ ACTIVITY_COLUMNS = """
 """
 
 
-def _connect() -> psycopg.Connection:
-    # dict_row makes each row a dict, so it can be passed straight into CheckIn(**row).
-    # Using "with _connect() as conn" commits automatically when the block ends
-    # (or rolls back if something fails).
-    # connect_timeout: give up after 10 seconds instead of leaving the app waiting.
-    return psycopg.connect(settings.database_url, row_factory=dict_row, connect_timeout=10)
+@cache
+def _pool() -> ConnectionPool:
+    """
+    One pool per process, opened on first use. A new connection to Neon costs
+    about 0.4 s (TLS and sign-in); a query on an open one about 0.04 s.
+    """
+    return ConnectionPool(
+        settings.database_url,
+        # No idle connections after max_idle, so Neon can still suspend between uses.
+        min_size=0,
+        max_size=8,
+        max_idle=240,
+        # Neon drops idle connections on its side: check one before lending it.
+        check=ConnectionPool.check_connection,
+        # Waiting longer than this for a connection fails like the database being down.
+        timeout=10,
+        kwargs={
+            # dict_row makes each row a dict, so it can be passed straight into CheckIn(**row).
+            "row_factory": dict_row,
+            "connect_timeout": 10,
+            # No server-side prepared statements: Neon's pooled endpoint
+            # (PgBouncer) doesn't keep them from one transaction to the next.
+            "prepare_threshold": None,
+        },
+        open=True,
+        name="ced",
+    )
+
+
+def _connect():
+    # "with _connect() as conn" borrows a connection and gives it back when
+    # the block ends: committed, or rolled back if something failed, exactly
+    # like a connection of its own.
+    return _pool().connection()
 
 
 def ping() -> None:
