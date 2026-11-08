@@ -1,11 +1,24 @@
 # CED infrastructure consolidation (plan and record, 2026-11-04 to 2026-11-08)
 
-> **Status: complete** except the items still marked open in step 4 (Auto-Deploy stays off by choice; the local `.local-backup/2026-11-04/` dumps await Sangye's decision). The current setup: `docs/RENDER_DEPLOYMENT_HANDOFF.md`.
+> **Status: complete (2026-11-08).** The only item not carried out is by choice: Auto-Deploy stays off (deploys are manual). The current setup: `docs/RENDER_DEPLOYMENT_HANDOFF.md`.
+
+## Final state (2026-11-08)
+
+| | |
+|---|---|
+| Render | one service, `ctrl-ex-delete-api` (Free, Virginia), branch `refactor/final-optimization`, live deploy `aced983`, Auto-Deploy off; `ced-backend-test` deleted |
+| Neon | project `ctrl-ex-delete`, branch `production`, database `neondb` (plus Neon's built-in `postgres`); `rehearsal` deleted; one manual snapshot kept (never expires) |
+| AWS | bucket `ced-photos-prod` (private), IAM user `ced-production` with one active key; nothing else in the account |
+| Ced | Groq (text), Gemini Live (voice); keys in Render and `backend/.env.production`, unchanged |
+| This Mac | settings only in git-ignored `backend/.env.production` and `CtrlExDelete/Config/DeveloperSettings.xcconfig`; `backend/.env`, `backend/.env.migration` and every `.local-backup/` file deleted |
+| Original infrastructure (Leo's) | not used, never read or changed during the consolidation |
+
+Sections 1 to 4 below are the plan as written on 2026-11-04 (section 1 is the
+inventory of that day), with each step's result noted where it was done.
 
 Goal: one CED environment, entirely in Sangye's accounts. Leo's Neon and AWS
 resources are out of scope: nothing here reads, changes or deletes them.
-Nothing in this plan has been executed; every step marked **[approval]**
-waits for an explicit yes.
+Every step marked **[approval]** was carried out only after Sangye's explicit yes.
 
 ## 1. Inventory (read-only, 2026-11-04)
 
@@ -148,15 +161,15 @@ unchanged); "Save, rebuild, and deploy" built `7131e87` as deploy
 `dep-dblheo142hec7388a85g`: build successful, startup clean, Live. Verified
 on the production URL: `/health`, `/health/db`, new OpenAPI text, 30
 affirmations, a disposable check-in found in `neondb` (installation ending
-`…288c`, kept until Sangye decides), photo link naming `ced-photos-prod`.
+`…288c`, removed later), photo link naming `ced-photos-prod`.
 Previous deploy for reference: `dep-dbeggjo473hc73941j60` (`de1df9a`, old
 code: not schema-compatible, do not roll back to it). iPhone Debug:
 `CED_API_BASE_URL` commented out, Debug app reinstalled. AWS secret
 confirmed by a test upload through production (S3 accepted the signed PUT;
-disposable installation `…eff8` with an 871-byte test photo, kept). iPhone
+disposable installation `…eff8` with an 871-byte test photo, removed later). iPhone
 test 11:36:49 UTC: `POST /reflections` 201 on `ctrl-ex-delete-api`; the
 reflection and its 451 KB photo are in `neondb` and `ced-photos-prod`.
-Still open: a Release build on the phone; step 4.
+Not separately tested: a Release build on the phone (it uses the same production URL). Step 4 below.
 
 **Step 2 — cutover of `ctrl-ex-delete-api`** (as planned) (a few minutes; Free has a
 short outage while it deploys) **[approval]**:
@@ -181,12 +194,12 @@ photo, and I confirm they're in `neondb` / `ced-photos-prod` (read-only).
 Also a Release build on the phone.
 
 **Step 4 — settle** (after a day or so of normal use):
-1. Auto-Deploy back **On** for the production branch. **[approval]** *(Open: left Off for now; deploys are manual.)*
+1. Auto-Deploy back **On** for the production branch. **[approval]** *(Not done, by choice: left Off; deploys are manual.)*
 2. **Done 2026-11-08:** `ced-backend-test` (`srv-dblgc45bedkc73aihnf0`) deleted with Sangye's approval, after checking that production (`aced983`, neondb, ced-photos-prod) didn't depend on it and nothing had used it since 2026-11-04 11:06 UTC. Only `ctrl-ex-delete-api` remains; `/health` and `/health/db` ok afterwards.
 3. **Done 2026-11-08:** Sangye deleted the `rehearsal` database in the Neon console after a read-only check (no connections, nothing referencing it). Only `neondb` and Neon's `postgres` remain; the snapshot (never expires) is kept and still contains a copy of `rehearsal`.
 4. AWS: nothing to remove (step 0 found only the bucket and
    `ced-production` with one active key).
-5. **Done 2026-11-08 (Mac):** the Groq/Gemini settings moved into `backend/.env.production` (checked by fingerprint), then `backend/.env` (the original infrastructure's settings) and `backend/.env.migration` deleted; four old local-setup backups in `.local-backup/` deleted (all already contained in the current local project); the test-service line removed from `DeveloperSettings.xcconfig`. *(Open: `.local-backup/2026-11-04/`, two database dumps and photo copies from before the fresh start, kept until Sangye decides.)*
+5. **Done 2026-11-08 (Mac):** the Groq/Gemini settings moved into `backend/.env.production` (checked by fingerprint), then `backend/.env` (the original infrastructure's settings) and `backend/.env.migration` deleted; four old local-setup backups in `.local-backup/` deleted (all already contained in the current local project); the test-service line removed from `DeveloperSettings.xcconfig`. Then, with Sangye's approval, `.local-backup/2026-11-04/` deleted (two database dumps and 14 photo copies from before the fresh start; nothing read them, and rollback never needed them). `.local-backup/` is now empty.
 6. **Done 2026-11-08:** `render.yaml`, the READMEs, `CLAUDE.md`, `.env.example` and the handoff documents describe the final setup. Merging `refactor/final-optimization` into
    `integration/ai-room-progress` or `main` stays a separate decision with
    your teammates.
