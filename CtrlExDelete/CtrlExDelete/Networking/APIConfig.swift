@@ -8,7 +8,7 @@ import os
 ///   built into the app, so it is the same whether the app is started from
 ///   Xcode or opened from the Home Screen.
 /// - Another deployed backend (e.g. a Render test service) is opt-in, Debug
-///   only: `CED_API_BASE_URL = ced-backend-test.onrender.com` in your Mac's
+///   only: `CED_API_BASE_URL = your-test-service.onrender.com` in your Mac's
 ///   Config/DeveloperSettings.xcconfig. It's built into the Debug app, so it
 ///   also applies when the app is opened from the Home Screen.
 /// - Local development is opt-in, Debug only: `CED_BACKEND = local` in your
@@ -139,7 +139,7 @@ enum APIConfig {
         let host = backendID
         let source = resolved.source.rawValue
         if resolved.source == .invalidDeveloperSettings {
-            logger.error("Backend: none. \(source, privacy: .public); write the host only, e.g. ced-backend-test.onrender.com")
+            logger.error("Backend: none. \(source, privacy: .public); write the host only, e.g. your-test-service.onrender.com")
         } else {
             logger.notice("Backend: \(host, privacy: .public) (\(source, privacy: .public))")
         }

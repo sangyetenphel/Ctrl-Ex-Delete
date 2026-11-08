@@ -1,9 +1,16 @@
 # Setting up your own Neon and S3 (fresh start)
 
-CED moves to a new Neon project and new S3 buckets in your own accounts,
-starting **without** the old user data (your decision, 2026-11-04). The
-original Neon database and S3 bucket in Leo's accounts stay untouched as the
-backup; nothing here reads from or writes to them.
+> **Completed (2026-11-04 to 2026-11-08).** Production now runs on Sangye's
+> own Neon (`ctrl-ex-delete` / `production` / `neondb`), S3 (`ced-photos-prod`,
+> IAM user `ced-production`) and the Render service `ctrl-ex-delete-api`; the
+> test service, the `rehearsal` database and the migration backups are gone.
+> The current setup is in `docs/RENDER_DEPLOYMENT_HANDOFF.md`. This guide stays
+> as the recipe for building a fresh environment from scratch.
+
+CED moved to a new Neon project and a new S3 bucket in Sangye's own accounts,
+starting **without** the old user data (decision, 2026-11-04). The original
+infrastructure in Leo's accounts is no longer used; nothing here reads from or
+writes to it.
 
 The schema is `backend/db/migrations/001_schema.sql` (see
 `docs/DATABASE_DESIGN.md`); the shared catalogs come from the seed scripts.
@@ -16,20 +23,21 @@ The schema is `backend/db/migrations/001_schema.sql` (see
 | Clean schema, seeds and `verify_database`, tested from scratch on empty local databases | done |
 | Production database `neondb`: schema and catalogs initialized, `verify_database --fresh` passed | done (2026-11-04) |
 | Production bucket and `ced-production` IAM user: us-east-1, Block Public Access on, key limited to the bucket; `check_s3` and the phone's presigned upload/download verified | done (2026-11-04) |
-| Render service on the new setup | **next** (section 4) |
-| Staging database and bucket of their own | optional (sections 1 and 2) |
-| Production cutover | **needs your approval** |
+| Render service on the new setup (tested on a temporary `ced-backend-test`, since deleted) | done (2026-11-04) |
+| Staging database and bucket of their own | not made (optional, sections 1 and 2) |
+| Production cutover of `ctrl-ex-delete-api` | done (2026-11-04) |
+| Clean-up (`rehearsal`, test service, local backups, old settings files) | done (2026-11-08) |
 
 ## How settings are chosen
 
-Every command reads `backend/.env`, unless `CED_ENV_FILE` names another file.
+Every command reads `backend/.env` (local development), unless `CED_ENV_FILE` names another file.
 Keep one git-ignored file per environment, so a command can never mix them up:
 
 | File | Database | Bucket |
 |---|---|---|
-| `backend/.env` | the original database (backup) | the original bucket |
-| `backend/.env.staging` | Neon `staging` | the staging bucket |
-| `backend/.env.production` | Neon `neondb` | the production bucket |
+| `backend/.env` | a local development database (optional) | none |
+| `backend/.env.staging` | Neon `staging` (not made) | a staging bucket |
+| `backend/.env.production` | Neon `neondb` | `ced-photos-prod` |
 
 ```bash
 # backend/.env.staging (same layout for .env.production)
@@ -109,54 +117,25 @@ Two buckets and two IAM users, so staging can never touch production photos.
    Python has no root certificates yet: run its "Install Certificates.command",
    or prefix the command with `SSL_CERT_FILE=$(python -m certifi)`.
 
-## 3. Try the backend locally against staging
+## 3–6. Local trial, test service, cutover, clean-up (done)
 
-```bash
-CED_ENV_FILE=.env.staging uvicorn app.main:app --port 8001
-```
+What was done, for the record (details in `docs/INFRASTRUCTURE_CONSOLIDATION_PLAN.md`):
 
-Then run the app in the Simulator from Xcode with the launch argument
-`-CEDAPIBaseURL http://127.0.0.1:8001` and try a check-in, an activity, a
-reflection with a photo, Story, Insights, the scrapbook and Ced. (For a phone,
-add `--host 0.0.0.0` and use your Mac's address.)
+- The optimized backend ran first on a temporary Render service
+  (`ced-backend-test`, Auto-Deploy off) against the new database and bucket,
+  and was tested from the iPhone.
+- Cutover (2026-11-04): on `ctrl-ex-delete-api`, Auto-Deploy off, branch
+  switched to `refactor/final-optimization` (no merge), the five database/AWS
+  variables replaced, then one "Save, rebuild, and deploy" so code and settings
+  changed together (the new code needs the new schema). Users started fresh.
+- Clean-up (2026-11-08): `ced-backend-test` deleted, the `rehearsal` database
+  deleted, `backend/.env` (the original infrastructure's settings) and
+  `backend/.env.migration` removed, old local backups removed.
 
-## 4. Render staging (dashboard only)
-
-A second Free web service, so the live one is never touched:
-
-- **New → Web Service**, this repository, branch `refactor/final-optimization`,
-  root directory `backend`, build `pip install -r requirements.txt`, start
-  `uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"`,
-  health check `/health`, **Auto-Deploy: off**.
-- **Environment**: `PYTHON_VERSION=3.11` and the values from
-  `backend/.env.staging` (Render's "Add from .env" accepts the file's
-  contents). Leave `CED_VOICE_DIAGNOSTICS` unset (off).
-- Don't add it to `render.yaml`: that file describes the live service.
-
-## 5. Production cutover (needs your approval)
-
-1. `CED_ENV_FILE=.env.production python -m scripts.migrate`, then
-   `verify_database --fresh` (database `neondb`, production bucket).
-2. Merge `refactor/final-optimization` into `integration/ai-room-progress`.
-3. In the live Render service's **Environment**, replace `DATABASE_URL`,
-   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` (and
-   the AI keys if you made new ones) with the production values, then
-   **Save, rebuild, and deploy**.
-4. Check `/health/db`, then the app end to end. Users start fresh.
-
-The new backend code expects the new schema: deploy it only together with the
-new database. **Rollback:** restore the old values in Render and redeploy the
-previous commit (`integration/ai-room-progress` before the merge); the
-original database and bucket are untouched.
-
-## 6. Clean-up afterwards
-
-- Delete the `rehearsal` database in the new Neon project (it holds a copy of
-  old user data from the migration rehearsal).
-- Delete `backend/.env.migration` and the dumps in `.local-backup/` once the
-  new setup is live.
-- After grading, ask Leo to delete the original database and bucket and to
-  revoke the old access key. Rotate the keys that were pasted into chat.
+For a future environment of the same kind, repeat sections 1–2, then create a
+Render web service with the settings in `backend/README.md` ("Deploying to
+Render").
 
 The copy tooling from the earlier plan (`scripts.copy_database`,
-`compare_databases`, `copy_s3`) stays in the repo, unused for the fresh start.
+`compare_databases`, `copy_s3`) stays in the repo, unused for the fresh start;
+it reads its source from the settings file named by `CED_ENV_FILE`.

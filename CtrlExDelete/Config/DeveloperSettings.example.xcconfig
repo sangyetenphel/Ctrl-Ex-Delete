@@ -16,7 +16,7 @@
 // Another deployed backend for every Debug launch, Home Screen included
 // (wins over CED_BACKEND). Host only, https is assumed; for http or a port
 // write http:/$()/host:port. Remove the line to go back to production.
-// CED_API_BASE_URL = ced-backend-test.onrender.com
+// CED_API_BASE_URL = your-test-service.onrender.com
 
 // CED_BACKEND = local
 CED_DEV_SERVER_HOST[sdk=iphoneos*] = Your-Mac-Name.local
