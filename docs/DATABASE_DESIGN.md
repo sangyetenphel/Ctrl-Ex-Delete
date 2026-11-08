@@ -179,9 +179,14 @@ fresh database.
 
 ## 6. Staging on Render
 
+> As built: no permanent staging. A temporary test service
+> (`ced-backend-test`) ran against the production database and bucket before
+> the cutover, then was deleted (2026-11-08). The proposal below is kept for a
+> future staging environment.
+
 A second Free web service (for example `ctrl-ex-delete-api-staging`) from
 `refactor/final-optimization` with auto-deploy off, set up in the dashboard
-(not in `render.yaml`, so the live service's Blueprint is never touched):
+(`render.yaml` only documents the production service):
 
 | Variable | Value |
 |---|---|
@@ -201,7 +206,7 @@ The app reaches staging with `CED_API_BASE_URL = <host>` in the git-ignored `Con
 - The `rehearsal` database in your new Neon project holds a copy of old user
   data from the rehearsal; with the fresh start it should be deleted (your
   call; it can't be undone). The local dumps in `.local-backup/` too, once the
-  new setup is live.
+  new setup is live. *(Done: `rehearsal` deleted 2026-11-08.)*
 - Old test builds of the app keep working against either backend: no API
   response changes.
 - Cutover means users start fresh (new database): existing progress on the

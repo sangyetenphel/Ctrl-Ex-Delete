@@ -1,6 +1,9 @@
-# Render Blueprint for the CED backend (FastAPI in backend/), Free plan.
-# The dashboard settings in backend/README.md ("Deploying to Render") match
-# this file, so the service can be made either way.
+# The CED backend's Render web service (FastAPI in backend/), Free plan.
+# Documentation of the live service `ctrl-ex-delete-api`: it is NOT connected
+# as a Blueprint, so editing this file changes nothing on Render. The settings
+# match backend/README.md ("Deploying to Render"). Production resources:
+# Neon `ctrl-ex-delete` / branch `production` / `neondb`; S3 `ced-photos-prod`
+# (IAM user `ced-production`); Groq (text); Gemini Live (voice).
 #
 # Secrets are NOT here: entries with `sync: false` are typed into Render's
 # dashboard (Environment tab), never committed. Nothing here migrates, seeds
@@ -11,13 +14,14 @@ services:
     name: ctrl-ex-delete-api
     runtime: python
     plan: free
-    branch: integration/ai-room-progress
+    branch: refactor/final-optimization
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     # No --reload. Render sets $PORT; it handles HTTPS and WebSockets (wss://).
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
     healthCheckPath: /health
-    autoDeploy: true
+    # Off in the dashboard: deploy with Manual Deploy ▸ Deploy latest commit.
+    autoDeploy: false
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"

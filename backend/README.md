@@ -43,19 +43,20 @@ pip install -r requirements-dev.txt
 
 If your prompt starts with `(base)`, you have Anaconda active. Run `conda deactivate` **before** creating the venv.
 
-### Add the database connection string
+### Settings files (secrets stay on this Mac)
 
-Secrets go in `backend/.env`, which is **never committed** (it's in `.gitignore`):
+Settings live in git-ignored files in `backend/` (`.gitignore` ignores every `.env*` except `.env.example`); every command picks one with `CED_ENV_FILE`:
 
-```bash
-cp .env.example .env
-open -e .env
-```
+| File | Use | How |
+|---|---|---|
+| `.env.production` | the production resources (Neon `production`/`neondb`, S3 `ced-photos-prod` with the IAM user `ced-production`, Groq, Gemini): the same values as the Render service | `CED_ENV_FILE=.env.production python -m scripts.…` (and `./ced-reset`). **Never** run `pytest` with it |
+| `.env` (optional) | local development against a local PostgreSQL | `cp .env.example .env`, set a local `DATABASE_URL` (e.g. `postgresql://localhost/ced_dev`); used when `CED_ENV_FILE` isn't set |
+| `.env.test` (optional) | the test suite's local database | see "Running the tests" |
 
-Replace the example line with the real Neon connection string. In the Neon console: your project ▸ **Connect** ▸ copy the connection string (it starts with `postgresql://` and ends with `?sslmode=require`). Save the file.
+Without a settings file a command stops with a `database_url … Field required` error: nothing ever falls back to production. For `.env.production`, copy the connection string from the Neon console (project `ctrl-ex-delete` ▸ branch `production` ▸ **Connect**; it ends with `?sslmode=require`) and the other values from wherever you keep them; Render's Environment tab holds the same ones.
 
-- Never paste this string into Swift code, Slack, screenshots or commits.
-- The iOS app never talks to Neon. Only this backend does.
+- Never paste these values into Swift code, Slack, screenshots or commits.
+- The iOS app never talks to Neon or S3 directly. Only this backend does.
 
 ### Create or update the database tables
 
@@ -102,11 +103,18 @@ The server runs at `http://127.0.0.1:8000` until you press **Ctrl + C**. `--relo
 
 ### Running the tests
 
+Against a **local** database only (some tests change shared catalogs or wipe user data). A throwaway PostgreSQL that needs no password, on its own port:
+
 ```bash
-pytest
+initdb -D /tmp/ced-pg -A trust -U ced_test
+LC_ALL=en_US.UTF-8 pg_ctl -D /tmp/ced-pg -o "-p 55432 -c unix_socket_directories='' -c listen_addresses=localhost" -l /tmp/ced-pg.log start
+createdb -h localhost -p 55432 -U ced_test ced_test
+echo 'DATABASE_URL=postgresql://ced_test@localhost:55432/ced_test' > .env.test
+CED_ENV_FILE=.env.test python -m scripts.migrate
+CED_ENV_FILE=.env.test pytest -q
 ```
 
-The tests use the database in `.env`. Each test makes its own random installation ID and deletes it (and all its rows) at the end, so other data isn't touched. The exception is `tests/test_reset_dev_data.py`, which wipes all user data, so it is skipped unless `DATABASE_URL` points at a local database (localhost or a Unix socket).
+(`pg_ctl -D /tmp/ced-pg stop` afterwards.) The tests use the database named by `CED_ENV_FILE` (or `.env`). Each test makes its own random installation ID and deletes it (and all its rows) at the end, so other data isn't touched. The exception is `tests/test_reset_dev_data.py`, which wipes all user data, so it is skipped unless `DATABASE_URL` points at a local database (localhost or a Unix socket).
 
 ## Using it from the app
 
@@ -134,14 +142,23 @@ A phone reaches a backend on your Mac only while the Mac is awake, the server is
 
 ## Deploying to Render
 
-The backend runs as one **Render Free** web service, described in `render.yaml` at the repository root. It uses the existing Neon database, S3 bucket, Groq and Gemini keys. Deploying never migrates, seeds or resets anything.
+The backend runs as one **Render Free** web service, `ctrl-ex-delete-api`, described in `render.yaml` at the repository root (documentation only: the service isn't managed as a Blueprint). Production resources, all in Sangye's accounts:
+
+| | |
+|---|---|
+| Render | `ctrl-ex-delete-api` (Free, Virginia), branch `refactor/final-optimization`, Auto-Deploy **off** |
+| Database | Neon project `ctrl-ex-delete`, branch `production`, database `neondb` (PostgreSQL 18, AWS us-east-1) |
+| Photos | AWS S3 bucket `ced-photos-prod` (private, us-east-1), IAM user `ced-production` (this bucket only) |
+| Ced | Groq (text chat), Gemini Live (voice calls, relayed by the backend) |
+
+Deploying never migrates, seeds or resets anything.
 
 **Settings** (New ▸ Web Service, or New ▸ Blueprint with `render.yaml`):
 
 | Setting | Value |
 |---|---|
 | Repository | `sangyetenphel/Ctrl-Ex-Delete` |
-| Branch | `integration/ai-room-progress` |
+| Branch | `refactor/final-optimization` |
 | Root Directory | `backend` |
 | Runtime / Language | Python 3 |
 | Build Command | `pip install -r requirements.txt` |
@@ -165,7 +182,7 @@ The backend runs as one **Render Free** web service, described in `render.yaml` 
 
 **Checking it:** `https://ctrl-ex-delete-api.onrender.com/health` → `{"status":"ok"}` and `/health/db` → `{"status":"ok","database":"ok"}` (503 if Neon can't be reached).
 
-**Free plan:** the service sleeps after about 15 minutes without requests; the next request wakes it, which can take a minute. The app waits for that on launch ("Waking up the server…") and wakes it when it comes back to the foreground. Pushing to the branch redeploys automatically.
+**Free plan:** the service sleeps after about 15 minutes without requests; the next request wakes it, which can take a minute. The app waits for that on launch ("Waking up the server…") and wakes it when it comes back to the foreground. Auto-Deploy is off: after pushing, deploy with **Manual Deploy ▸ Deploy latest commit** (a rollback is **Rollback** on an earlier deploy).
 
 **Public exposure:** every endpoint is open to anyone with the URL and a made-up installation ID (there are no accounts). The AI endpoints are limited per installation and for the whole server (chat: 8/min and 60/day per installation, 25/min server-wide; calls: one per installation, 3 at once, 30 started per hour, 15 minutes each), so the worst case is using up the free AI quotas, not someone's data.
 
