@@ -30,7 +30,7 @@ struct HealingRoomView: View {
                     .accessibilityAddTraits(.isHeader)
 
                 // Ced's words for today, inside the cream card above him.
-                RoomCedMessage(text: journey.roomMessageText(today: LocalDate.text()), scale: scale)
+                roomMessage(scale: scale)
                     .offset(x: RoomCedMessage.frame.minX * scale, y: RoomCedMessage.frame.minY * scale)
 
                 // One book per completed activity, on the empty shelves above.
@@ -71,6 +71,30 @@ struct HealingRoomView: View {
             withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
                 isCedFloating = true
             }
+        }
+    }
+
+    // MARK: Ced's card
+
+    /// The card looks the same either way. While Ced invites the user to try
+    /// an activity, tapping it opens today's recommendations, like tapping Ced.
+    @ViewBuilder
+    private func roomMessage(scale: CGFloat) -> some View {
+        let line = journey.roomLine(today: LocalDate.text())
+        let card = RoomCedMessage(text: line.text, scale: scale)
+        if line.isInvitation {
+            Button {
+                router.go(to: RoomObject.ced.destination)
+            } label: {
+                card.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Ced says: \(line.text)")
+            .accessibilityHint("Opens today\u{2019}s activity ideas")
+            .accessibilityAddTraits(.isButton)
+        } else {
+            card
         }
     }
 

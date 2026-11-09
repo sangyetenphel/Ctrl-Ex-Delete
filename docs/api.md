@@ -130,6 +130,12 @@ Saving a check-in also creates its activity recommendations (same database trans
 - `null` only if no message could be loaded; the check-in itself is never affected.
 - It describes today's answers gently. It is not a risk assessment or a judgement about readiness.
 
+### Today's activities (`activities_completed_today`)
+
+The check-in in `POST /check-ins` and `GET /check-ins/today` (`check_in.activities_completed_today`) also says how many activities were completed on that check-in's local day: completed `activity_selections` whose `completed_on` (the reflection's `local_date`) is that day. Deleting the memory doesn't change it; a new day starts at 0; an activity chosen earlier and finished today before checking in counts. `null` in `GET /check-ins` and from older backends.
+
+The app uses it for Ced's card in the room: after today's check-in, while it's `0`, Ced says "Let’s try something small together." and tapping the card opens today's activity recommendations (like tapping Ced). After an activity is completed, or while the count isn't known, the card shows the day's `room_message` as before.
+
 ---
 
 ## `GET /check-ins/today?local_date=YYYY-MM-DD`

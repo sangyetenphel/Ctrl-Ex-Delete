@@ -10,6 +10,9 @@ struct RoomMessageRecord: Codable, Equatable {
     let localDate: String        // the local day it belongs to
     let installationID: UUID?
     var backend: String? = nil   // APIConfig.backendID when saved; nil in older copies (production)
+    /// Whether an activity was completed on `localDate`; nil while unknown
+    /// (and in older copies). Decides Ced's invitation (RoomDialogue).
+    var activityCompletedToday: Bool? = nil
 
     var isPersonal: Bool { checkInId != nil }
 

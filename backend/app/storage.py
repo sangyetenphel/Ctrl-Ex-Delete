@@ -158,10 +158,13 @@ def create_check_in(installation_id: UUID, data: CheckInCreate) -> tuple[CheckIn
         if row is None:
             existing = _check_in_for_day(conn, installation_id, data.local_date)
             existing.room_message = _assign_room_message(conn, existing)
+            existing.activities_completed_today = _activities_completed_on(conn, installation_id, data.local_date)
             return existing, False
         check_in = CheckIn(**row)
         _create_recommendations(conn, check_in)
         check_in.room_message = _assign_room_message(conn, check_in)
+        # An activity chosen earlier can be completed today before checking in.
+        check_in.activities_completed_today = _activities_completed_on(conn, installation_id, data.local_date)
     return check_in, True
 
 
@@ -176,6 +179,15 @@ def _check_in_for_day(conn: psycopg.Connection, installation_id: UUID, local_dat
     return CheckIn(**row) if row else None
 
 
+def _activities_completed_on(conn: psycopg.Connection, installation_id: UUID, local_date: date) -> int:
+    """Activities completed on the user's local day (completed_on is that day, stored with the reflection)."""
+    return conn.execute(
+        """SELECT count(*) AS n FROM activity_selections
+           WHERE installation_id = %s AND status = 'completed' AND completed_on = %s""",
+        (installation_id, local_date),
+    ).fetchone()["n"]
+
+
 def get_check_in_status(installation_id: UUID, local_date: date) -> CheckInStatus:
     """Whether this installation already checked in on its local day `local_date`."""
     with _connect() as conn:
@@ -186,6 +198,7 @@ def get_check_in_status(installation_id: UUID, local_date: date) -> CheckInStatu
         if check_in is not None:
             # Older check-ins get their message the first time it's needed.
             check_in.room_message = _assign_room_message(conn, check_in)
+            check_in.activities_completed_today = _activities_completed_on(conn, installation_id, local_date)
             message = check_in.room_message
         else:
             message = _before_check_in_message(conn, installation_id, local_date)
