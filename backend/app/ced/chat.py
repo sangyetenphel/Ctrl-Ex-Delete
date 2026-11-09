@@ -3,8 +3,9 @@ One turn of a conversation with Ced.
 
 Privacy: the conversation arrives with the request, is sent to the provider,
 and is gone when the request ends. Nothing is stored or logged. Only the
-latest turns are sent (MAX_TURNS / MAX_CONTEXT_CHARS), and nothing else from
-the app (check-ins, scrapbook, reflections) is ever included.
+latest turns are sent (MAX_TURNS / MAX_CONTEXT_CHARS). From the rest of the
+app only a short structured summary of this installation's journey is added
+(app/ced/context.py): never reflection notes, photos or past chats.
 
 Safety, in order:
 1. safety.assess() reads the latest message (and Ced's turn before it, for
@@ -27,7 +28,7 @@ resources; ordinary messages get a friendly error.
 import json
 from uuid import UUID
 
-from app.ced import bubbles, limits, prompt, providers, safety
+from app.ced import bubbles, context, limits, prompt, providers, safety
 from app.ced.providers import ChatMessage
 from app.schemas import CedChatRequest, CedChatResponse
 
@@ -54,7 +55,8 @@ def _assess(request: CedChatRequest) -> safety.Assessment:
     return safety.assess(latest.content, previous_ced, earlier_user)
 
 
-def _context(request: CedChatRequest, assessment: safety.Assessment) -> list[ChatMessage]:
+def _context(request: CedChatRequest, assessment: safety.Assessment,
+             journey: str | None = None) -> list[ChatMessage]:
     """Ced's instructions plus the latest turns that fit the budget, oldest first."""
     kept: list[ChatMessage] = []
     total = 0
@@ -72,7 +74,8 @@ def _context(request: CedChatRequest, assessment: safety.Assessment) -> list[Cha
         total += len(turn.content)
     kept.reverse()
 
-    system = prompt.SYSTEM_PROMPT
+    # The journey summary comes before any safety note, which overrides it.
+    system = prompt.SYSTEM_PROMPT + prompt.journey_block(journey)
     # Only describe the first message as the unsent one while it's still in view.
     if request.mode == "unsent_message" and len(kept) == len(request.messages):
         system += "\n\n" + prompt.UNSENT_MESSAGE_CONTEXT
@@ -135,7 +138,9 @@ def respond(installation_id: UUID, request: CedChatRequest) -> CedChatResponse:
         raise providers.ProviderUnavailable()
     try:
         limits.take(installation_id)
-        parts, model_risk = _parse(providers.complete(_context(request, assessment), json_reply=True))
+        # This user's journey (structured data, one query; None on any failure).
+        journey = context.load(installation_id, request.local_date)
+        parts, model_risk = _parse(providers.complete(_context(request, assessment, journey), json_reply=True))
     except Exception:
         if needs_answer:
             return _fallback(assessment)

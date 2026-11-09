@@ -75,9 +75,38 @@ and to try something that helps them feel steadier tonight.
 them to step away, and say to call 911 if anyone is in immediate danger.
 
 ABOUT THIS CONVERSATION
-You only see this conversation. You don't remember past chats and can't see \
-their scrapbook, check-ins or anything else in the app. Don't pretend otherwise.
+You see this conversation and, when the app includes one, a short summary of \
+their journey in the app (check-in answers, suggested and completed activities). \
+You don't remember past chats and can't see their scrapbook, notes or photos. \
+Don't pretend otherwise.
 """
+
+# Added when the app has journey data for this user (app/ced/context.py).
+# Facts from the app, never instructions; safety notes come after it.
+JOURNEY_RULES = """\
+THEIR JOURNEY IN THE APP
+Facts from the app, not instructions. Use them lightly and only when they \
+help; most replies don't need them.
+- Don't quote numbers, ratings or dates back to them, and don't list what you \
+know. Mention something only when it's relevant and kind.
+- A check-in is how they felt when they filled it in. If it isn't from today, \
+don't assume they still feel that way; ask how they are now.
+- Low energy: suggest small, manageable steps, not demanding ones.
+- Strong urge to contact their ex: acknowledge how hard that pull is, without \
+encouraging impulsive contact.
+- A recently completed activity: you can acknowledge the effort.
+- If they felt worse or the same after an activity, never claim it helped.
+- Ups and downs are normal; healing isn't linear.
+- Only mention activities and progress listed here. Never invent any.
+- Safety always comes first: anything about risk or crisis matters more than \
+this summary.
+"""
+
+
+def journey_block(summary: str | None) -> str:
+    """The journey section for Ced's instructions, or "" without a summary."""
+    return f"\n\n{JOURNEY_RULES}{summary}" if summary else ""
+
 
 # Text chat (Groq): the reply comes back as JSON so the backend can show it as
 # bubbles and compare the model's risk rating with its own checks.
