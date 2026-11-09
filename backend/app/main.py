@@ -21,6 +21,14 @@ from app.routes import (
 
 logger = logging.getLogger("ced")
 
+# Libraries that log message contents at DEBUG (WebSocket frames to Gemini,
+# HTTP bodies to Groq), which would include safety notes, transcripts or
+# chat text. Ced stores and logs no conversation text, so these never go
+# below WARNING, even if someone turns the root logger up to DEBUG.
+CONTENT_LOGGERS = ("websockets", "httpx", "httpcore", "groq", "google_genai", "google.genai")
+for _name in CONTENT_LOGGERS:
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
 app = FastAPI(title="Ctrl+Ex+Delete API")
 app.include_router(health.router)
 app.include_router(affirmations.router)
