@@ -363,6 +363,7 @@ class _Call:
         self.shown: set[tuple] = set()  # (turn, support, hotline) already sent: once per turn
         self.concern: str | None = None   # what this call's safety concern is about: self_harm or in_danger
         self.concern_turn: int | None = None   # the turn it was first raised
+        self.turn_findings: dict[int, set[str]] = {}   # notes the patterns found, per turn
         self.noted: set[str] = set()    # safety notes already given to this call's model
         self.checks: set[asyncio.Task] = set()
         self.call_id = format(id(self) % 10_000, "04d")   # just to tell calls apart in logs
@@ -429,6 +430,7 @@ class _Call:
         return self.concern if self.concern_turn is not None and self.concern_turn < turn else None
 
     async def _apply(self, signal: safety.Signal, turn: int) -> None:
+        self.turn_findings.setdefault(turn, set()).add(signal.note if not signal.certain else f"certain:{signal.note}")
         if signal.risk in safety.SUPPORT_FOR_RISK:
             self._set_concern("in_danger" if signal.risk in ("in_danger", "violence") else "self_harm", turn)
         hotline = signal.note in DV_HOTLINE_NOTES
@@ -452,8 +454,19 @@ class _Call:
         diag("call %s: classifier rated %s", self.call_id, level)
         if level in safety.SUPPORT_FOR_RISK and self.concern is None:
             self._set_concern("in_danger" if level in ("in_danger", "violence") else "self_harm", turn)
-        await self._show(safety.SUPPORT_FOR_RISK.get(level), level, level == "in_danger", turn)
+        support = safety.SUPPORT_FOR_RISK.get(level)
+        if level == "in_danger" and self._not_imminent(turn):
+            # The patterns read this turn as stalking or past abuse with no
+            # immediate threat (live run: the classifier still said in_danger
+            # for "I've been stalked by my ex for months"). Keep the gentler
+            # panel with the hotline; 911 stays on it as "in immediate danger".
+            support = "crisis"
+        await self._show(support, level, level == "in_danger", turn)
         await self._note(level)
+
+    def _not_imminent(self, turn: int) -> bool:
+        found = self.turn_findings.get(turn, set())
+        return bool(found & {"abuse_concern", "past_danger"}) and "certain:in_danger" not in found
 
     async def _classify_in_background(self, text: str, turn: int) -> None:
         level = await asyncio.to_thread(self.classify, text)
