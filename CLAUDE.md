@@ -31,4 +31,5 @@ Debug launch args: `-CEDStartScreen <screen>`, `-CEDAPIBaseURL <url>` (Xcode run
 ## Gotchas
 - Project uses MainActor default isolation: audio/network callbacks need `nonisolated` types and `@Sendable` closures; avoid `async let` in `JourneyStore`.
 - New Swift files are picked up automatically (file-system-synchronized groups).
+- Signing: team and bundle ID come from `Config/Signing.xcconfig` (Debug and Release); each developer overrides them in the gitignored `Config/DeveloperSettings.xcconfig`, never in Xcode's Signing tab (that edits `project.pbxproj`).
 - Simulator: no usable echo cancellation (voice barge-in disabled there by design), `tel:`/`sms:` don't open, first taps after transitions are often dropped.

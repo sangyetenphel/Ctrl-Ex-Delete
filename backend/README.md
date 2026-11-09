@@ -120,6 +120,15 @@ CED_ENV_FILE=.env.test pytest -q
 
 **By default every build (Debug and Release, Simulator and iPhone) uses the deployed backend on Render**, `https://ctrl-ex-delete-api.onrender.com` (`APIConfig.deployedBaseURL`; voice calls use `wss://` on the same host). Nothing needs setting up on a new Mac, and it works on any network, including cellular. Neon's `DATABASE_URL` and the API keys are only in Render's environment variables, never in the app. See [Deploying to Render](#deploying-to-render).
 
+### Signing with your own Apple team (physical iPhone)
+
+The team and bundle ID live in `CtrlExDelete/Config/Signing.xcconfig` (shared defaults, used by Debug and Release), not in `project.pbxproj`. To run on your own iPhone, put yours in your gitignored `CtrlExDelete/Config/DeveloperSettings.xcconfig` (copy the example file first), which wins over the defaults:
+```
+DEVELOPMENT_TEAM = YOURTEAMID
+PRODUCT_BUNDLE_IDENTIFIER = com.yourname.CtrlExDelete
+```
+Don't pick a team in Xcode's **Signing & Capabilities** tab: that writes it into `project.pbxproj` (a tracked file) and overrides these settings.
+
 ### Local development (optional, Debug only)
 
 To make the app use the server on your Mac instead:
