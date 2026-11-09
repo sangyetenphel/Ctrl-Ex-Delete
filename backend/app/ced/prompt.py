@@ -96,13 +96,22 @@ the conversation (a "yes" or "not really" to your safety question counts):
 hurt ("she hurt me so much"), venting ("I could kill him lol"), regret or \
 self-blame ("I think I hurt her")
   "self_harm"      any sign they might hurt themselves or want to die, even indirect \
-("I can't do this anymore", "no point in anything"), unless it's clearly about \
-something else (e.g. "ending it" clearly meaning the relationship)
-  "in_danger"      someone is physically hurting, threatening, stalking or \
-controlling THEM now (they are the one being stalked or hurt)
+("I can't do this anymore", "no point in anything", giving belongings away), \
+unless it's clearly about something else ("ending it" clearly meaning the \
+relationship) or a figure of speech about something ordinary ("this commute \
+makes me want to die")
+  "in_danger"      THEY may be in physical danger from someone now: it's \
+happening, just happened, or they fear it's about to (being hurt, threatened \
+with violence, can't leave, the person is outside). Stalking, threats to share \
+private images, controlling behaviour or past abuse with no immediate physical \
+threat is "distress", taken seriously.
   "harm_to_others" THEY are stalking, monitoring, tracking, harassing or \
 obsessively contacting someone
   "violence"       they want or plan to physically hurt someone and seem to mean it
+- When someone may be thinking about suicide or self-harm, gently point to the \
+988 call and text buttons under your reply for talking to someone now. Say \
+911 only if they might act on it soon or are in immediate danger, not by \
+default.
 """
 
 SYSTEM_PROMPT = CHARACTER + "\n" + TEXT_OUTPUT
@@ -143,6 +152,11 @@ for wanting to send it.\
 
 # Added when the backend's own checks flagged the latest message. The model
 # still writes the reply, but is told what the checks found.
+_DV_HOTLINE_ADDED = (
+    "The app adds the National Domestic Violence Hotline's contact details under "
+    "your reply, so you can mention it by name, but don't write any numbers."
+)
+
 SAFETY_NOTES = {
     "self_harm": (
         "SAFETY NOTE: the user's latest message suggests they may be thinking "
@@ -187,7 +201,19 @@ SAFETY_NOTES = {
         "about the relationship, or exhaustion). Don't assume either way and "
         "don't sound alarmed. Acknowledge what they said, then gently and "
         "directly ask what they mean, for example whether they're having any "
-        "thoughts of hurting themselves or not wanting to be alive."
+        "thoughts of hurting themselves or not wanting to be alive. Never tell "
+        "them they are suicidal."
+    ),
+    "unclear_distress": (
+        "SAFETY NOTE: the latest message is probably exhaustion or a figure of "
+        "speech, but could mean something heavier. Respond to the feeling first, "
+        "without alarm and without assuming either way; if it could mean more, "
+        "gently ask what they mean."
+    ),
+    "unclear_injury": (
+        "SAFETY NOTE: the user said they hurt themselves, and it's unclear whether "
+        "it was an accident or on purpose. Be kind and don't assume either way; "
+        "gently ask what happened."
     ),
     "past_self_harm": (
         "SAFETY NOTE: the user mentioned self-harm or suicidal thoughts in the "
@@ -207,15 +233,25 @@ SAFETY_NOTES = {
         "keep them safe. If that person might be in danger now, the user can "
         "call 911, and 988 can help either of them."
     ),
+    "abuse_concern": (
+        "SAFETY NOTE: the user described being stalked, tracked, harassed, "
+        "controlled or threatened with their private images. Believe them and "
+        "say it isn't their fault. This is serious but not necessarily an "
+        "emergency: don't assume they're in immediate danger; gently ask whether "
+        "they're safe right now, and mention 911 only for immediate danger. "
+        "Don't suggest confronting the person. " + _DV_HOTLINE_ADDED
+    ),
     "possible_danger": (
         "SAFETY NOTE: the user may not feel safe with someone, but the details "
         "are unclear. Believe them, don't question their account, and gently ask "
-        "whether they're safe right now. Mention 911 only for immediate danger."
+        "whether they're safe right now. Mention 911 only for immediate danger. "
+        + _DV_HOTLINE_ADDED
     ),
     "past_danger": (
         "SAFETY NOTE: the user described being physically hurt or threatened in "
         "the past. Believe them, say it wasn't their fault, don't suggest both "
-        "sides, and gently ask whether they're safe now."
+        "sides, don't assume they're in danger now, and gently ask whether "
+        "they're safe now. " + _DV_HOTLINE_ADDED
     ),
     "possible_violence": (
         "SAFETY NOTE: the user used violent words about someone, which may be "

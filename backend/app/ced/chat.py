@@ -14,9 +14,11 @@ Safety, in order:
    catches indirect wording. Findings are passed to it as notes: a hint for
    its own rating, never an order to copy.
 3. safety.combine(): the model may raise a rating, never lower a certain
-   one, and certain findings always keep their crisis resources.
+   one, and guaranteed resources always stay (clear signs, and some unclear
+   ones such as "I'm thinking about ending it" or being stalked).
    Self-harm and danger replies always include a direct safety question;
-   unclear findings always get at least one gentle question.
+   unclear findings always get a clarifying question; abuse and stalking
+   get the domestic violence hotline's details once per conversation.
 4. safety.check_reply() screens what the model wrote.
 If the model can't be used (no key, limits, provider or database errors),
 messages with a safety finding still get a human-written reply and the
@@ -34,6 +36,10 @@ MAX_CONTEXT_CHARS = 6_000   # about 1.5k tokens, well inside the free tier's per
 
 # Ratings that need a direct "are you safe right now?" in the reply.
 NEEDS_SAFETY_QUESTION = {"self_harm", "in_danger"}
+
+# Findings that get the National Domestic Violence Hotline's details.
+DV_HOTLINE_NOTES = {"in_danger", "abuse_concern", "possible_danger", "past_danger"}
+DV_HOTLINE_MARK = "88788"   # already shared earlier in this conversation
 
 
 class InvalidConversation(ValueError):
@@ -103,11 +109,13 @@ def _fallback(assessment: safety.Assessment) -> CedChatResponse:
     """A human-written reply with the resources, for when the model can't answer."""
     signal = assessment.fallback
     if signal.certain:
-        parts, support = safety.FALLBACK_REPLIES[signal.risk], assessment.certain_support
+        parts, support = safety.FALLBACK_REPLIES[signal.risk], assessment.guaranteed_support
     else:
-        # Unclear: a gentle question rather than an assumption, resources in reach.
-        parts, support = safety.FALLBACK_FOR_NOTE[signal.note], safety.SUPPORT_FOR_RISK.get(signal.risk)
-    return _response(list(parts), signal.risk, support, "fallback")
+        # Unclear: a gentle question rather than an assumption, with the 988
+        # card in reach (it also says to call 911 in immediate danger). The
+        # rating says what was checked, not that anything is confirmed.
+        parts, support = safety.FALLBACK_FOR_NOTE[signal.note], "crisis"
+    return _response(list(parts), "distress" if not signal.certain else signal.risk, support, "fallback")
 
 
 def respond(installation_id: UUID, request: CedChatRequest) -> CedChatResponse:
@@ -147,7 +155,17 @@ def respond(installation_id: UUID, request: CedChatRequest) -> CedChatResponse:
     else:
         # Unclear findings are never treated as settled without a question.
         check_in = next((safety.CHECK_IN_QUESTIONS[n] for n in assessment.notes if n in safety.CHECK_IN_QUESTIONS), None)
-        if check_in and not any("?" in p for p in parts):
-            parts.append(check_in)
+        if check_in:
+            question, must_ask_about_safety = check_in
+            asked = safety.asks_about_safety(parts) if must_ask_about_safety else any("?" in p for p in parts)
+            if not asked:
+                parts.append(question)
+
+    # Abuse and stalking: the hotline's details, once per conversation (the
+    # app's buttons only cover 988 and 911).
+    if (any(n in DV_HOTLINE_NOTES for n in assessment.notes)
+            and not any(DV_HOTLINE_MARK in p for p in parts)
+            and not any(DV_HOTLINE_MARK in t.content for t in request.messages if t.role == "assistant")):
+        parts.append(safety.DV_HOTLINE)
 
     return _response(parts, risk, support, "ai")
