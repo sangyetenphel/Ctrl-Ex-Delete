@@ -139,7 +139,7 @@ iPhone spk ◀─24 kHz PCM16── WS /ced/voice ◀─────────
 ### 4b. Ced text chat (Groq) — for context
 - `POST /ced/messages`; app sends recent turns (≤40, server uses last 12 / ~6,000 chars); server stores **no text** (only `ced_usage` counts).
 - Model replies in JSON `{"risk", "messages": [1–3 bubbles]}`; `bubbles.split` enforces 1–3 bubbles of 1–3 sentences.
-- Risk = more serious of patterns (`safety.check_message`) and model's own rating. Self-harm/in-danger replies always contain a direct "are you safe right now?" (appended if missing). `support: crisis|danger` → in-chat `CrisisSupportCard` (Call/Text 988, 911); nothing opens automatically.
+- Risk = `safety.combine(safety.assess(...), model risk)`: clear pattern findings can't be lowered by the model, unclear ones only add a note (see `docs/api.md`, Phase 1 of the Ced AI audit). Voice still uses `safety.check_message` (clear findings only). Self-harm/in-danger replies always contain a direct "are you safe right now?" (appended if missing). `support: crisis|danger` → in-chat `CrisisSupportCard` (Call/Text 988, 911); nothing opens automatically.
 - Fallbacks: crisis messages are always answered (human-written bubbles) even with no key / limits / provider errors. Unsafe replies (therapist claims, diagnoses, medication, promises) are replaced.
 - Limits: 8/min & 60/day per installation, 25/min server-wide; Groq 429 → friendly 429 with Retry-After.
 
@@ -198,7 +198,7 @@ Approaches that **did not work / were wrong** (don't repeat):
 - `app/storage.py` — the only DB module (journey, bookmarks, reflections, progress, insight records, `count_ced_message`).
 - `app/media.py` — S3 (presigned PUT 5 min / GET 1 h, `new_key()`); `app/insights.py` — Insights calculations.
 - `app/ced/prompt.py` — `CHARACTER`, `TEXT_OUTPUT`, `SYSTEM_PROMPT`, `VOICE_STYLE`, `VOICE_PROMPT`, `SAFETY_NOTES`, `VOICE_SAFETY_PREFIX`, `UNSENT_MESSAGE_CONTEXT`.
-- `app/ced/safety.py` — `check_message`, `RISK_ORDER`, `SUPPORT_FOR_RISK`, `FALLBACK_REPLIES`, `check_reply`, `FALLBACK_REPLY`.
+- `app/ced/safety.py` — `assess`/`combine` (text), `check_message` (voice), `RISK_ORDER`, `SUPPORT_FOR_RISK`, `FALLBACK_REPLIES`, `check_reply`, `FALLBACK_REPLY`.
 - `app/ced/chat.py` (text turn), `bubbles.py`, `providers.py` (Groq; `complete(messages, json_reply)`), `limits.py`, `risk.py` (`classify` for transcripts).
 - `app/ced/voice.py` — `GeminiSession` (`send_audio`, `end_audio`, `greet(reconnected)`, `send_note`, `events()`), `live_config`, `gemini_connect(resume_handle)`, `_Slots`, `_Call` (`from_app`, `from_model`, `watchdog`, `finish_user_turn`, `_escalate`), `run_call`, `diag`/`_diag_message` (temporary diagnostics).
 - `app/routes/*.py` — incl. `ced.py` (`POST /ced/messages`, `WS /ced/voice`).
