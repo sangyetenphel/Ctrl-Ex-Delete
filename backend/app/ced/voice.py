@@ -40,6 +40,7 @@ import json
 import logging
 import re
 import time
+from datetime import date
 from collections import deque
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -49,7 +50,7 @@ from uuid import UUID
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app import storage
-from app.ced import prompt, risk, safety
+from app.ced import context, prompt, risk, safety
 from app.config import settings
 
 logger = logging.getLogger("ced")
@@ -157,14 +158,16 @@ class GeminiSession:
                 return  # the connection closed
 
 
-def live_config(resume_handle: str | None = None):
+def live_config(resume_handle: str | None = None, journey: str | None = None):
     """Everything Gemini Live is told when a call starts (inspectable in tests).
-    With `resume_handle`, the new connection continues an earlier conversation."""
+    With `resume_handle`, the new connection continues an earlier conversation.
+    `journey` is this user's short journey summary (app/ced/context.py),
+    loaded once per call and given to every connection of that call."""
     from google.genai import types
 
     return types.LiveConnectConfig(
         response_modalities=["AUDIO"],
-        system_instruction=prompt.VOICE_PROMPT,
+        system_instruction=prompt.VOICE_PROMPT + prompt.journey_block(journey),
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=settings.gemini_voice)
@@ -216,12 +219,12 @@ def _diag_message(message) -> None:
 
 
 @asynccontextmanager
-async def gemini_connect(resume_handle: str | None = None) -> AsyncIterator[LiveSession]:
+async def gemini_connect(resume_handle: str | None = None, journey: str | None = None) -> AsyncIterator[LiveSession]:
     from google import genai
     from google.genai import types
 
     client = genai.Client(api_key=settings.gemini_api_key)
-    config = live_config(resume_handle)
+    config = live_config(resume_handle, journey)
     diag("live config: model %s, voice %s, resuming %s", settings.gemini_live_model,
          config.speech_config.voice_config.prebuilt_voice_config.voice_name, bool(resume_handle))
     async with client.aio.live.connect(model=settings.gemini_live_model, config=config) as session:
@@ -626,6 +629,7 @@ async def run_call(
     installation_id: UUID,
     connect: Callable | None = None,
     classify: Callable[[str], str | None] | None = None,
+    local_date: date | None = None,
 ) -> None:
     connect = connect or gemini_connect
     classify = classify or risk.classify
@@ -648,6 +652,11 @@ async def run_call(
         # A database round trip: off the event loop, so other calls' audio never waits on it.
         if await asyncio.to_thread(storage.count_ced_message, installation_id) > settings.ced_daily_message_limit:
             return await refuse("limit", "You’ve reached today’s limit for talking with Ced. It resets tomorrow.")
+        # This user's journey, once per call (one query; None without data or
+        # on any failure). Every connection of the call gets the same summary,
+        # so a reconnect restores it with no transcript kept.
+        journey = await asyncio.to_thread(context.load, installation_id, local_date)
+        diag("journey summary: %s", f"{len(journey)} chars" if journey else "none")
 
         loop = asyncio.get_running_loop()
         call_started = loop.time()
@@ -661,7 +670,7 @@ async def run_call(
             diag("connecting to %s (voice %s)%s", settings.gemini_live_model, settings.gemini_voice,
                  f", reconnect #{reconnects}" if reconnects else "")
             try:
-                async with (connect(handle) if handle else connect()) as session:
+                async with (connect(handle, journey=journey) if handle else connect(journey=journey)) as session:
                     if call is None:
                         call = _Call(ws, session, classify)
                         await call.send(type="ready", max_seconds=max_seconds)

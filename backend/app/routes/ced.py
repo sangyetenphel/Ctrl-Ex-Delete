@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException, WebSocket, status
+from datetime import date
+
+from fastapi import APIRouter, HTTPException, Query, WebSocket, status
 
 from app.ced import chat, limits, providers, voice
 from app.dependencies import InstallationId
@@ -52,9 +54,10 @@ def send_message(payload: CedChatRequest, x_installation_id: InstallationId):
 
 
 @router.websocket("/voice")
-async def voice_call(websocket: WebSocket, x_installation_id: InstallationId):
+async def voice_call(websocket: WebSocket, x_installation_id: InstallationId,
+                     local_date: date | None = Query(None, description="The user's local calendar day, YYYY-MM-DD")):
     """
     A voice call with Ced (Gemini Live), relayed by the server so the key
     never reaches the app. See app/ced/voice.py for the message format.
     """
-    await voice.run_call(websocket, x_installation_id)
+    await voice.run_call(websocket, x_installation_id, local_date=local_date)
