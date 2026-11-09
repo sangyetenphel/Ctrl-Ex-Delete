@@ -166,7 +166,7 @@ for wanting to send it.\
 
 # Added when the backend's own checks flagged the latest message. The model
 # still writes the reply, but is told what the checks found.
-_DV_HOTLINE_ADDED = (
+DV_HOTLINE_ADDED = (
     "The app adds the National Domestic Violence Hotline's contact details under "
     "your reply, so you can mention it by name, but don't write any numbers."
 )
@@ -253,19 +253,19 @@ SAFETY_NOTES = {
         "say it isn't their fault. This is serious but not necessarily an "
         "emergency: don't assume they're in immediate danger; gently ask whether "
         "they're safe right now, and mention 911 only for immediate danger. "
-        "Don't suggest confronting the person. " + _DV_HOTLINE_ADDED
+        "Don't suggest confronting the person. " + DV_HOTLINE_ADDED
     ),
     "possible_danger": (
         "SAFETY NOTE: the user may not feel safe with someone, but the details "
         "are unclear. Believe them, don't question their account, and gently ask "
         "whether they're safe right now. Mention 911 only for immediate danger. "
-        + _DV_HOTLINE_ADDED
+        + DV_HOTLINE_ADDED
     ),
     "past_danger": (
         "SAFETY NOTE: the user described being physically hurt or threatened in "
         "the past. Believe them, say it wasn't their fault, don't suggest both "
         "sides, don't assume they're in danger now, and gently ask whether "
-        "they're safe now. " + _DV_HOTLINE_ADDED
+        "they're safe now. " + DV_HOTLINE_ADDED
     ),
     "possible_violence": (
         "SAFETY NOTE: the user used violent words about someone, which may be "
