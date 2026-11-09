@@ -1,5 +1,8 @@
 // Debug build settings for the CtrlExDelete target (Release doesn't use this file).
 //
+// Signing (team and bundle ID) comes from Signing.xcconfig, which Release.xcconfig
+// also uses; override it in DeveloperSettings.xcconfig.
+//
 // Which backend Debug builds use. "deployed" is the Render server (the same
 // as Release; its address is APIConfig.deployedBaseURL). It's built into the
 // app, so it also applies when the app is opened from the Home Screen.
@@ -15,6 +18,8 @@
 // DeveloperSettings.xcconfig. It wins over CED_BACKEND; empty here = unused.
 //
 // Only the host goes here, without http://: "//" starts a comment in xcconfig files.
+
+#include "Signing.xcconfig"
 
 CED_BACKEND = deployed
 CED_DEV_SERVER_HOST = 127.0.0.1
