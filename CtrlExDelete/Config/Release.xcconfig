@@ -1,0 +1,13 @@
+// Release build settings for the CtrlExDelete target.
+//
+// Release always uses the production backend (APIConfig.deployedBaseURL):
+// the backend settings are read only by Debug builds (Config/Debug-Info.plist
+// and #if DEBUG code). DeveloperSettings.xcconfig is included here only so
+// your local signing team and bundle ID apply to Release builds too.
+
+#include "Signing.xcconfig"
+#include? "DeveloperSettings.xcconfig"
+
+// Belt and braces: never carry a local backend choice into Release.
+CED_BACKEND = deployed
+CED_API_BASE_URL =

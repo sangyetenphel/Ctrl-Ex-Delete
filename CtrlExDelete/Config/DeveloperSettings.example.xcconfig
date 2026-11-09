@@ -1,6 +1,8 @@
 // Copy this file to DeveloperSettings.xcconfig (same folder; it's gitignored)
-// to change Debug builds on YOUR Mac only. Without it, Debug builds use the
-// deployed Render backend, like Release builds.
+// to change builds on YOUR Mac only: the backend (Debug builds only) and code
+// signing (Debug and Release). Without it, Debug builds use the deployed Render
+// backend, like Release builds, and the project's shared signing defaults
+// (Signing.xcconfig).
 //
 // Local development: uncomment CED_BACKEND = local to use the FastAPI server
 // on your Mac (run it with --host 0.0.0.0 for an iPhone). The Simulator
@@ -12,6 +14,14 @@
 // The [sdk=iphoneos*] part applies the host to physical devices only, so the
 // Simulator keeps using 127.0.0.1. Rebuild and run once from Xcode after
 // changing anything here. Host only, no http:// ("//" starts a comment here).
+
+// Signing with your own Apple team (Debug and Release; needed to run on your
+// iPhone). Your Team ID is in Xcode > Settings > Accounts, or at
+// developer.apple.com/account under Membership details. The bundle ID must be
+// one your team can use, e.g. com.yourname.CtrlExDelete. Set these here, not
+// in Xcode's Signing & Capabilities tab, so project.pbxproj stays unchanged.
+// DEVELOPMENT_TEAM = YOURTEAMID
+// PRODUCT_BUNDLE_IDENTIFIER = com.yourname.CtrlExDelete
 
 // Another deployed backend for every Debug launch, Home Screen included
 // (wins over CED_BACKEND). Host only, https is assumed; for http or a port
