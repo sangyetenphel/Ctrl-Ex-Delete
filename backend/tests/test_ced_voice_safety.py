@@ -429,3 +429,18 @@ def test_the_classifier_still_raises_an_immediate_threat_the_patterns_missed(ins
         say(ws, "he's here and he's really angry and I'm scared")
         seen = say(ws, "okay")
     assert any(p["support"] == "danger" for p in panels(seen))
+
+
+def test_libraries_that_log_message_contents_never_log_below_warning():
+    # Live check: with the root logger at DEBUG, the WebSocket and HTTP
+    # libraries logged frames holding safety-note text. Production never runs
+    # at DEBUG, but the app now caps them anyway.
+    from app import main
+    root = logging.getLogger()
+    old = root.level
+    root.setLevel(logging.DEBUG)
+    try:
+        for name in main.CONTENT_LOGGERS:
+            assert not logging.getLogger(name).isEnabledFor(logging.INFO), name
+    finally:
+        root.setLevel(old)
