@@ -864,6 +864,65 @@ MILESTONE_ACTIVITY_COUNT = 5
 BOOKSHELF_CAPACITY = 32   # 4 shelves × 8 books in the room
 
 
+# ─────────────────────────────────────────────
+# Ced's context (structured journey data only)
+# ─────────────────────────────────────────────
+
+# One round trip. Structured fields only: no reflection notes, photos or
+# anything typed freely. Every subquery is limited to this installation.
+_CED_CONTEXT_SQL = """
+WITH latest AS (
+    SELECT id, local_date, feeling, contact_urge, energy_level, hardest_areas
+    FROM check_ins
+    WHERE installation_id = %(id)s AND (%(today)s::date IS NULL OR local_date <= %(today)s::date)
+    ORDER BY local_date DESC, id DESC
+    LIMIT 1
+),
+suggested AS (
+    SELECT a.title, a.category, a.duration_minutes, a.why_it_fits
+    FROM recommendations r JOIN activities a ON a.id = r.activity_id
+    WHERE r.installation_id = %(id)s AND r.check_in_id = (SELECT id FROM latest)
+    ORDER BY r.position
+    LIMIT %(max_suggested)s
+),
+completed AS (
+    SELECT a.title, a.category, s.completed_on, rf.mood_change, rf.thought_about_ex
+    FROM activity_selections s
+    JOIN recommendations r ON r.id = s.recommendation_id AND r.installation_id = s.installation_id
+    JOIN activities a ON a.id = r.activity_id
+    LEFT JOIN reflections rf ON rf.activity_selection_id = s.id AND rf.installation_id = s.installation_id
+    WHERE s.installation_id = %(id)s AND s.status = 'completed'
+      AND s.completed_on <= coalesce(%(today)s::date, current_date)
+      AND s.completed_on > coalesce(%(today)s::date, current_date) - %(recent_days)s
+    ORDER BY s.completed_on DESC, s.id DESC
+    LIMIT %(max_completed)s
+)
+SELECT
+    (SELECT row_to_json(latest) FROM latest) AS check_in,
+    (SELECT coalesce(json_agg(suggested), '[]'::json) FROM suggested) AS suggested,
+    (SELECT coalesce(json_agg(completed), '[]'::json) FROM completed) AS completed,
+    (SELECT min(local_date) FROM check_ins WHERE installation_id = %(id)s) AS journey_started_on,
+    (SELECT count(*) FROM check_ins WHERE installation_id = %(id)s) AS check_ins,
+    (SELECT count(*) FROM activity_selections WHERE installation_id = %(id)s AND status = 'completed')
+        AS activities_completed,
+    (SELECT moved_forward_on FROM moving_forward_check_ins WHERE installation_id = %(id)s) AS moved_forward_on
+"""
+
+
+def get_ced_context(installation_id: UUID, today: date | None, *, max_suggested: int = 3,
+                    max_completed: int = 3, recent_days: int = 14) -> dict:
+    """
+    The structured facts Ced may use for THIS installation (app/ced/context.py
+    turns them into a short summary). Reads only; never creates the installation.
+    `today` is the user's local date; None (an older app) means "unknown".
+    """
+    with _connect() as conn:
+        return conn.execute(_CED_CONTEXT_SQL, {
+            "id": installation_id, "today": today, "max_suggested": max_suggested,
+            "max_completed": max_completed, "recent_days": recent_days,
+        }).fetchone()
+
+
 def get_bookshelf(installation_id: UUID) -> Bookshelf:
     """
     One book per completed activity (its reflection was saved), earliest

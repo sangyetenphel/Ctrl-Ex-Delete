@@ -464,6 +464,9 @@ class CedChatRequest(BaseModel):
     """
     messages: list[CedTurn] = Field(min_length=1, max_length=40)
     mode: Literal["chat", "unsent_message"] = "chat"
+    # The user's local calendar day, so Ced knows whether a check-in is from
+    # today. Optional: older apps don't send it (then nothing counts as today).
+    local_date: date | None = None
 
 
 class CedChatResponse(BaseModel):
