@@ -43,6 +43,8 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
     init(baseURL: URL, installationID: Result<UUID, any Error>) {
         var components = URLComponents(url: baseURL.appending(path: "ced/voice"), resolvingAgainstBaseURL: false)!
         components.scheme = components.scheme == "https" ? "wss" : "ws"
+        // The user's local day, so Ced knows whether a check-in is from today.
+        components.queryItems = [URLQueryItem(name: "local_date", value: LocalDate.text())]
         var request = URLRequest(url: components.url!)
         switch installationID {
         case .success(let id):

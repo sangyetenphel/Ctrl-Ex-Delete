@@ -258,6 +258,8 @@ struct CedChatRequest: Encodable {
     }
     let messages: [Turn]
     let mode: String            // "chat" or "unsent_message"
+    /// The user's local day ("YYYY-MM-DD"), so Ced knows whether a check-in is from today.
+    var localDate: String = LocalDate.text()
 }
 
 /// Response of `POST /ced/messages`: Ced's reply as 1–3 chat bubbles.
