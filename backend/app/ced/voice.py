@@ -95,8 +95,7 @@ class GeminiSession:
         await self._s.send_realtime_input(audio_stream_end=True)
 
     async def greet(self, reconnected: bool = False) -> None:
-        text = ("(The line dropped for a moment and reconnected. In one short sentence, say you're back "
-                "and ask them to repeat what they last said.)" if reconnected else "(The call just connected.)")
+        text = prompt.VOICE_RECONNECTED if reconnected else prompt.VOICE_GREETING
         await self._s.send_client_content(
             turns=self._types.Content(role="user", parts=[self._types.Part(text=text)]),
             turn_complete=True,
