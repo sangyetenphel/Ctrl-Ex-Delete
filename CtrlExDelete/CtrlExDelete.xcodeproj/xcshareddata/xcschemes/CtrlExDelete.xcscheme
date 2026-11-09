@@ -17,6 +17,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "000000000000000100000000"
                BuildableName = "CtrlExDelete.app"
+               BlueprintName = "CtrlExDelete"
                ReferencedContainer = "container:CtrlExDelete.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -46,6 +47,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "000000000000000100000000"
             BuildableName = "CtrlExDelete.app"
+            BlueprintName = "CtrlExDelete"
             ReferencedContainer = "container:CtrlExDelete.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -68,6 +70,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "000000000000000100000000"
             BuildableName = "CtrlExDelete.app"
+            BlueprintName = "CtrlExDelete"
             ReferencedContainer = "container:CtrlExDelete.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
