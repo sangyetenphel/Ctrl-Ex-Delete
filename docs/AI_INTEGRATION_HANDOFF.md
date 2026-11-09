@@ -1,7 +1,7 @@
 # Ctrl + Ex + Delete — AI Integration Handoff
 
 > **Infrastructure update (2026-11-08):** the backend now runs on Sangye's own
-> accounts (Render `ctrl-ex-delete-api` from `refactor/final-optimization`,
+> accounts (Render `ctrl-ex-delete-api` from `main` since 2026-11-09,
 > Neon `production`/`neondb`, S3 `ced-photos-prod`). Mentions below of the
 > original database, bucket or `integration/ai-room-progress` describe the
 > earlier setup; the current one is in `docs/RENDER_DEPLOYMENT_HANDOFF.md`.

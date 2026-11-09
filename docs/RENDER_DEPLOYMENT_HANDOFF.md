@@ -9,7 +9,7 @@ The full record of how we got here: `docs/INFRASTRUCTURE_CONSOLIDATION_PLAN.md`.
 | | |
 |---|---|
 | Backend | Render web service **`ctrl-ex-delete-api`**, `https://ctrl-ex-delete-api.onrender.com` (Free, Virginia). Built into the app (`APIConfig.deployedBaseURL`) |
-| Code | branch **`refactor/final-optimization`**, root `backend/`. Auto-Deploy **off**: deploy with Manual Deploy ▸ Deploy latest commit |
+| Code | branch **`main`** (production since 2026-11-09; release tag `ced-demo-v1`), root `backend/`. Auto-Deploy **off**: deploy with Manual Deploy ▸ Deploy latest commit (or a specific commit). Pushing to `main` never deploys by itself |
 | Database | Neon project `ctrl-ex-delete`, branch **`production`**, database **`neondb`** (PostgreSQL 18, AWS us-east-1); `postgres` is Neon's built-in database |
 | Photos | AWS S3 bucket **`ced-photos-prod`** (private, us-east-1, Block Public Access on, SSE-S3), IAM user **`ced-production`** (that bucket only, one active key) |
 | Ced | **Groq** for text chat (`openai/gpt-oss-120b`), **Gemini Live** for voice calls (relayed by the backend, voice `Aoede`) |
@@ -51,8 +51,10 @@ and S3 bucket) is no longer used and is out of bounds: never read or change it.
 ## 4. Rollback
 
 Render ▸ `ctrl-ex-delete-api` ▸ Deploys ▸ **Rollback** to an earlier deploy of
-the optimized code (`7131e87` or later). Never roll back to `de1df9a` or older:
-that code doesn't match the new schema. The database can be restored from the
+the optimized code (`7131e87` or later). The CED demo release is `ed07318`
+(`ced-demo-v1` adds only a catalog seed-data fix); the previous release was
+`ad2fca6`, and the current app works with both. Never roll back to `de1df9a`
+or older: that code doesn't match the new schema. The database can be restored from the
 Neon snapshot (Backup & Restore; one-step keeps the connection string).
 
 ## 5. Open items (not infrastructure)
@@ -67,5 +69,6 @@ Neon snapshot (Backup & Restore; one-step keeps the connection string).
 - `Config/Debug-Info.plist` still has an ATS exception for an old campus IP.
 - The Neon snapshot predates the fresh start's cleanup and still contains a
   copy of the old `rehearsal` database; delete it only when Sangye decides.
-- Merging `refactor/final-optimization` into `integration/ai-room-progress` or
-  `main` is a decision for the team.
+- `main` is the production branch (fast-forwarded to the CED release on
+  2026-11-09). `refactor/final-optimization` and `feature/ced-ai-improvements`
+  point at the same commit and are kept until the team decides to remove them.

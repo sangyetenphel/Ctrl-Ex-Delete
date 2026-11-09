@@ -14,7 +14,7 @@ services:
     name: ctrl-ex-delete-api
     runtime: python
     plan: free
-    branch: refactor/final-optimization
+    branch: main   # the production branch (since 2026-11-09)
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     # No --reload. Render sets $PORT; it handles HTTPS and WebSockets (wss://).
