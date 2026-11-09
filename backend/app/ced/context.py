@@ -90,14 +90,20 @@ def render(data: dict | None, today: date | None) -> str | None:
     if check_in:
         day = _day(check_in.get("local_date"))
         is_today = today is not None and day == today
-        when = "Today" if is_today else f"Their most recent check-in ({_when(day, today)}, maybe not how they feel now)"
-        parts = [f"feeling {_FEELING.get(check_in.get('feeling'), 'unsure')}",
-                 f"{_ENERGY.get(check_in.get('energy_level'), 'unknown')} energy",
-                 f"a {_urge(int(check_in.get('contact_urge') or 0))} urge to contact their ex"]
-        hardest = [_HARDEST[a] for a in check_in.get("hardest_areas") or [] if a in _HARDEST]
-        if hardest:
-            parts.append("hardest right now: " + ", ".join(hardest))
-        lines.append(f"- {when} they checked in: " + "; ".join(parts) + ".")
+        if is_today:
+            parts = [f"feeling {_FEELING.get(check_in.get('feeling'), 'unsure')}",
+                     f"{_ENERGY.get(check_in.get('energy_level'), 'unknown')} energy",
+                     f"a {_urge(int(check_in.get('contact_urge') or 0))} urge to contact their ex"]
+            hardest = [_HARDEST[a] for a in check_in.get("hardest_areas") or [] if a in _HARDEST]
+            if hardest:
+                parts.append("hardest right now: " + ", ".join(hardest))
+            lines.append("- Today they checked in: " + "; ".join(parts) + ".")
+        else:
+            # An older check-in's answers are left out on purpose: in a live
+            # test the model read yesterday's answers as how they feel now.
+            not_today = "They haven't checked in today" if today else "You don't know if they've checked in today"
+            lines.append(f"- {not_today}; their last check-in was {_when(day, today)}. "
+                         "You don't know how they feel now, so ask.")
         suggested = data.get("suggested") or []
         if is_today and suggested:
             items = [f"\"{s['title']}\" ({_CATEGORY.get(s['category'], s['category'])}, "

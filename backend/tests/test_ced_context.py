@@ -106,17 +106,23 @@ def test_completed_activities_and_how_they_felt_afterwards(installation_id, uplo
 
 
 def test_a_previous_days_check_in_is_not_presented_as_today(installation_id, uploaded):
-    check_in(installation_id, DAY_1, feeling="heavy", energy_level="low")
+    # Live Groq run: with yesterday's answers in the summary, Ced said "the urge
+    # to reach out to your ex is still strong". Older answers are now left out.
+    check_in(installation_id, DAY_1, feeling="heavy", energy_level="low", contact_urge=9,
+             hardest_areas=["feeling_lonely"])
     text = summary(installation_id, DAY_2)
-    assert "most recent check-in (yesterday, maybe not how they feel now)" in text
-    assert "Today they checked in" not in text
+    assert "They haven't checked in today; their last check-in was yesterday." in text
+    assert "ask" in text
+    for answer in ("overwhelming", "low energy", "urge", "lonely"):
+        assert answer not in text
     assert "Today's suggested activities" not in text   # those were for yesterday
 
 
 def test_without_the_users_date_nothing_counts_as_today(installation_id):
-    check_in(installation_id, DAY_2)
+    check_in(installation_id, DAY_2, energy_level="low")
     text = summary(installation_id, None)
-    assert "Today they checked in" not in text and "maybe not how they feel now" in text
+    assert "Today they checked in" not in text and "low energy" not in text
+    assert "You don't know if they've checked in today" in text
 
 
 def test_free_text_photos_and_identifiers_are_never_included(installation_id, uploaded):
