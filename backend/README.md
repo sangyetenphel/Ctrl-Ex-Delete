@@ -146,7 +146,7 @@ The backend runs as one **Render Free** web service, `ctrl-ex-delete-api`, descr
 
 | | |
 |---|---|
-| Render | `ctrl-ex-delete-api` (Free, Virginia), branch `refactor/final-optimization`, Auto-Deploy **off** |
+| Render | `ctrl-ex-delete-api` (Free, Virginia), branch `main`, Auto-Deploy **off** (Manual Deploy only) |
 | Database | Neon project `ctrl-ex-delete`, branch `production`, database `neondb` (PostgreSQL 18, AWS us-east-1) |
 | Photos | AWS S3 bucket `ced-photos-prod` (private, us-east-1), IAM user `ced-production` (this bucket only) |
 | Ced | Groq (text chat), Gemini Live (voice calls, relayed by the backend) |
@@ -158,7 +158,7 @@ Deploying never migrates, seeds or resets anything.
 | Setting | Value |
 |---|---|
 | Repository | `sangyetenphel/Ctrl-Ex-Delete` |
-| Branch | `refactor/final-optimization` |
+| Branch | `main` |
 | Root Directory | `backend` |
 | Runtime / Language | Python 3 |
 | Build Command | `pip install -r requirements.txt` |

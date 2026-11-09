@@ -2,7 +2,7 @@
 
 iOS breakup-recovery app (UNCG senior capstone). SwiftUI app (`CtrlExDelete/`) + FastAPI backend (`backend/`) + Neon PostgreSQL + AWS S3 (photos) + Groq (Ced text chat) + Gemini Live (Ced voice calls, relayed by the backend). Anonymous users: a Keychain UUID sent as `X-Installation-ID`.
 
-Production (Sangye's accounts): Render `ctrl-ex-delete-api` (branch `refactor/final-optimization`, Auto-Deploy off), Neon `ctrl-ex-delete` / `production` / `neondb`, S3 `ced-photos-prod` with IAM user `ced-production`. Settings: git-ignored `backend/.env.production` (production), optional `backend/.env` (local development) and `.env.test` (tests).
+Production (Sangye's accounts): Render `ctrl-ex-delete-api` (branch `main`, Auto-Deploy off: deploy manually; release tag `ced-demo-v1`), Neon `ctrl-ex-delete` / `production` / `neondb`, S3 `ced-photos-prod` with IAM user `ced-production`. Settings: git-ignored `backend/.env.production` (production), optional `backend/.env` (local development) and `.env.test` (tests).
 
 For the current state of the AI/voice work, read `docs/AI_INTEGRATION_HANDOFF.md`. The API contract is `docs/api.md` — update it with any endpoint change. Schema design: `docs/DATABASE_DESIGN.md`; setting up your own Neon/S3 (fresh start): `docs/MIGRATION.md`. **Production setup (start here): `docs/RENDER_DEPLOYMENT_HANDOFF.md`**; how it was built: `docs/INFRASTRUCTURE_CONSOLIDATION_PLAN.md`.
 
