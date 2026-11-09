@@ -167,7 +167,7 @@ def live_config(resume_handle: str | None = None, journey: str | None = None):
 
     return types.LiveConnectConfig(
         response_modalities=["AUDIO"],
-        system_instruction=prompt.VOICE_PROMPT + prompt.journey_block(journey),
+        system_instruction=prompt.VOICE_PROMPT + prompt.journey_block(journey, voice=True),
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=settings.gemini_voice)

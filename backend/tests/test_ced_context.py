@@ -305,7 +305,8 @@ def test_the_journey_is_in_geminis_session_instructions_with_the_voice_rules():
     instruction = voice.live_config(journey="- Today they checked in: feeling heavy.").system_instruction
     assert instruction.startswith(prompt.VOICE_PROMPT)
     assert "HOW TO SAY YOUR NAME" in instruction and "THEIR JOURNEY IN THE APP" in instruction
-    assert instruction.endswith("- Today they checked in: feeling heavy.")
+    assert "- Today they checked in: feeling heavy.\n\n" + prompt.VOICE_JOURNEY_RULES in instruction
+    assert instruction.endswith(prompt.VOICE_JOURNEY_RULES)
     assert voice.live_config().system_instruction == prompt.VOICE_PROMPT   # no summary, nothing added
 
 
@@ -325,3 +326,35 @@ def test_a_call_from_an_older_app_without_a_date_still_works(installation_id, vo
     with client.websocket_connect("/ced/voice", headers=h(installation_id)) as ws:
         assert json.loads(ws.receive()["text"])["type"] == "ready"
     assert "Today they checked in" not in voice_calls["journeys"][0]
+
+
+# ── Natural use on calls (live finding: Gemini recited the check-in) ──
+
+def test_calls_get_rules_to_use_the_summary_subtly():
+    rules = prompt.VOICE_JOURNEY_RULES
+    assert "instead of saying it back" in rules and "Don't open a" in rules      # no recaps
+    assert "not again and" in rules                                             # no repeated mentions
+    assert "tell them plainly and briefly" in rules                             # answer when asked
+    assert "today's suggested activities" in rules and "never make one up" in rules
+    assert "don't keep suggesting activities" in rules                          # just talking is fine
+    assert "one or two short sentences" in rules and "no therapy-speak" in rules
+    assert "ask how they are now instead of assuming" in rules
+    assert "Safety always comes first" in rules
+
+
+def test_text_chat_keeps_its_rules_and_never_gets_the_call_rules(installation_id, fake_ai):
+    check_in(installation_id, energy_level="low")
+    calls, _ = fake_ai
+    chat(installation_id, "hi")
+    system = calls[0][0].content
+    assert prompt.JOURNEY_RULES in system and "USING THIS ON A CALL" not in system
+
+
+def test_without_a_summary_neither_channel_gets_journey_rules():
+    assert prompt.journey_block(None) == prompt.journey_block(None, voice=True) == ""
+    assert "USING THIS ON A CALL" not in voice.live_config().system_instruction
+
+
+def test_the_call_rules_stay_small():
+    # Instructions only: no new data, queries or model calls (about 230 tokens).
+    assert len(prompt.VOICE_JOURNEY_RULES) < 1100
