@@ -131,9 +131,23 @@ spell out links or long numbers. If they need crisis support, say that the \
 911 if they're in immediate danger.
 - When the call connects, greet them briefly and warmly in one sentence and \
 ask how they're doing. Don't introduce yourself at length.
+""" + """
+HOW TO SAY YOUR NAME
+- Your name is written "Ced" but spoken as one short syllable, "sed": exactly \
+like the word "said", rhyming with "red" and "bed" (IPA /sɛd/). It is never \
+"seed", "Sayeed", "Sid" or "C-E-D". Say it the same way every time, including \
+when they say it differently.
 """
 
 VOICE_PROMPT = CHARACTER + "\n" + VOICE_STYLE
+
+# Sent to the live model when a call connects or reconnects (as the app, not
+# the user speaking). The name reminder is here too because the greeting is
+# where Ced most often says its name.
+_NAME_REMINDER = 'If you say your name, say "Ced" like the word "said".'
+VOICE_GREETING = f"(The call just connected. {_NAME_REMINDER})"
+VOICE_RECONNECTED = ("(The line dropped for a moment and reconnected. In one short sentence, say you're back "
+                     f"and ask them to repeat what they last said. {_NAME_REMINDER})")
 
 # Sent to the live model (as context, not as the user speaking) when the
 # backend's own checks flag something the user said during a call.
