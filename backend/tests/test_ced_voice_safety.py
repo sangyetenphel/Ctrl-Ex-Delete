@@ -378,3 +378,32 @@ def test_nothing_either_side_said_is_logged(installation_id, live, caplog, monke
             say(ws, "fictional-user-words-8765 I want to end my life")
             say(ws, "not really")
     assert "fictional-user-words-8765" not in caplog.text and "fictional-ced-words-4321" not in caplog.text
+
+
+# ── Live-test findings (2026-11-08) ───────────
+
+def test_the_classifier_is_told_an_earlier_concern_was_self_harm(installation_id, live):
+    # Live Gemini run: "not really" to "are you safe?" after talk of
+    # hopelessness was rated danger from another person (911 + DV hotline).
+    with call(installation_id) as ws:
+        connected(ws)
+        live["sessions"][0].next_reply = "I'm so sorry. Are you safe right now?"
+        say(ws, "I want to end my life")
+        say(ws, "not really")
+    assert live["classified"][-1].startswith(
+        "Earlier in this call the concern was about thoughts of self-harm, not danger from another person.")
+    assert "end my life" not in live["classified"][-1]   # a fixed phrase, never the earlier words
+
+
+def test_the_classifier_is_told_an_earlier_concern_was_danger(installation_id, live):
+    with call(installation_id) as ws:
+        connected(ws)
+        live["sessions"][0].next_reply = "That sounds frightening. Are you somewhere safe right now?"
+        say(ws, "she won't let me leave the apartment")
+        say(ws, "no")
+    assert live["classified"][-1].startswith("Earlier in this call the concern was about danger from another person.")
+
+
+def test_the_classifier_reads_not_feeling_safe_from_own_thoughts_as_self_harm():
+    assert "ANOTHER PERSON" in risk.CLASSIFIER_PROMPT
+    assert '"not really" to "are you safe?" after talk of hopelessness' in risk.CLASSIFIER_PROMPT

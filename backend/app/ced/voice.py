@@ -330,11 +330,21 @@ def _reconnect_note(noted: set[str]) -> str:
             "are still on their screen. Don't repeat this note back to them.")
 
 
-def _classifier_input(question: str | None, answer: str) -> str:
-    """What the independent classifier reads: the turn, and Ced's question when there was one."""
+_EARLIER_CONCERN = {
+    "self_harm": "Earlier in this call the concern was about thoughts of self-harm, not danger from another person.",
+    "in_danger": "Earlier in this call the concern was about danger from another person.",
+}
+
+
+def _classifier_input(question: str | None, answer: str, concern: str | None = None) -> str:
+    """What the independent classifier reads: the turn, Ced's question when
+    there was one, and (as a fixed phrase, never earlier words) what an
+    earlier safety concern was about."""
     if not question:
         return answer
-    return f'Ced (the companion) just asked: "{question.strip()}"\nThe person answered: "{answer}"'
+    lines = [_EARLIER_CONCERN[concern]] if concern in _EARLIER_CONCERN else []
+    lines.append(f'Ced (the companion) just asked: "{question.strip()}"\nThe person answered: "{answer}"')
+    return "\n".join(lines)
 
 
 class _Call:
@@ -351,7 +361,8 @@ class _Call:
         self.panel: safety.Support | None = None    # most urgent resources shown so far
         self.dv_hotline = False         # the panel includes the domestic violence hotline
         self.shown: set[tuple] = set()  # (turn, support, hotline) already sent: once per turn
-        self.context_kind = "self_harm"   # what an unsafe answer is about: self_harm or in_danger
+        self.concern: str | None = None   # what this call's safety concern is about: self_harm or in_danger
+        self.concern_turn: int | None = None   # the turn it was first raised
         self.noted: set[str] = set()    # safety notes already given to this call's model
         self.checks: set[asyncio.Task] = set()
         self.call_id = format(id(self) % 10_000, "04d")   # just to tell calls apart in logs
@@ -409,9 +420,17 @@ class _Call:
         with contextlib.suppress(Exception):  # the on-screen resources don't depend on this
             await self.session.send_note(_voice_note(key))
 
+    def _set_concern(self, concern: str, turn: int) -> None:
+        if self.concern != concern:
+            self.concern, self.concern_turn = concern, turn
+
+    def _earlier_concern(self, turn: int) -> str | None:
+        """The concern raised before this turn (not by this turn's own words)."""
+        return self.concern if self.concern_turn is not None and self.concern_turn < turn else None
+
     async def _apply(self, signal: safety.Signal, turn: int) -> None:
         if signal.risk in safety.SUPPORT_FOR_RISK:
-            self.context_kind = "in_danger" if signal.risk in ("in_danger", "violence") else "self_harm"
+            self._set_concern("in_danger" if signal.risk in ("in_danger", "violence") else "self_harm", turn)
         hotline = signal.note in DV_HOTLINE_NOTES
         # Abuse disclosures without guaranteed resources still get the
         # gentler panel, because on a call the hotline can't be put in a reply.
@@ -422,7 +441,7 @@ class _Call:
     async def _check_words(self, text: str, turn: int, question: str | None) -> None:
         """The patterns (instant), read with Ced's last question (for a short answer)."""
         for signal in safety.assess(text, question).signals:
-            if signal.note == "unsafe_answer" and self.context_kind == "in_danger":
+            if signal.note == "unsafe_answer" and self._earlier_concern(turn) == "in_danger":
                 signal = safety.Signal("in_danger", True, "unsafe_answer")
             await self._apply(signal, turn)
 
@@ -431,6 +450,8 @@ class _Call:
         if not level or level not in safety.SUPPORT_FOR_RISK and level not in prompt.SAFETY_NOTES:
             return
         diag("call %s: classifier rated %s", self.call_id, level)
+        if level in safety.SUPPORT_FOR_RISK and self.concern is None:
+            self._set_concern("in_danger" if level in ("in_danger", "violence") else "self_harm", turn)
         await self._show(safety.SUPPORT_FOR_RISK.get(level), level, level == "in_danger", turn)
         await self._note(level)
 
@@ -451,7 +472,7 @@ class _Call:
         turn, self.turn = self.turn, self.turn + 1
         question, self.last_ced_question = self.last_ced_question, None
         await self._check_words(text, turn, question)
-        task = asyncio.create_task(self._classify_in_background(_classifier_input(question, text), turn))
+        task = asyncio.create_task(self._classify_in_background(_classifier_input(question, text, self._earlier_concern(turn)), turn))
         self.checks.add(task)
         task.add_done_callback(self.checks.discard)
 

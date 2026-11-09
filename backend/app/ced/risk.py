@@ -26,9 +26,12 @@ physical threat (still serious)
 ("I can't do this anymore", "no one would miss me", giving belongings away), \
 unless it's clearly about something else or a figure of speech about something \
 ordinary ("this commute makes me want to die")
-"in_danger"      THEY may be in physical danger from someone now: it's happening, \
-just happened, or they fear it's about to (hurt, threatened with violence, can't \
-leave, the person is outside)
+"in_danger"      THEY may be in physical danger from ANOTHER PERSON now: it's \
+happening, just happened, or they fear it's about to (hurt, threatened with \
+violence, can't leave, the person is outside). Not feeling safe because of their \
+own thoughts, or "not really" to "are you safe?" after talk of hopelessness or \
+self-harm, is self_harm. If you're told what an earlier concern in the call was \
+about, read the answer in that light
 "harm_to_others" THEY are stalking, monitoring, tracking, harassing or obsessively contacting someone
 "violence"       they want or plan to physically hurt someone and seem to mean it
 When unsure between self_harm and a milder rating, choose self_harm.\
