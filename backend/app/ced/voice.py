@@ -11,18 +11,28 @@ Wire protocol with the app
     {"type": "ready", "max_seconds": 900}             call connected
     {"type": "state", "state": "listening" | "thinking" | "speaking" | "reconnecting"}
     {"type": "interrupted"}                           user talked over Ced: stop playback
-    {"type": "safety", "support": "crisis" | "danger", "risk": "..."}
+    {"type": "safety", "support": "crisis" | "danger", "risk": "...", "hotline": "dv"}
+                                                      support panel ("hotline" only when the
+                                                      domestic violence hotline belongs on it);
+                                                      sent again, at most once per turn, when
+                                                      something new comes up
     {"type": "ended", "reason": "time_limit"}
     {"type": "error", "code": "unavailable" | "busy" | "limit" | "dropped", "message": "..."}
 
-Safety does not rest on the voice model alone. Every finished turn of what
-the user said (Gemini's transcript of it) is checked by the backend patterns
-(safety.py) and by an independent classifier (risk.py). If either finds
-self-harm or danger, the app is told to show crisis resources on the call
-screen, and the voice model gets a note so its next words address safety.
+Safety does not rest on the voice model alone. What the user says (Gemini's
+transcript of it) is checked with the same rules as text chat (safety.assess)
+as soon as they stop talking, read with Ced's last question so a short answer
+("not really") counts, and again by an independent classifier (risk.py) once
+the turn is over. Clear warning signs and some unclear ones put resources on
+the call screen; every finding gives the voice model a note, early enough to
+shape the reply to that turn when the transcript arrives in time. Emotional
+pain, venting, ordinary injuries and being stalked never bring up 911 by
+themselves. A fresh connection after a drop is told what was noted earlier.
 
-Privacy: audio and transcripts pass through memory only; nothing is stored
-or logged. A call counts as one message toward the daily Ced limit.
+Privacy: audio and transcripts (the user's and Ced's) pass through memory
+only; nothing is stored or logged. The classifier gets one turn, plus Ced's
+last question when there was one. A call counts as one message toward the
+daily Ced limit.
 """
 import asyncio
 import contextlib
@@ -75,6 +85,7 @@ class LiveSession(Protocol):
 # Events from events():
 #   ("audio", bytes)          Ced's voice
 #   ("user_text", str)        transcript of what the user said (safety checks only)
+#   ("ced_text", str)         transcript of what Ced said (safety checks only)
 #   ("speech_start",)         Gemini heard the user start talking
 #   ("speech_end",)           ...and stop (Gemini may or may not reply)
 #   ("interrupted",)          the user talked over Ced
@@ -132,6 +143,8 @@ class GeminiSession:
                     continue
                 if content.input_transcription and content.input_transcription.text:
                     yield ("user_text", content.input_transcription.text)
+                if content.output_transcription and content.output_transcription.text:
+                    yield ("ced_text", content.output_transcription.text)
                 if content.model_turn:
                     for part in content.model_turn.parts or []:
                         if part.inline_data and part.inline_data.data:
@@ -157,8 +170,12 @@ def live_config(resume_handle: str | None = None):
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=settings.gemini_voice)
             )
         ),
-        # Transcripts of what the user says, for the backend's safety checks only.
+        # Transcripts of what the user says and what Ced says, for the
+        # backend's safety checks only (memory only; never stored or logged):
+        # Ced's last question lets a short answer ("not really") be read
+        # correctly, and its replies are screened like text chat's.
         input_audio_transcription=types.AudioTranscriptionConfig(),
+        output_audio_transcription=types.AudioTranscriptionConfig(),
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
                 disabled=False,
@@ -270,10 +287,54 @@ MAX_RECONNECTS = 3
 class GeminiDropped(Exception):
     """The Gemini connection ended without an error."""
 
-def _voice_note(level: str) -> str:
-    """The text-chat safety note, minus its instruction about the JSON reply."""
-    note = re.sub(r'\s*Set "risk" to "[a-z_]+"\.', "", prompt.SAFETY_NOTES[level])
+
+# Notes that also put the National Domestic Violence Hotline on the call
+# screen's support panel (as in text chat, where it's added under the reply).
+DV_HOTLINE_NOTES = {"in_danger", "abuse_concern", "possible_danger", "past_danger"}
+# On a call the hotline is on the screen, not under a reply.
+_VOICE_DV_LINE = ("The National Domestic Violence Hotline's call and text buttons are on their screen; "
+                  "you can mention it by name, but don't read out any numbers.")
+
+# What a fresh connection is told about this call's safety notes, so Ced
+# doesn't greet someone in crisis as if nothing had happened.
+_EARLIER_IN_CALL = {
+    "self_harm": "they talked about hurting themselves or not wanting to live",
+    "unsafe_answer": "they said they might not be safe right now",
+    "possible_self_harm": "they said something that might mean thoughts of ending their life",
+    "unclear_distress": "they sounded worn out and overwhelmed",
+    "unclear_injury": "they mentioned hurting themselves (maybe an accident)",
+    "past_self_harm": "they mentioned past self-harm",
+    "denied_self_harm": "they mentioned self-harm but said it isn't what they're feeling",
+    "someone_else_at_risk": "someone else may be threatening to hurt themselves",
+    "in_danger": "they may be in danger from someone",
+    "abuse_concern": "they described being stalked, tracked, controlled or threatened",
+    "possible_danger": "they may not feel safe with someone",
+    "past_danger": "they described being hurt or threatened in the past",
+    "violence": "they talked about hurting someone",
+    "possible_violence": "they used violent words about someone, maybe venting",
+    "harm_to_others": "they described watching, tracking or getting back at someone",
+}
+
+
+def _voice_note(key: str) -> str:
+    """A text-chat safety note, worded for a call (no JSON, no bubbles, no text under a reply)."""
+    note = re.sub(r'\s*Set "risk" to "[a-z_]+"\.', "", prompt.SAFETY_NOTES[key])
+    note = note.replace(prompt.DV_HOTLINE_ADDED, _VOICE_DV_LINE)
     return prompt.VOICE_SAFETY_PREFIX + note.replace("Reply in 2–3 short, warm bubbles", "Reply briefly and warmly")
+
+
+def _reconnect_note(noted: set[str]) -> str:
+    earlier = "; ".join(_EARLIER_IN_CALL[k] for k in sorted(noted) if k in _EARLIER_IN_CALL)
+    return (prompt.VOICE_SAFETY_PREFIX + "The call reconnected on a new line, so you don't hear what came before. "
+            f"Earlier in this call, {earlier}. Keep that in mind and check in gently; the support options "
+            "are still on their screen. Don't repeat this note back to them.")
+
+
+def _classifier_input(question: str | None, answer: str) -> str:
+    """What the independent classifier reads: the turn, and Ced's question when there was one."""
+    if not question:
+        return answer
+    return f'Ced (the companion) just asked: "{question.strip()}"\nThe person answered: "{answer}"'
 
 
 class _Call:
@@ -283,9 +344,15 @@ class _Call:
         self.classify = classify
         self.state = "listening"
         self.muted = False
-        self.heard = ""                 # what the user said this turn (transcript)
-        self.flagged = "none"           # most serious risk seen so far in this call
-        self.noted: set[str] = set()    # safety notes already given to the model
+        self.heard = ""                 # what the user said this turn (transcript, memory only)
+        self.ced_said = ""              # what Ced said this turn (transcript, memory only)
+        self.last_ced_question: str | None = None   # Ced's last question, to read a short answer
+        self.turn = 0                   # user turns so far
+        self.panel: safety.Support | None = None    # most urgent resources shown so far
+        self.dv_hotline = False         # the panel includes the domestic violence hotline
+        self.shown: set[tuple] = set()  # (turn, support, hotline) already sent: once per turn
+        self.context_kind = "self_harm"   # what an unsafe answer is about: self_harm or in_danger
+        self.noted: set[str] = set()    # safety notes already given to this call's model
         self.checks: set[asyncio.Task] = set()
         self.call_id = format(id(self) % 10_000, "04d")   # just to tell calls apart in logs
         self.audio_in = [0, 0]      # chunks, bytes from the app this turn
@@ -312,35 +379,95 @@ class _Call:
             await self.send(type="state", state=state)
 
     # Safety ──────────────────────────────────
+    #
+    # The same rules as text chat (safety.assess): clear warning signs and
+    # some unclear ones put resources on the screen; every finding gives the
+    # model a note. Emotional pain, venting, ordinary injuries and being
+    # stalked never bring up 911 by themselves. Notes go to the model as soon
+    # as the user's words are known (at the end of their speech), so they can
+    # shape Ced's reply to that same turn whenever the transcript is ready in time.
 
-    async def _escalate(self, level: str | None) -> None:
-        if not level or level == "none":
+    async def _show(self, support: safety.Support | None, risk_level: str, hotline: bool, turn: int) -> None:
+        """Puts (or re-shows, once per turn) the support panel on the call screen."""
+        if support is None:
             return
-        if safety.RISK_ORDER.get(level, 0) > safety.RISK_ORDER.get(self.flagged, 0) or (
-            level in safety.SUPPORT_FOR_RISK and self.flagged not in safety.SUPPORT_FOR_RISK
-        ):
-            self.flagged = level
-            support = safety.SUPPORT_FOR_RISK.get(level)
-            if support:
-                await self.send(type="safety", support=support, risk=level)
-        diag("call %s: safety level %s", self.call_id, level)
-        if level in prompt.SAFETY_NOTES and level not in self.noted:
-            self.noted.add(level)
-            with contextlib.suppress(Exception):  # the on-screen resources don't depend on this
-                await self.session.send_note(_voice_note(level))
+        self.panel = safety.more_urgent(self.panel, support)
+        self.dv_hotline = self.dv_hotline or hotline
+        if (turn, self.panel, self.dv_hotline) in self.shown:
+            return
+        self.shown.add((turn, self.panel, self.dv_hotline))
+        event = {"type": "safety", "support": self.panel, "risk": risk_level}
+        if self.dv_hotline:
+            event["hotline"] = "dv"
+        await self.send(**event)
+        diag("call %s: support panel %s%s", self.call_id, self.panel, " + dv hotline" if self.dv_hotline else "")
 
-    async def _classify_in_background(self, text: str) -> None:
+    async def _note(self, key: str) -> None:
+        if key in self.noted or key not in prompt.SAFETY_NOTES:
+            return
+        self.noted.add(key)
+        with contextlib.suppress(Exception):  # the on-screen resources don't depend on this
+            await self.session.send_note(_voice_note(key))
+
+    async def _apply(self, signal: safety.Signal, turn: int) -> None:
+        if signal.risk in safety.SUPPORT_FOR_RISK:
+            self.context_kind = "in_danger" if signal.risk in ("in_danger", "violence") else "self_harm"
+        hotline = signal.note in DV_HOTLINE_NOTES
+        # Abuse disclosures without guaranteed resources still get the
+        # gentler panel, because on a call the hotline can't be put in a reply.
+        support = signal.guaranteed_support or ("crisis" if hotline else None)
+        await self._show(support, signal.risk, hotline, turn)
+        await self._note(signal.note)
+
+    async def _check_words(self, text: str, turn: int, question: str | None) -> None:
+        """The patterns (instant), read with Ced's last question (for a short answer)."""
+        for signal in safety.assess(text, question).signals:
+            if signal.note == "unsafe_answer" and self.context_kind == "in_danger":
+                signal = safety.Signal("in_danger", True, "unsafe_answer")
+            await self._apply(signal, turn)
+
+    async def _escalate(self, level: str | None, turn: int) -> None:
+        """The independent classifier's rating (it may raise, never lower)."""
+        if not level or level not in safety.SUPPORT_FOR_RISK and level not in prompt.SAFETY_NOTES:
+            return
+        diag("call %s: classifier rated %s", self.call_id, level)
+        await self._show(safety.SUPPORT_FOR_RISK.get(level), level, level == "in_danger", turn)
+        await self._note(level)
+
+    async def _classify_in_background(self, text: str, turn: int) -> None:
         level = await asyncio.to_thread(self.classify, text)
-        await self._escalate(level)
+        await self._escalate(level, turn)
+
+    async def check_heard_so_far(self) -> None:
+        """At the end of the user's speech (and for transcript that arrives
+        after it): check what's known now, before Ced answers if possible."""
+        if self.heard.strip():
+            await self._check_words(self.heard.strip(), self.turn, self.last_ced_question)
 
     async def finish_user_turn(self) -> None:
         text, self.heard = self.heard.strip(), ""
         if not text:
-            return
-        await self._escalate(safety.check_message(text))     # instant
-        task = asyncio.create_task(self._classify_in_background(text))  # a second opinion
+            return   # nothing heard: Ced's question still waits for an answer
+        turn, self.turn = self.turn, self.turn + 1
+        question, self.last_ced_question = self.last_ced_question, None
+        await self._check_words(text, turn, question)
+        task = asyncio.create_task(self._classify_in_background(_classifier_input(question, text), turn))
         self.checks.add(task)
         task.add_done_callback(self.checks.discard)
+
+    async def finish_ced_turn(self) -> None:
+        """Ced finished (or was interrupted): keep its last question for the
+        user's answer, and screen what it said (memory only, never logged)."""
+        said, self.ced_said = self.ced_said.strip(), ""
+        if not said:
+            return
+        questions = re.findall(r"[^.!?]*\?", said)
+        self.last_ced_question = questions[-1].strip() if questions else None
+        if safety.check_reply(said) != said and "reply_correction" not in self.noted:
+            self.noted.add("reply_correction")
+            diag("call %s: ced's reply crossed a boundary; correction note sent", self.call_id)
+            with contextlib.suppress(Exception):
+                await self.session.send_note(prompt.VOICE_SAFETY_PREFIX + VOICE_REPLY_CORRECTION)
 
     # Relays ──────────────────────────────────
 
@@ -393,6 +520,7 @@ class _Call:
                 await self.set_state("listening")
             elif self.state == "speaking" and now - self.last_audio_at > SPEAKING_STALL_TIMEOUT:
                 diag("call %s: ced's audio stalled for %.0f s; back to listening", self.call_id, SPEAKING_STALL_TIMEOUT)
+                await self.finish_ced_turn()
                 await self.finish_user_turn()
                 await self.set_state("listening")
 
@@ -405,6 +533,12 @@ class _Call:
                 # Older behaviour, only if Gemini doesn't send speech start/end.
                 if not self.uses_speech_events and self.state == "listening":
                     await self.set_state("thinking")
+                elif self.state == "thinking":
+                    # Transcript that arrives after they stopped talking:
+                    # check it now, before Ced's reply if possible.
+                    await self.check_heard_so_far()
+            elif kind == "ced_text":
+                self.ced_said += event[1]
             elif kind == "speech_start":
                 self.uses_speech_events = True
                 if self.state == "thinking":
@@ -413,6 +547,7 @@ class _Call:
                 self.uses_speech_events = True
                 if self.state == "listening":
                     await self.set_state("thinking")
+                await self.check_heard_so_far()       # what's known already, right away
                 self._later(self._check_after_transcript())
             elif kind == "resume_handle":
                 self.resume_handle = event[1]
@@ -432,12 +567,24 @@ class _Call:
             elif kind == "interrupted":
                 diag("call %s: gemini says interrupted", self.call_id)
                 await self.send(type="interrupted")
+                await self.finish_ced_turn()
                 await self.set_state("listening")
             elif kind == "turn_complete":
                 diag("call %s: gemini turn complete (sent %d chunks / %d B of audio)", self.call_id, *self.audio_out)
+                await self.finish_ced_turn()
                 await self.finish_user_turn()
                 await self.set_state("listening")
         raise GeminiDropped()
+
+
+# Sent when what Ced said on a call crossed a boundary (claimed to be a
+# therapist, diagnosed, gave medication advice or promised an outcome). Audio
+# can't be taken back, so the model is asked to correct it next.
+VOICE_REPLY_CORRECTION = (
+    "Your last reply may have sounded like a diagnosis, medical advice, a promise, or a "
+    "professional's opinion. In your next turn, gently correct that in one short sentence: "
+    "you're an AI companion, not a therapist or doctor. Then carry on listening."
+)
 
 
 async def run_call(
@@ -493,6 +640,12 @@ async def run_call(
                     else:
                         if call.state == "reconnecting":
                             await call.set_state("listening")
+                        if call.noted:
+                            # A fresh line knows nothing of this call: tell it
+                            # what the safety checks noted before it greets.
+                            call.last_ced_question = None
+                            with contextlib.suppress(Exception):
+                                await session.send_note(_reconnect_note(call.noted))
                         # "I'm back" only if the user already heard Ced on this call.
                         await session.greet(reconnected=call.audio_out_total > 0)
 

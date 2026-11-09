@@ -275,14 +275,14 @@ def test_stalking_gets_a_note_but_no_crisis_resources(installation_id, live):
     assert any("watching, tracking" in n for n in live["session"].notes)
 
 
-def test_resources_are_sent_once_per_level(installation_id, live):
+def test_the_note_is_given_once_per_call(installation_id, live):
+    # Resources may be re-shown once per turn (tests/test_ced_voice_safety.py).
     with call(installation_id) as ws:
         connected(ws)
         ws.send_bytes(b"SAY:I want to end my life")
         read_until(ws, event("safety"))
         ws.send_bytes(b"SAY:I want to end my life")
-        seen = read_until(ws, event("state", state="listening"))
-    assert not any(isinstance(i, dict) and i["type"] == "safety" for i in seen)
+        read_until(ws, event("safety"))
     assert len(live["session"].notes) == 1
 
 
