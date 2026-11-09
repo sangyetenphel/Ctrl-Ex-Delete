@@ -70,7 +70,7 @@ def live(monkeypatch):
     state = {"session": None, "classified": [], "classifier_says": None}
 
     @asynccontextmanager
-    async def connect(resume_handle=None):
+    async def connect(resume_handle=None, journey=None):
         state["session"] = FakeLive()
         state.setdefault("handles", []).append(resume_handle)
         yield state["session"]
@@ -343,7 +343,7 @@ def test_reconnects_once_if_gemini_fails_before_ced_speaks(installation_id, live
     attempts = []
 
     @asynccontextmanager
-    async def connect():
+    async def connect(journey=None):
         attempts.append(1)
         live["session"] = FailingLive(after_greeting=False) if len(attempts) == 1 else FakeLive()
         yield live["session"]
@@ -361,7 +361,7 @@ def test_repeated_failures_after_ced_spoke_end_with_a_clear_error(installation_i
     attempts = []
 
     @asynccontextmanager
-    async def connect(resume_handle=None):
+    async def connect(resume_handle=None, journey=None):
         attempts.append(1)
         live["session"] = FailingLive(after_greeting=True)
         yield live["session"]
@@ -438,7 +438,7 @@ def test_a_dropped_connection_resumes_the_conversation(installation_id, live, mo
     connections = []
 
     @asynccontextmanager
-    async def connect(resume_handle=None):
+    async def connect(resume_handle=None, journey=None):
         connections.append(resume_handle)
         live["session"] = DroppingLive() if len(connections) == 1 else FakeLive()
         yield live["session"]
@@ -454,7 +454,7 @@ def test_a_dropped_connection_resumes_the_conversation(installation_id, live, mo
 
 def test_gives_up_after_repeated_drops(installation_id, live, monkeypatch):
     @asynccontextmanager
-    async def connect(resume_handle=None):
+    async def connect(resume_handle=None, journey=None):
         live["session"] = DroppingLive()
         yield live["session"]
 
@@ -474,7 +474,7 @@ def test_refused_resume_falls_back_to_a_fresh_session(installation_id, live, mon
             yield  # pragma: no cover
 
     @asynccontextmanager
-    async def connect(resume_handle=None):
+    async def connect(resume_handle=None, journey=None):
         connections.append(resume_handle)
         if len(connections) == 1:
             live["session"] = DroppingLive()       # hands out a handle, then drops

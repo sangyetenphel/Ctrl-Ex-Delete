@@ -482,9 +482,10 @@ Ced's reply to the conversation so far. **Nothing is stored:** the app keeps the
 
 ```json
 { "messages": [ { "role": "user", "content": "Can we talk? I keep thinking about us." } ],
-  "mode": "unsent_message" }
+  "mode": "unsent_message", "local_date": "2026-11-08" }
 ```
-- `messages`: 1–40 turns, roles `user` / `assistant`, each 1–2000 characters, ending with `user`. The server sends at most the last 12 (≈6,000 characters) to the AI, plus Ced's instructions. No check-ins, scrapbook or other app data is ever included.
+- `messages`: 1–40 turns, roles `user` / `assistant`, each 1–2000 characters, ending with `user`. The server sends at most the last 12 (≈6,000 characters) to the AI, plus Ced's instructions.
+- `local_date` (optional): the user's local calendar day. Ced's instructions include a short journey summary for **the header's installation only** (`backend/app/ced/context.py`, one query per message): today's check-in answers in words (feeling, energy, urge to contact the ex, hardest areas), today's suggested activities with their reasons, up to 3 activities completed in the last 14 days with how the user felt afterwards, and simple progress counts. Never reflection notes, photos, identifiers or past chats; never stored or logged. Without `local_date` (older apps) no check-in is treated as today's. A database failure just leaves the summary out. Safety notes come after the summary and override it.
 - `mode`: `chat`, or `unsent_message` when the first message was written on **Say it here first** (words for the ex that were not sent; nothing is ever sent to anyone).
 
 **Response `200`:** Ced's reply as 1–3 short chat bubbles, in order.
@@ -511,7 +512,7 @@ Crisis replies work even without a key and past the limits. Provider and model a
 
 ## `WebSocket /ced/voice`: voice calls with Ced
 
-The app streams microphone audio here; the backend relays it to **Gemini Live** (`GEMINI_LIVE_MODEL`, default `gemini-3.8-live`, voice `GEMINI_VOICE`, default `Vindemiatrix`). The Gemini key never reaches the app. Header: `X-Installation-ID`. Full message format: `backend/app/ced/voice.py`.
+The app streams microphone audio here; the backend relays it to **Gemini Live** (`GEMINI_LIVE_MODEL`, default `gemini-3.8-live`, voice `GEMINI_VOICE`, default `Vindemiatrix`). The Gemini key never reaches the app. Header: `X-Installation-ID`. Optional query `?local_date=YYYY-MM-DD`: the same journey summary as text chat is loaded once when the call starts and put in Gemini's session instructions (every connection of the call gets it; no database queries during turns). Full message format: `backend/app/ced/voice.py`.
 
 - **App → server:** binary PCM 16-bit LE, **16 kHz**, mono (≈100 ms chunks); JSON `{"type":"mute"}`, `{"type":"unmute"}`, `{"type":"end"}`.
 - **Server → app:** binary PCM 16-bit LE, **24 kHz**, mono (Ced's voice, streamed); JSON `ready`, `state` (`listening` / `thinking` / `speaking` / `reconnecting`), `interrupted` (stop playback: the user talked over Ced), `safety` (`support`: `crisis` / `danger`), `ended` (`time_limit`), `error` (`unavailable` / `busy` / `limit` / `dropped`, with a `message` for the user).

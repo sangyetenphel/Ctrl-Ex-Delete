@@ -93,7 +93,7 @@ def live(monkeypatch):
     state = {"sessions": [], "classified": [], "classifier_says": None, "refuse_resume": True}
 
     @asynccontextmanager
-    async def connect(resume_handle=None):
+    async def connect(resume_handle=None, journey=None):
         if resume_handle and state["refuse_resume"]:
             raise RuntimeError("resumption refused")   # forces a fresh session
         session = TimelineLive(resumed=bool(resume_handle))
