@@ -1,0 +1,12 @@
+// Code signing for the CtrlExDelete target, Debug and Release (both
+// Debug.xcconfig and Release.xcconfig include this file).
+//
+// These are the project's shared defaults. To sign with YOUR Apple team
+// (e.g. to run on your own iPhone), don't change them here or in Xcode's
+// Signing & Capabilities tab (that writes into project.pbxproj): set both
+// lines in DeveloperSettings.xcconfig (gitignored, one per Mac; see
+// DeveloperSettings.example.xcconfig). It's included after this file, so
+// its values win.
+
+DEVELOPMENT_TEAM = 9F2KBUT6J7
+PRODUCT_BUNDLE_IDENTIFIER = com.ayushathapa.CtrlExDelete
