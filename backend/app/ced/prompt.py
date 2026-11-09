@@ -103,9 +103,36 @@ this summary.
 """
 
 
-def journey_block(summary: str | None) -> str:
-    """The journey section for Ced's instructions, or "" without a summary."""
-    return f"\n\n{JOURNEY_RULES}{summary}" if summary else ""
+# Voice calls only, after the summary: in a live call Gemini opened replies
+# by reciting the check-in ("I hear you're feeling low energy tonight. Since
+# your thoughts are returning to your ex, ..."). Text chat didn't, so its
+# rules are unchanged.
+VOICE_JOURNEY_RULES = """\
+USING THIS ON A CALL
+- Let it quietly shape what you say instead of saying it back. Don't open a \
+reply by describing their check-in ("I hear you're low on energy", "since your \
+thoughts keep going back to your ex").
+- Bring up their mood, energy, the urge to contact their ex or thoughts about \
+them only when they raise it or it really matters right now, and not again and \
+again in one call.
+- If they ask what you know about their check-in, tell them plainly and briefly.
+- If they ask for something to do, offer one of today's suggested activities \
+that fits, in a few words; never make one up. If none fits, offer one tiny, \
+simple step.
+- If they just want to talk, listen and talk; don't keep suggesting activities.
+- Keep most turns to one or two short sentences. Validate in plain, everyday \
+words and vary them; no therapy-speak, and don't repeat the same comfort line.
+- Their check-in is from earlier; ask how they are now instead of assuming.
+- Safety always comes first: anything about risk matters more than this summary.
+"""
+
+
+def journey_block(summary: str | None, voice: bool = False) -> str:
+    """The journey section for Ced's instructions, or "" without a summary.
+    Calls also get VOICE_JOURNEY_RULES after the summary."""
+    if not summary:
+        return ""
+    return f"\n\n{JOURNEY_RULES}{summary}" + (f"\n\n{VOICE_JOURNEY_RULES}" if voice else "")
 
 
 # Text chat (Groq): the reply comes back as JSON so the backend can show it as
