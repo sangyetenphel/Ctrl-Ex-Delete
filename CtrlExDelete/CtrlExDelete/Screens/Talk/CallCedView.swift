@@ -28,13 +28,6 @@ struct CallCedView: View {
                     .padding(.top, 28)
                 status
                     .padding(.top, 6)
-                Text("Ced is an AI companion, not a therapist or an emergency service.")
-                    .cedTextStyle(.caption)
-                    .foregroundStyle(.white.opacity(0.6))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 40)
-                    .padding(.top, 8)
                 Spacer(minLength: 12)
 
                 // During the call and after it ends (resources flagged on the
