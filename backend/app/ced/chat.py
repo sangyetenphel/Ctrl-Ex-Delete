@@ -7,19 +7,23 @@ latest turns are sent (MAX_TURNS / MAX_CONTEXT_CHARS), and nothing else from
 the app (check-ins, scrapbook, reflections) is ever included.
 
 Safety, in order:
-1. safety.check_message() looks for clear warning signs in the latest message.
+1. safety.assess() reads the latest message (and Ced's turn before it, for
+   answers to a safety question). Clear warning signs are "certain"; unclear
+   ones ("I'm thinking about ending it") need a gentle check.
 2. The model writes the reply AND rates the message itself ("risk"), which
-   catches indirect wording. A pattern hit is passed to the model as a note.
-3. The more serious of the two ratings decides whether crisis resources are
-   shown. Self-harm and danger replies always include a direct safety question.
+   catches indirect wording. Findings are passed to it as notes: a hint for
+   its own rating, never an order to copy.
+3. safety.combine(): the model may raise a rating, never lower a certain
+   one, and certain findings always keep their crisis resources.
+   Self-harm and danger replies always include a direct safety question;
+   unclear findings always get at least one gentle question.
 4. safety.check_reply() screens what the model wrote.
-If the model can't be used, crisis messages still get a human-written reply
-and the resources; other messages get a friendly error.
+If the model can't be used (no key, limits, provider or database errors),
+messages with a safety finding still get a human-written reply and the
+resources; ordinary messages get a friendly error.
 """
 import json
 from uuid import UUID
-
-import psycopg
 
 from app.ced import bubbles, limits, prompt, providers, safety
 from app.ced.providers import ChatMessage
@@ -36,7 +40,15 @@ class InvalidConversation(ValueError):
     pass
 
 
-def _context(request: CedChatRequest, flagged: str | None) -> list[ChatMessage]:
+def _assess(request: CedChatRequest) -> safety.Assessment:
+    """The safety findings for the latest message, read with the turn before it."""
+    *earlier, latest = request.messages
+    previous_ced = earlier[-1].content if earlier and earlier[-1].role == "assistant" else None
+    earlier_user = [t.content for t in reversed(earlier[-MAX_TURNS:]) if t.role == "user"]
+    return safety.assess(latest.content, previous_ced, earlier_user)
+
+
+def _context(request: CedChatRequest, assessment: safety.Assessment) -> list[ChatMessage]:
     """Ced's instructions plus the latest turns that fit the budget, oldest first."""
     kept: list[ChatMessage] = []
     total = 0
@@ -58,8 +70,9 @@ def _context(request: CedChatRequest, flagged: str | None) -> list[ChatMessage]:
     # Only describe the first message as the unsent one while it's still in view.
     if request.mode == "unsent_message" and len(kept) == len(request.messages):
         system += "\n\n" + prompt.UNSENT_MESSAGE_CONTEXT
-    if flagged in prompt.SAFETY_NOTES:
-        system += "\n\n" + prompt.SAFETY_NOTES[flagged]
+    notes = [prompt.SAFETY_NOTES[n] for n in assessment.notes if n in prompt.SAFETY_NOTES]
+    if notes:
+        system += "\n\n" + "\n\n".join(notes) + "\n\n" + prompt.RISK_HINT
     return [ChatMessage("system", system), *kept]
 
 
@@ -82,17 +95,19 @@ def _parse(raw: str) -> tuple[list[str], str]:
     return parts, risk if risk in safety.RISK_ORDER else "none"
 
 
-def _response(parts: list[str], risk: str, source: str) -> CedChatResponse:
-    return CedChatResponse(
-        messages=bubbles.split(parts),
-        risk=risk,
-        support=safety.SUPPORT_FOR_RISK.get(risk),
-        source=source,
-    )
+def _response(parts: list[str], risk: str, support: safety.Support | None, source: str) -> CedChatResponse:
+    return CedChatResponse(messages=bubbles.split(parts), risk=risk, support=support, source=source)
 
 
-def _fallback(flagged: str) -> CedChatResponse:
-    return _response(list(safety.FALLBACK_REPLIES[flagged]), flagged, "fallback")
+def _fallback(assessment: safety.Assessment) -> CedChatResponse:
+    """A human-written reply with the resources, for when the model can't answer."""
+    signal = assessment.fallback
+    if signal.certain:
+        parts, support = safety.FALLBACK_REPLIES[signal.risk], assessment.certain_support
+    else:
+        # Unclear: a gentle question rather than an assumption, resources in reach.
+        parts, support = safety.FALLBACK_FOR_NOTE[signal.note], safety.SUPPORT_FOR_RISK.get(signal.risk)
+    return _response(list(parts), signal.risk, support, "fallback")
 
 
 def respond(installation_id: UUID, request: CedChatRequest) -> CedChatResponse:
@@ -100,35 +115,39 @@ def respond(installation_id: UUID, request: CedChatRequest) -> CedChatResponse:
     if latest.role != "user":
         raise InvalidConversation("The last message must be from the user.")
 
-    flagged = safety.check_message(latest.content)
-    is_crisis = flagged in safety.SUPPORT_FOR_RISK
+    assessment = _assess(request)
+    # Safety findings are always answered, even without a key, past the
+    # limits, or when the provider or the database fails. Ordinary messages
+    # get the usual errors.
+    needs_answer = assessment.fallback is not None
 
-    # Crisis messages are always answered, even without a key, past the
-    # limits, or when the provider fails.
     if not providers.is_configured():
-        if is_crisis:
-            return _fallback(flagged)
+        if needs_answer:
+            return _fallback(assessment)
         raise providers.ProviderUnavailable()
     try:
-        # The daily count lives in the database, so a database outage lands
-        # here too: crisis messages are still answered.
         limits.take(installation_id)
-        parts, model_risk = _parse(providers.complete(_context(request, flagged), json_reply=True))
-    except (limits.LimitReached, providers.ProviderRateLimited, providers.ProviderUnavailable,
-            providers.ProviderTimeout, providers.ProviderError, psycopg.Error):
-        if is_crisis:
-            return _fallback(flagged)
+        parts, model_risk = _parse(providers.complete(_context(request, assessment), json_reply=True))
+    except Exception:
+        if needs_answer:
+            return _fallback(assessment)
         raise
 
-    risk = safety.more_serious(flagged or "none", model_risk)
+    risk, support = safety.combine(assessment, model_risk)
 
     # Anything that crosses a boundary is replaced with a safe reply.
     checked = safety.check_reply(" ".join(parts))
     if checked != " ".join(parts):
         parts = list(safety.FALLBACK_REPLIES[risk]) if risk in safety.FALLBACK_REPLIES else [checked]
 
-    # Self-harm and danger replies must ask directly about safety right now.
-    if risk in NEEDS_SAFETY_QUESTION and not any("safe" in p.lower() and "?" in p for p in parts):
-        parts.append(safety.SAFETY_QUESTION)
+    if risk in NEEDS_SAFETY_QUESTION:
+        # Self-harm and danger replies must ask directly about safety right now.
+        if not safety.asks_about_safety(parts):
+            parts.append(safety.SAFETY_QUESTION)
+    else:
+        # Unclear findings are never treated as settled without a question.
+        check_in = next((safety.CHECK_IN_QUESTIONS[n] for n in assessment.notes if n in safety.CHECK_IN_QUESTIONS), None)
+        if check_in and not any("?" in p for p in parts):
+            parts.append(check_in)
 
-    return _response(parts, risk, "ai")
+    return _response(parts, risk, support, "ai")
