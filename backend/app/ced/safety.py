@@ -5,19 +5,23 @@ Backend safety checks for Ced, independent of the model.
    plus the turn before it when Ced had just asked a safety question. Each
    finding is a Signal:
    - certain: a clear warning sign ("I want to end my life", "he hit me",
-     "I'm being stalked", a "no" to "are you safe?"). It guarantees the crisis
-     resources and can't be lowered by the model.
-   - possible: worth a gentle check but not a verdict ("I'm thinking about
-     ending it" might mean the relationship; "he used to hit me" is past;
-     "I could kill him lol" is usually venting). The model is told what to
-     ask about and decides; if the model can't be reached, the person still
-     gets a gentle question and the resources.
-   Emotional pain ("she hurt me so much"), self-blame ("I think I hurt her")
-   and being a victim ("I've been stalked") are kept apart from danger,
-   violence and stalking someone else.
+     "he's outside my door right now", a "no" to "are you safe?"). It
+     guarantees the crisis resources and can't be lowered by the model.
+   - unclear: worth a gentle check but not a verdict ("I'm thinking about
+     ending it" might mean the relationship; "I've been stalked for months"
+     is serious but not necessarily an emergency; "I hurt myself" may be an
+     accident). The model is told what to check and decides the rating; some
+     unclear findings still guarantee the gentler resources (`support`), and
+     the reply always asks a clarifying question. If the model can't be
+     reached, the person still gets a gentle question and the resources.
+   Emotional pain ("she hurt me so much"), self-blame ("I think I hurt her"),
+   ordinary injuries ("I hurt myself at the gym") and being a victim ("I've
+   been stalked") are kept apart from danger, violence, self-harm and
+   stalking someone else.
 2. The model rates every message too ("risk" in its JSON reply), which
    catches wording the patterns can't. combine() decides: the model may
-   raise a rating or re-label it at the same level, never lower a certain one.
+   raise a rating or re-label it at the same level, never lower a certain
+   one, and guaranteed resources always stay.
 3. check_reply(): runs on the model's reply BEFORE the user sees it.
    Therapist claims, diagnoses, medication advice and promised outcomes are
    replaced with a safe fallback.
@@ -68,6 +72,15 @@ class Signal:
     risk: Risk        # the kind of risk: self_harm, in_danger, violence or harm_to_others
     certain: bool     # clear warning sign (True) or needs a gentle check (False)
     note: str         # which prompt.SAFETY_NOTES entry tells the model about it
+    # Resources shown whatever the model says. Certain findings default to
+    # SUPPORT_FOR_RISK; unclear ones only when set here.
+    support: Support | None = None
+
+    @property
+    def guaranteed_support(self) -> Support | None:
+        if self.support:
+            return self.support
+        return SUPPORT_FOR_RISK.get(self.risk) if self.certain else None
 
 
 @dataclass(frozen=True)
@@ -88,10 +101,11 @@ class Assessment:
         return best
 
     @property
-    def certain_support(self) -> Support | None:
+    def guaranteed_support(self) -> Support | None:
+        """The most urgent resources the findings guarantee, whatever the model says."""
         support = None
-        for s in self.certain:
-            support = more_urgent(support, SUPPORT_FOR_RISK.get(s.risk))
+        for s in self.signals:
+            support = more_urgent(support, s.guaranteed_support)
         return support
 
     @property
@@ -114,15 +128,15 @@ def combine(assessment: Assessment, model_risk: str) -> tuple[str, Support | Non
     (risk, support) from the patterns and the model's own rating. The model
     can raise a rating or re-label it at the same level (e.g. self_harm for
     a message the patterns read as danger), but can't lower a certain
-    finding. Support is the most urgent of the two, so a clear warning sign
-    always keeps its resources.
+    finding. Support is the most urgent of the two, so guaranteed resources
+    always stay.
     """
     floor = assessment.floor
     if floor is None or RISK_ORDER.get(model_risk, 0) >= RISK_ORDER[floor.risk]:
         risk = model_risk
     else:
         risk = floor.risk
-    return risk, more_urgent(assessment.certain_support, SUPPORT_FOR_RISK.get(risk))
+    return risk, more_urgent(assessment.guaranteed_support, SUPPORT_FOR_RISK.get(risk))
 
 
 # ── Language helpers ───────────────────────────
@@ -149,7 +163,8 @@ _PAST = re.compile(r"\b(?:used to|years ago|a year ago|last year|in (?:high scho
 _PRESENT = re.compile(r"\b(?:again|now|lately|these days|tonight|today|recently|still|this week|right now|anymore)\b")
 # Phrases that mention self-harm words but aren't about the user.
 _BENIGN = re.compile(r"\bsuicide (?:prevention|awareness|hotline|lifeline|squad|walk)\b|\b988\b"
-                     r"|\bkill(?:ing)? myself laughing\b")
+                     r"|\bkill(?:ing)? myself laughing\b"
+                     r"|\bkilling myself (?:at (?:the gym|work|practice)|studying|working|with (?:work|homework|this project))")
 
 
 def _clauses(text: str) -> list[str]:
@@ -185,9 +200,10 @@ _SELF_HARM = [
     r"\bkill(?:ing)? my ?self\b",
     r"\bkms\b",
     r"\bunalive(?: my ?self)?\b",
-    r"\b(?:hurt|harm|cut|cutting|harming|hurting|burn|burning|starve|starving) my ?self\b",
+    r"\b(?:harm|harming|starve|starving) my ?self\b",
     r"\bself[- ]?harm",
-    r"(?<!makes me )(?<!made me )(?<!making me )\b(?:(?:want|going|ready|plan|planning) to|wanna|gonna) die\b(?! (?:of|from|laughing|alone|happy|old|for|when|if|on|in a))",
+    r"(?<!makes me )(?<!made me )(?<!making me )\b(?:(?:want|going|ready|plan|planning) to|wanna|gonna) die\b"
+    r"(?! (?:of|from|laughing|alone|happy|old|for|when|if|on|in a))",
     r"\bwish i (?:was|were|could be) dead\b",
     r"\bwish i (?:could|would) (?:just )?die\b",
     r"\bend (?:it all|my life|everything)\b|\bending (?:it all|my life|everything)\b",
@@ -198,6 +214,7 @@ _SELF_HARM = [
     r"\bno (?:reason|point) (?:to|in) (?:live|living|going on|being alive)\b",
     r"\bbetter off (?:dead|without me)\b",
     r"\btired of (?:living|being alive|life)\b",
+    r"\bnot (?:being|be) (?:here|alive|around) any ?more\b",
     r"\b(?:saving|saved|stockpil\w*|hoard\w*|collecting|stashing|stashed)(?: up)?(?: (?:some|all|my|a bunch of|enough))? "
     r"(?:pills|meds|medication|medicine|sleeping pills|tablets)\b",
     r"\b(?:pills|meds|tablets) (?:saved|stashed|ready)\b|\benough (?:pills|meds) to\b",
@@ -208,29 +225,78 @@ _SELF_HARM = [
 # "suicide"/"suicidal" is clear unless it's about someone else or negated.
 _SUICIDE = [r"\bsuicid(?:e|al)\b"]
 
-# Worth a gentle question, not a verdict.
+# Injuring oneself: self-harm, unless it's clearly an ordinary accident.
+_INJURED_MYSELF = (r"\b(?:(?:hurt|hurting|cut|cutting|burn|burned|burnt|burning|injured|injuring) my ?self"
+                   r"|(?:cut|cutting|slit|slitting|burn|burned|burning|carved|carving) (?:into )?my "
+                   r"(?:wrists?|arms?|thighs?|legs?|skin|stomach))\b")
+_ACCIDENT = re.compile(
+    r"\b(?:at the gym|working out|work(?:ed|ing)? out|lifting|deadlift\w*|squat\w*|bench(?:ing)?|running|jogging|"
+    r"hiking|climbing|playing|at practice|in practice|soccer|football|basketball|volleyball|tennis|baseball|softball|"
+    r"hockey|skating|skateboarding|skiing|snowboarding|biking|cycling|yoga|dancing|accident\w*|tripped|tripping|"
+    r"fell|falling|slipped|stubbed|cooking|chopping|cutting (?:onions|vegetables|veggies)|shaving|ironing|"
+    r"on the stove|on the oven|on a pan|in the kitchen|on (?:a|the|some) (?:nail|fence|glass|can|branch|rock|edge)|sprain\w*|pulled a muscle|moving (?:boxes|furniture)|at work)\b"
+)
+_ON_PURPOSE = re.compile(r"\b(?:on purpose|deliberately|intentionally|to feel|to cope|so i could feel|i deserve|"
+                         r"because i hate myself|urge|relapse\w*|punish)\b")
+_INTENT_BEFORE = re.compile(r"\b(?:want|wanna|going to|gonna|feel like|urge to|might|thinking (?:about|of)|"
+                            r"plan(?:ning)? to|about to|could|keep|need to|tempted to|will|i'?ll|ready to)\b")
+
+# Worth a gentle, direct question and the resources, never a verdict.
 _MAYBE_SELF_HARM = [
     # "ending it" can mean the relationship.
     r"\b(?:want(?:ed)? to|wanna|going to|gonna|thinking (?:about|of)|think about|thought about|ready to|might|"
-    r"plan(?:ning)? (?:to|on)|considering|about to|i'?ll|i will|i should|should i|just) (?:just )?(?:end|ending) it\b(?! all)(?! (?:with|off|between))",
-    r"\bcan'?t (?:do this|take (?:it|this)) any ?more\b|\bcan'?t (?:go on|keep going)\b|\bcan'?t do this much longer\b",
+    r"plan(?:ning)? (?:to|on)|considering|about to|i'?ll|i will|i should|should i|just) (?:just )?(?:end|ending) it\b"
+    r"(?! all)(?! (?:with|off|between))",
+    r"\bcan'?t (?:go on|keep going)\b",
     r"\b(?:want|wanna|wish i could|just want) to disappear\b|\bwish i could just disappear\b",
-    r"\b(?:want|wish) (?:it|everything|it all|the pain) (?:all )?(?:to|would) (?:stop|end)\b",
+    r"\b(?:want|wish) (?:everything|it all) (?:all )?(?:to|would) (?:stop|end)\b",
     r"\b(?:no ?one|nobody) would (?:miss|notice|care)\b",
-    r"\bgiving (?:away )?my (?:stuff|things|belongings)(?: away)?\b",
-    r"\bwhat'?s the point (?:of|in) (?:anything|any of this|life|living|going on|trying)\b",
+    r"\bwon'?t (?:need|be needing|have any use for) (?:any of )?my (?:[\w']+ ){0,3}?(?:any ?more|where i'?m going)\b",
+    r"\bwhat'?s the point (?:of|in) (?:life|living|going on)\b",
     r"\b(?:don'?t|do not) (?:want|wanna) to be here\b",
     r"\bsleep forever\b",
     r"\b(?:i'?m|i am) (?:so )?(?:done|finished) with (?:everything|life|it all)\b",
-    r"\boverdos(?:e|ed|ing)\b",
-    # Often a figure of speech ("this commute makes me want to die").
-    r"\b(?:makes|made|making) me (?:want|wanna) (?:to )?die\b",
 ]
+# Usually exhaustion or a figure of speech: worth asking what they mean,
+# without assuming anything (no automatic resources).
+# Giving belongings away: a warning sign, unless they're just clearing out.
+_GIVING_AWAY = [
+    r"\b(?:giving|gave|given) (?:away )?(?:all )?my (?:stuff|things|belongings)(?: away)?\b",
+    r"\b(?:give|gives|giving|gave|given)(?: away)? (?:all )?my (?:[\w']+ ){1,4}?(?:away|to (?:friends|people|everyone|family|"
+    r"my (?:friends|family|sister|brother|mom|dad|roommate|cousin)))\b",
+]
+_CLEARING_OUT = re.compile(r"\b(?:moving|move out|moved|declutter\w*|downsiz\w*|clean(?:ing)? out|selling|sold|donat\w*|"
+                           r"spring cleaning|don'?t (?:use|wear|play) (?:it|them))\b")
+_UNCLEAR_DISTRESS = [
+    r"\bcan'?t (?:do this|take (?:it|this)) any ?more\b|\bcan'?t do this much longer\b",
+    r"\b(?:want|wish) (?:it|the pain) (?:all )?(?:to|would) (?:stop|end)\b",
+    r"\bwhat'?s the point (?:of|in) (?:anything|any of this|trying)\b",
+    r"\b(?:makes|made|making) me (?:want|wanna) (?:to )?die\b",
+    # "won't need them anymore" alone is often about clearing out an ex's things.
+    r"\bwon'?t (?:need|be needing) (?:them|it|those|these|any of (?:it|this|them)) any ?more\b",
+]
+_OVERDOSE = [r"\boverdos(?:e|ed|ing)\b"]
 
 # Someone else threatening to hurt themselves ("he says he'll kill himself if I leave").
 _SOMEONE_ELSE_SELF_HARM = [
     r"\b(?:kill|hurt|harm|cut|end) (?:himself|herself|themselves|themself|his life|her life|their life)\b",
 ]
+
+
+def _injury_signal(clause: str, match: re.Match) -> Signal | None:
+    """"I hurt myself": an accident, a clear sign, or something to ask about."""
+    if _negated(clause, match):
+        return Signal("self_harm", False, "denied_self_harm")
+    on_purpose = bool(_ON_PURPOSE.search(clause))
+    if _ACCIDENT.search(clause) and not on_purpose:
+        return None
+    if _is_past(clause):
+        return Signal("self_harm", False, "past_self_harm")
+    intent = bool(_INTENT_BEFORE.search(clause[:match.start()]))
+    if match.group().startswith("hurt my") and not (intent or on_purpose):
+        # "I hurt myself" on its own: maybe an accident, maybe not.
+        return Signal("self_harm", False, "unclear_injury")
+    return Signal("self_harm", True, "self_harm")
 
 
 def _self_harm(clause: str) -> list[Signal]:
@@ -247,9 +313,17 @@ def _self_harm(clause: str) -> list[Signal]:
             found.append(Signal("self_harm", True, "self_harm"))
     elif clear:
         found.append(Signal("self_harm", False, "denied_self_harm"))
-    maybe = [m for m in _hits(_MAYBE_SELF_HARM, clause) if not _negated(clause, m)]
-    if maybe and not affirmed:
-        found.append(Signal("self_harm", False, "past_self_harm" if _is_past(clause) else "possible_self_harm"))
+    found += [s for m in re.finditer(_INJURED_MYSELF, clause) if (s := _injury_signal(clause, m))]
+    if not affirmed:
+        maybe = [m for m in _hits(_MAYBE_SELF_HARM, clause) if not _negated(clause, m)]
+        maybe += [m for m in _hits(_OVERDOSE, clause) if not _negated(clause, m) and not _about_someone_else(clause, m)]
+        if not _CLEARING_OUT.search(clause):
+            maybe += [m for m in _hits(_GIVING_AWAY, clause) if not _negated(clause, m)]
+        if maybe:
+            found.append(Signal("self_harm", False, "past_self_harm") if _is_past(clause)
+                         else Signal("self_harm", False, "possible_self_harm", support="crisis"))
+        elif [m for m in _hits(_UNCLEAR_DISTRESS, clause) if not _negated(clause, m)]:
+            found.append(Signal("self_harm", False, "unclear_distress"))
     others = _hits(_SOMEONE_ELSE_SELF_HARM, clause)
     others += [m for m in _hits(_SUICIDE, clause) if _about_someone_else(clause, m)]
     if others:
@@ -262,40 +336,55 @@ def _self_harm(clause: str) -> list[Signal]:
 _PHYSICAL = (r"(?:hit|hits|hitting|punched|punches|slapped|slaps|kicked|kicks|choked|chokes|choking|strangled|"
              r"strangles|shoved|shoves|pushed|pushes|grabbed|grabs|beat|beats|beating|raped|rapes|assaulted|"
              r"assaults|sexually assaulted|attacked|attacks|threw (?:something|stuff|things|a \w+) at)")
+# Immediate or recent physical danger: 911 first.
 _DANGER = [
-    rf"\b{_SUBJ} (?:just |has |had |keeps |kept |always |still |sometimes |used to |would |)?{_PHYSICAL} me\b(?! (?:away|to\b|at\b|in\b|off|out of|up\b|with\b))",
+    rf"\b{_SUBJ} (?:just |has |had |keeps |kept |always |still |sometimes |used to |would |)?{_PHYSICAL} me\b"
+    r"(?! (?:away|to\b|at\b|in\b|off|out of|up\b|with\b))",
     rf"\b{_SUBJ} (?:threatened|threatens|is threatening|keeps threatening|has threatened) me\b",
-    rf"\b{_SUBJ} (?:threatened|threatens|is threatening|keeps threatening|has threatened) to (?:kill|hurt|beat|shoot|stab|"
-    r"post|share|leak|send|release|expose)\b",
+    rf"\b{_SUBJ} (?:threatened|threatens|is threatening|keeps threatening|has threatened) to (?:kill|hurt|beat|shoot|stab)\b",
     rf"\b{_SUBJ} (?:said|says|told me)(?: that)? (?:he|she|they)(?:'d|'ll| would| will| is going to| was going to) "
     r"(?:kill|hurt|beat|shoot|stab) me\b",
-    rf"\b{_SUBJ} (?:posted|leaked|shared|sent out|is sharing|is posting) (?:my|our) (?:nudes|intimate|private) ",
-    rf"\bafraid {_SUBJ} (?:will|'ll|might|is going to|could) (?:hurt|kill|find|come after) me\b",
-    rf"\bscared {_SUBJ} (?:will|'ll|might|is going to|could) (?:hurt|kill|find|come after) me\b",
+    rf"\bafraid {_SUBJ} (?:will|'ll|might|is going to|could) (?:hurt|kill|come after) me\b",
+    rf"\bscared {_SUBJ} (?:will|'ll|might|is going to|could) (?:hurt|kill|come after) me\b",
     r"\b(?:i'?m|i am) (?:not safe|in danger|scared for my life|afraid for my life)\b"
     r"(?! (?:with|from|around) (?:myself|me|my (?:own )?(?:thoughts|mind|head)))",
-    # Stalked, followed, tracked or harassed: the user is the one being watched.
-    r"\b(?:i'?m|i am|i'?ve been|i have been|been|being) (?:being )?(?:stalked|followed|tracked|harassed)\b(?! (?:on|back|by (?:a|an|some) (?:account|page|bot)))",
-    rf"\b{_SUBJ}(?: is|'s| are| keeps| kept| has been|'s been| have been| won'?t stop| been| started)(?: always)? "
-    r"(?:stalking|following|tracking|harassing|watching) me\b(?! (?:on|back))",
-    rf"\b{_SUBJ} (?:stalks|follows|tracks|harasses|stalked|tracked|harassed) me\b(?! (?:on|back))",
-    rf"\b{_SUBJ} (?:keeps |kept |)(?:showing|shows|showed) up (?:at|outside) my\b",
-    r"\b(?:keeps|kept) showing up (?:at|outside) my\b|\bshows up (?:at|outside) my (?:house|home|apartment|place|door|work|job|dorm)\b",
-    rf"\b{_SUBJ}(?: is|'s) (?:outside|at|parked outside) my (?:house|home|apartment|place|door|work|job|dorm|window|car)\b",
-    rf"\b{_SUBJ} (?:put|installed|hid|is using|has) (?:a |an )?(?:tracker|airtag|tracking app|spyware)\b",
+    rf"\b{_SUBJ}(?: is|'s) (?:outside|at|parked outside|banging on) my (?:house|home|apartment|place|door|work|job|dorm|window|car)\b",
     rf"\b{_SUBJ} (?:won'?t|will not|doesn'?t|does not) let me (?:leave|go)\b",
     rf"\b{_SUBJ} (?:locked|locks|is locking) me (?:in|out)\b",
+    rf"\b{_SUBJ}(?: is|'s) (?:following|chasing) me (?:right now|home|now)\b",
 ]
 # Hurt that may be physical: only a sign of danger with a physical detail.
 _HURT_ME = rf"\b{_SUBJ} (?:physically )?(?:hurt|hurts|hurting|injured) me\b"
 _PHYSICAL_DETAIL = re.compile(r"\b(?:physically|bruises?|bruised|bleeding|blood|hospital|black eye|marks on|"
                               r"broke my|sprained|choke|choking)\b")
+# Serious but not necessarily an emergency: stalking, tracking, image-based
+# abuse, controlling behaviour. Supportive resources (the 988 card, which
+# also says to call 911 in immediate danger) and a safety question.
+_ABUSE_CONCERN = [
+    r"\b(?:i'?m|i am|i'?ve been|i have been|been|being) (?:being )?(?:stalked|followed|tracked|harassed)\b"
+    r"(?! (?:on|back|by (?:a|an|some) (?:account|page|bot)))",
+    rf"\b{_SUBJ}(?: is|'s| are| keeps| kept| has been|'s been| have been| won'?t stop| been| started)(?: always)? "
+    r"(?:stalking|following|tracking|harassing|watching) me\b(?! (?:on|back))",
+    rf"\b{_SUBJ} (?:stalks|follows|tracks|harasses|stalked|tracked|harassed) me\b(?! (?:on|back))",
+    rf"\b{_SUBJ} (?:keeps |kept |)(?:showing|shows|showed) up (?:at|outside) my\b",
+    r"\b(?:keeps|kept) showing up (?:at|outside) my\b|\bshows up (?:at|outside) my (?:house|home|apartment|place|door|work|job|dorm)\b",
+    rf"\b{_SUBJ} (?:put|installed|hid|is using|has) (?:a |an )?(?:tracker|airtag|tracking app|spyware)\b",
+    rf"\b{_SUBJ} (?:threatened|threatens|is threatening|keeps threatening|has threatened) to (?:post|share|leak|send|release|expose)\b",
+    rf"\b{_SUBJ} (?:posted|leaked|shared|sent out|is sharing|is posting) (?:my|our) (?:nudes|intimate|private) ",
+    rf"\b{_SUBJ} (?:controls|controlled|is controlling) (?:my|me|everything)\b",
+    rf"\b{_SUBJ} (?:won'?t|doesn'?t|wouldn'?t|didn'?t) let me (?:see|talk to|have) (?:my )?(?:friends|family|money|phone)\b",
+    rf"\b{_SUBJ} (?:checks|checked|goes through|went through|keeps checking) my phone\b",
+    rf"\b{_SUBJ} used to (?:stalk|follow|track|harass|control|threaten) me\b",
+]
 # Unclear: needs a gentle check.
 _MAYBE_DANGER = [
     r"\b(?:i )?(?:don'?t|do not) feel safe\b(?! (?:with|around) myself)",
     rf"\b(?:i'?m|i am) (?:scared|afraid|terrified) (?:of {_SUBJ}|to go home|to leave)\b",
     rf"\b{_SUBJ} (?:still )?(?:has|is tracking|tracks|checks|is checking|can see) my location\b",
 ]
+# Makes a stalking or abuse disclosure an emergency.
+_IMMINENT = re.compile(r"\b(?:right now|at the moment|tonight|just now|on (?:his|her|their) way|"
+                       r"at my door|outside my (?:door|window|house|home|apartment|place|dorm|room))\b")
 
 
 def _danger(clause: str) -> list[Signal]:
@@ -303,8 +392,13 @@ def _danger(clause: str) -> list[Signal]:
     hurt = [m for m in re.finditer(_HURT_ME, clause) if not _negated(clause, m)]
     if hurt and _PHYSICAL_DETAIL.search(clause):
         hits += hurt
-    if hits:
-        return [Signal("in_danger", False, "past_danger")] if _is_past(clause) else [Signal("in_danger", True, "in_danger")]
+    concern = [m for m in _hits(_ABUSE_CONCERN, clause) if not _negated(clause, m)]
+    if hits or concern:
+        if _is_past(clause):
+            return [Signal("in_danger", False, "past_danger")]
+        if hits or _IMMINENT.search(clause):
+            return [Signal("in_danger", True, "in_danger")]
+        return [Signal("in_danger", False, "abuse_concern", support="crisis")]
     if [m for m in _hits(_MAYBE_DANGER, clause) if not _negated(clause, m)]:
         return [Signal("in_danger", False, "possible_danger")]
     return []
@@ -373,7 +467,8 @@ _ASKS_SAFE = re.compile(r"\b(?:are|do|will|would) you (?:feel(?:ing)? )?safe\b"
                         r"|\bsafe (?:right now|tonight|where you are|at home|now)\b|\byou(?:'re| are) safe\b")
 _ASKS_THOUGHTS = re.compile(
     r"\b(?:hurt(?:ing)? yourself|harm(?:ing)? yourself|kill(?:ing)? yourself|end(?:ing)? your life|suicid\w*|"
-    r"not wanting to (?:be alive|live|be here)|thoughts of (?:dying|death|not being here)|want to die)\b"
+    r"not wanting to (?:be alive|live|be here)|thoughts of (?:dying|death|not being here)|want to die|"
+    r"hurt yourself on purpose)\b"
 )
 _YES = re.compile(r"^(?:yes|yeah|yea|yep|yup|ya|yh|i do|i am|i have|i guess|kind of|kinda|sort of|sorta|a little|"
                   r"a bit|sometimes|maybe|i think so|probably|honestly yes|mhm|uh huh|true|definitely|i mean yes)\b")
@@ -397,6 +492,11 @@ def _answer_to_safety_question(question: str, answer: str) -> bool | None:
     if _NOT_SAFE.search(answer):
         return True
     if asks_thoughts:
+        # "Was that an accident, or on purpose?"
+        if re.search(r"\b(?:on purpose|deliberately|intentionally|(?:not|wasn'?t) an accident)\b", answer):
+            return True
+        if re.search(r"\baccident", answer):
+            return False
         if _NO.search(answer) and not _UNSURE.search(answer):
             return False
         if _YES.search(answer) or _UNSURE.search(answer):
@@ -413,15 +513,18 @@ def _answer_to_safety_question(question: str, answer: str) -> bool | None:
 
 # ── Putting it together ────────────────────────
 
+def _drop_moot(signals: list[Signal]) -> list[Signal]:
+    """A certain finding of a kind makes unclear ones of the same kind moot."""
+    certain_risks = {s.risk for s in signals if s.certain}
+    return list(dict.fromkeys(s for s in signals if s.certain or s.risk not in certain_risks))
+
+
 def _assess_text(text: str) -> list[Signal]:
     signals: list[Signal] = []
     for clause in _clauses(_normalize(text)):
         for check in (_self_harm, _danger, _violence, _harm_to_others):
             signals += check(clause)
-    # One certain finding of a kind makes "possible" ones of the same kind moot.
-    certain_risks = {s.risk for s in signals if s.certain}
-    signals = [s for s in signals if s.certain or s.risk not in certain_risks]
-    return list(dict.fromkeys(signals))
+    return _drop_moot(signals)
 
 
 def assess(latest: str, previous_ced: str | None = None, earlier_user: list[str] | None = None) -> Assessment:
@@ -442,9 +545,7 @@ def assess(latest: str, previous_ced: str | None = None, earlier_user: list[str]
                     kind = "in_danger" if earlier[0].risk in ("in_danger", "violence") else "self_harm"
                     break
             signals.insert(0, Signal(kind, True, "unsafe_answer"))
-    certain_risks = {s.risk for s in signals if s.certain}
-    signals = [s for s in signals if s.certain or s.risk not in certain_risks]
-    return Assessment(tuple(dict.fromkeys(signals)))
+    return Assessment(tuple(_drop_moot(signals)))
 
 
 def check_message(text: str) -> Risk | None:
@@ -454,6 +555,11 @@ def check_message(text: str) -> Risk | None:
 
 
 # ── Fixed replies ──────────────────────────────
+
+# For people describing abuse or stalking: specialised help, by name, with
+# the ways to reach it (the app's buttons only cover 988 and 911).
+DV_HOTLINE = ("The National Domestic Violence Hotline can help with a safety plan, including for stalking: "
+              "call 1-800-799-7233 or text START to 88788.")
 
 # Human-written replies for when the model can't be used. Short bubbles: the
 # crisis resources are shown by the app right under them.
@@ -467,6 +573,7 @@ FALLBACK_REPLIES: dict[str, list[str]] = {
     "in_danger": [
         "That sounds frightening, and your safety comes first.",
         "Are you somewhere safe right now? If you're in immediate danger, please call 911.",
+        DV_HOTLINE,
     ],
     "violence": [
         "I can hear how much pain and anger you're carrying right now.",
@@ -481,12 +588,23 @@ FALLBACK_REPLIES: dict[str, list[str]] = {
 }
 
 # For unclear findings when the model can't be reached: a gentle question
-# instead of an assumption, with the resources in reach.
+# instead of an assumption, with the resources in reach (the 988 card, which
+# also says to call 911 in immediate danger).
 FALLBACK_FOR_NOTE: dict[str, list[str]] = {
     "possible_self_harm": [
         "That sounds really heavy, and I'm glad you said it.",
         "Can I ask you gently: are you having any thoughts of hurting yourself or not wanting to be alive?",
         "If you are, you don't have to carry that alone. You can call or text 988 below, any time.",
+    ],
+    "unclear_distress": [
+        "That sounds like so much to carry right now.",
+        "Can I check what you mean? Sometimes that means being completely worn out, and sometimes something "
+        "heavier, and either is okay to tell me. If it's heavier, 988 is below, any time.",
+    ],
+    "unclear_injury": [
+        "I'm sorry you got hurt.",
+        "Can I ask gently: was that an accident, or did you hurt yourself on purpose? Either way, "
+        "you can tell me, and 988 is below if you need someone to talk to.",
     ],
     "past_self_harm": [
         "Thank you for trusting me with that.",
@@ -500,25 +618,39 @@ FALLBACK_FOR_NOTE: dict[str, list[str]] = {
         "That's a lot to carry, and it isn't your job to keep someone safe on your own.",
         "If they might hurt themselves, they can call or text 988, and if they're in immediate danger, call 911.",
     ],
+    "abuse_concern": [
+        "That sounds really scary, and it isn't your fault.",
+        "Are you safe right now? If you're ever in immediate danger, call 911.",
+        DV_HOTLINE,
+    ],
     "possible_danger": [
         "I'm glad you told me. How you feel about your safety matters.",
         "Are you somewhere safe right now? If you're ever in immediate danger, you can call 911.",
+        DV_HOTLINE,
     ],
     "past_danger": [
         "I'm so sorry that happened to you. It wasn't okay, and it wasn't your fault.",
         "Are you safe now? If you're ever in danger, you can call 911.",
+        DV_HOTLINE,
     ],
 }
 
 # The question every self-harm / danger reply must contain.
 SAFETY_QUESTION = "Are you safe right now?"
 
-# Asked when an unclear finding got a reply with no question at all.
-CHECK_IN_QUESTIONS: dict[str, str] = {
-    "possible_self_harm": "Can I ask you gently: are you having any thoughts of hurting yourself or not wanting to be alive?",
-    "past_self_harm": "How are you doing with those thoughts these days?",
-    "possible_danger": "Are you somewhere safe right now?",
-    "past_danger": "Are you safe now?",
+# Asked when an unclear finding's reply doesn't ask about it: (question,
+# whether the reply must ask about safety or self-harm specifically rather
+# than any question at all).
+CHECK_IN_QUESTIONS: dict[str, tuple[str, bool]] = {
+    "possible_self_harm": ("Can I ask you gently: are you having any thoughts of hurting yourself "
+                           "or not wanting to be alive?", True),
+    "unclear_distress": ("Can I check what you mean? Sometimes that means being completely worn out, "
+                         "and sometimes something heavier, and either is okay to tell me.", False),
+    "unclear_injury": ("Can I ask gently: was that an accident, or did you hurt yourself on purpose?", False),
+    "past_self_harm": ("How are you doing with those thoughts these days?", False),
+    "abuse_concern": ("Are you safe right now?", True),
+    "possible_danger": ("Are you somewhere safe right now?", True),
+    "past_danger": ("Are you safe now?", True),
 }
 
 
