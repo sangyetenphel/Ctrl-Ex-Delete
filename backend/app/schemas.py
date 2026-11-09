@@ -67,6 +67,11 @@ class CheckIn(CheckInCreate):
     # Ced's message for this check-in (POST /check-ins and GET /check-ins/today).
     # Chosen once and kept, so it's the same every time the room opens.
     room_message: RoomMessage | None = None
+    # How many activities the user completed on this check-in's local day
+    # (POST /check-ins and GET /check-ins/today; null elsewhere). The room
+    # invites them to try one while it's 0. Counted from completions, so
+    # deleting a memory doesn't change it.
+    activities_completed_today: int | None = None
 
 
 class InstallationMarker(BaseModel):

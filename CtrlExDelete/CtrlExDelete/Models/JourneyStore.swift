@@ -141,7 +141,8 @@ final class JourneyStore {
     func restoreSession(today: String) async throws -> CheckInStatusDTO {
         let status = try await APIClient.shared.checkInStatus(localDate: today)
         forgetLocalJourneyIfReset(status.installation)
-        applyRoomMessage(status.roomMessage, checkInId: status.checkIn?.id, localDate: status.localDate)
+        applyRoomMessage(status.roomMessage, checkInId: status.checkIn?.id, localDate: status.localDate,
+                         activitiesCompletedToday: status.checkIn?.activitiesCompletedToday)
         try await reloadStory()
         return status
     }
@@ -178,31 +179,54 @@ final class JourneyStore {
 
     /// What Ced says in the room today. Never another day's message: until
     /// today's is known (loading, or no connection and nothing saved for
-    /// today) it's a neutral line.
-    func roomMessageText(today: String) -> String {
-        guard let roomMessage, roomMessage.localDate == today else { return RoomMessageRecord.neutralText }
-        return roomMessage.text
+    /// today) it's a neutral line. After today's check-in, until an activity
+    /// is completed today, it's an invitation to try one (RoomDialogue).
+    func roomLine(today: String) -> RoomDialogue.Line {
+        RoomDialogue.line(messageText: roomMessage?.text, messageDate: roomMessage?.localDate,
+                          isCheckInMessage: roomMessage?.isPersonal == true,
+                          activityCompletedToday: roomMessage?.activityCompletedToday,
+                          today: today, neutralText: RoomMessageRecord.neutralText)
     }
 
-    /// Keeps a message from the backend (after checking in, or today's status).
-    func applyRoomMessage(_ message: RoomMessageDTO?, checkInId: Int?, localDate: String) {
+    func roomMessageText(today: String) -> String { roomLine(today: today).text }
+
+    /// Keeps a message from the backend (after checking in, or today's status)
+    /// and, when the backend sent it, how many activities were completed that day.
+    func applyRoomMessage(_ message: RoomMessageDTO?, checkInId: Int?, localDate: String,
+                          activitiesCompletedToday: Int? = nil) {
         guard let message else { return }
-        let record = RoomMessageRecord(text: message.text, pattern: message.pattern, checkInId: checkInId,
+        var record = RoomMessageRecord(text: message.text, pattern: message.pattern, checkInId: checkInId,
                                        localDate: localDate, installationID: try? InstallationID.current())
         // A personal message for today is never replaced by a "let's check in" one.
         if let current = roomMessage, current.localDate == localDate, current.isPersonal, !record.isPersonal { return }
+        record.activityCompletedToday = RoomDialogue.completedToday(
+            newCount: activitiesCompletedToday, savedDate: roomMessage?.localDate,
+            savedValue: roomMessage?.activityCompletedToday, date: localDate)
         roomMessage = record
         RoomMessageCache.save(record)
     }
 
-    /// Fetches today's message when none is known for today. A failure keeps
-    /// whatever belongs to today and changes nothing else.
+    /// An activity was completed on `localDate` (its reflection was saved):
+    /// the room goes back to the day's own message.
+    private func noteActivityCompleted(on localDate: String) {
+        guard var record = roomMessage, record.localDate == localDate, record.activityCompletedToday != true else { return }
+        record.activityCompletedToday = true
+        roomMessage = record
+        RoomMessageCache.save(record)
+    }
+
+    /// Fetches today's message when none is known for today, or when it's
+    /// not yet known whether an activity was completed after today's
+    /// check-in. A failure keeps whatever belongs to today and changes nothing else.
     func loadRoomMessage(today: String) async {
-        guard roomMessage?.localDate != today, !isLoadingRoomMessage else { return }
+        let known = roomMessage?.localDate == today
+            && (roomMessage?.isPersonal == false || roomMessage?.activityCompletedToday != nil)
+        guard !known, !isLoadingRoomMessage else { return }
         isLoadingRoomMessage = true
         defer { isLoadingRoomMessage = false }
         if let status = try? await APIClient.shared.checkInStatus(localDate: today) {
-            applyRoomMessage(status.roomMessage, checkInId: status.checkIn?.id, localDate: status.localDate)
+            applyRoomMessage(status.roomMessage, checkInId: status.checkIn?.id, localDate: status.localDate,
+                             activitiesCompletedToday: status.checkIn?.activitiesCompletedToday)
         }
     }
 
@@ -296,6 +320,7 @@ final class JourneyStore {
         if selectedActivity?.selectionId == saved.activitySelectionId {
             selectedActivity = nil
         }
+        noteActivityCompleted(on: saved.localDate)
         return saved
     }
 }

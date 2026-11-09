@@ -27,6 +27,9 @@ struct CheckInResponse: Codable {
     let createdAt: String
     /// Ced's room message for this check-in (chosen once, then kept).
     let roomMessage: RoomMessageDTO?
+    /// Activities completed on this check-in's local day (POST /check-ins and
+    /// GET /check-ins/today; nil from an older backend).
+    let activitiesCompletedToday: Int?
 }
 
 /// Ced's message in the healing room, chosen by the backend's rules.

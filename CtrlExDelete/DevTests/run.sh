@@ -23,3 +23,8 @@ echo "  ok    JourneyCache and RoomMessageCache use LocalJourneyFiles"
 cp DevTests/LocalJourneyCacheResetTests.swift "$out/main.swift"
 xcrun swiftc -D DEBUG -o "$out/tests" CtrlExDelete/Models/LocalJourneyCache.swift "$out/main.swift"
 "$out/tests"
+
+# When Ced's room card invites the user to try an activity.
+cp DevTests/RoomDialogueTests.swift "$out/main.swift"
+xcrun swiftc -o "$out/room-dialogue-tests" CtrlExDelete/Models/RoomDialogue.swift "$out/main.swift"
+"$out/room-dialogue-tests"
