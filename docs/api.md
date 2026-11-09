@@ -111,7 +111,7 @@ Saving a check-in also creates its activity recommendations (same database trans
   "hardest_areas": ["feeling_lonely", "resisting_contact"],
   "local_date": "2026-09-27",
   "id": 1,
-  "installation_id": "a4781cb6-8637-4789-bd52-9ab075d2ab1c",
+  "installation_id": "00000000-0000-4000-8000-000000000000",
   "created_at": "2026-09-28T03:35:34.053814Z"
 }
 ```
