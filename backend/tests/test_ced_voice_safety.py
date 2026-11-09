@@ -407,3 +407,25 @@ def test_the_classifier_is_told_an_earlier_concern_was_danger(installation_id, l
 def test_the_classifier_reads_not_feeling_safe_from_own_thoughts_as_self_harm():
     assert "ANOTHER PERSON" in risk.CLASSIFIER_PROMPT
     assert '"not really" to "are you safe?" after talk of hopelessness' in risk.CLASSIFIER_PROMPT
+
+
+def test_the_classifier_cannot_turn_a_stalking_disclosure_into_911_first(installation_id, live):
+    # Live run: patterns gave the gentler panel + hotline, then the classifier
+    # rated "in_danger" and raised it to 911 first.
+    live["classifier_says"] = "in_danger"
+    with call(installation_id) as ws:
+        connected(ws)
+        seen = say(ws, "I've been stalked by my ex for months")
+        live["classifier_says"] = "distress"     # later turns are ordinary
+        seen += say(ws, "it's been really hard")   # turn 1's rating has arrived by now
+    assert [p for p in panels(seen) if p["support"] == "danger"] == []
+    assert live["classified"][0] == "I've been stalked by my ex for months"
+
+
+def test_the_classifier_still_raises_an_immediate_threat_the_patterns_missed(installation_id, live):
+    live["classifier_says"] = "in_danger"
+    with call(installation_id) as ws:
+        connected(ws)
+        say(ws, "he's here and he's really angry and I'm scared")
+        seen = say(ws, "okay")
+    assert any(p["support"] == "danger" for p in panels(seen))
