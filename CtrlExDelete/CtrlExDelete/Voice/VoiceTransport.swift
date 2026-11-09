@@ -7,7 +7,7 @@ nonisolated enum VoiceEvent: Sendable {
     case activity(String)                 // "listening", "thinking", "speaking"
     case audio(Data)                      // Ced's voice, PCM 16-bit, 24 kHz, mono
     case interrupted                      // the user talked over Ced
-    case safety(CrisisSupport)
+    case safety(CrisisSupport, dvHotline: Bool)   // support panel; dvHotline adds the domestic violence hotline
     case ended(reason: String)
     case failed(code: String, message: String)
 }
@@ -125,7 +125,9 @@ nonisolated final class LiveVoiceTransport: VoiceTransport, @unchecked Sendable 
         case "ready": return .ready
         case "state": return (json["state"] as? String).map(VoiceEvent.activity)
         case "interrupted": return .interrupted
-        case "safety": return (json["support"] as? String).flatMap(CrisisSupport.init(rawValue:)).map(VoiceEvent.safety)
+        case "safety":
+            guard let support = (json["support"] as? String).flatMap(CrisisSupport.init(rawValue:)) else { return nil }
+            return .safety(support, dvHotline: json["hotline"] as? String == "dv")
         case "ended": return .ended(reason: json["reason"] as? String ?? "")
         case "error":
             return .failed(code: json["code"] as? String ?? "dropped",
@@ -212,7 +214,7 @@ nonisolated final class MockVoiceTransport: VoiceTransport, @unchecked Sendable 
             onEvent(.ready)
             self.speak(self.greeting) {}
             if self.simulateCrisis {
-                self.queue.asyncAfter(deadline: .now() + 3) { if !self.closed { onEvent(.safety(.crisis)) } }
+                self.queue.asyncAfter(deadline: .now() + 3) { if !self.closed { onEvent(.safety(.crisis, dvHotline: false)) } }
             }
         }
     }

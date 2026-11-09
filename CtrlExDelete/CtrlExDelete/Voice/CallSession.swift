@@ -32,8 +32,14 @@ final class CallSession {
     private(set) var isMuted = false
     private(set) var isSpeakerOn = true
     private(set) var connectedAt: Date?
-    /// Crisis resources to show on the call screen (never opened automatically).
+    /// Crisis resources showing on the call screen (never opened automatically);
+    /// nil while hidden.
     private(set) var support: CrisisSupport?
+    /// The most urgent resources the server asked for during this call, kept
+    /// after "Hide" and after the call ends, so they're always one tap away.
+    private(set) var flaggedSupport: CrisisSupport?
+    /// The panel also lists the National Domestic Violence Hotline.
+    private(set) var showsDVHotline = false
     private(set) var isMock = false
     /// 0…1, for the avatar: Ced's voice while speaking, the mic while listening.
     private(set) var level: Float = 0
@@ -111,9 +117,12 @@ final class CallSession {
         case .interrupted:
             audio.stopPlayback()
             activity = .listening
-        case .safety(let kind):
-            // The more urgent panel wins (danger shows 911 first).
-            if support != .danger { support = kind }
+        case .safety(let kind, let dvHotline):
+            // The more urgent panel wins (danger shows 911 first). Something
+            // new brings it back even if it was hidden.
+            if flaggedSupport != .danger { flaggedSupport = kind }
+            showsDVHotline = showsDVHotline || dvHotline
+            support = flaggedSupport
         case .ended(let reason):
             finish(reason == "time_limit" ? "Calls can last up to 15 minutes. You can call Ced again anytime." : "Call ended.")
         case .failed(let code, let message):
@@ -177,9 +186,10 @@ final class CallSession {
         finish("Call ended.")
     }
 
-    /// Shows the support panel on request (the user tapped "Support").
+    /// Shows the support panel on request (the user tapped "Support"): what
+    /// this call flagged, or 988 by default.
     func showSupport() {
-        if support == nil { support = .crisis }
+        if support == nil { support = flaggedSupport ?? .crisis }
     }
 
     func hideSupport() {
@@ -208,6 +218,9 @@ final class CallSession {
         CallDiagnostics.log("call finished")
         watchdog?.cancel()
         phase = .ended(reason)
+        // Resources flagged during the call stay on the screen after it ends
+        // (hung up, dropped or timed out): that's when they matter most.
+        if let flaggedSupport { support = flaggedSupport }
         transport.close()
         audio.onCapture = nil
         audio.stop()

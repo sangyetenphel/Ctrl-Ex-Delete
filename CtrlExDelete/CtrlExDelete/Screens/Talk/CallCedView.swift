@@ -28,10 +28,19 @@ struct CallCedView: View {
                     .padding(.top, 28)
                 status
                     .padding(.top, 6)
+                Text("Ced is an AI companion, not a therapist or an emergency service.")
+                    .cedTextStyle(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 40)
+                    .padding(.top, 8)
                 Spacer(minLength: 12)
 
-                if let support = call.support, call.phase == .active {
-                    CallSupportPanel(support: support,
+                // During the call and after it ends (resources flagged on the
+                // call stay here), never while still connecting.
+                if let support = call.support, call.phase != .connecting {
+                    CallSupportPanel(support: support, showsDVHotline: call.showsDVHotline,
                                      open: { url in hangUp(thenOpen: url) },
                                      close: { withAnimation { call.hideSupport() } })
                         .padding(.horizontal, 20)
@@ -78,7 +87,7 @@ struct CallCedView: View {
                     .accessibilityLabel("Practice mode. This is a mock voice, not the real Ced.")
             }
             Spacer()
-            if call.phase == .active {
+            if call.phase != .connecting, call.support == nil {
                 Button {
                     withAnimation { call.showSupport() }
                 } label: {
@@ -200,8 +209,11 @@ struct CallCedView: View {
     }
 
     /// Ends the call, then (only because the user tapped it) opens 988 or 911.
+    /// If support came up during this call, hanging up stays on the ended
+    /// screen with those resources ("Close" leaves); otherwise it closes as before.
     private func hangUp(thenOpen url: URL? = nil) {
         call.end()
+        if url == nil, call.flaggedSupport != nil { return }
         dismiss()
         if let url { openURL(url) }
     }
@@ -305,10 +317,13 @@ private struct CallControl: View {
 
 // MARK: - Crisis support during a call
 
-/// 988 / 911 on the call screen. Tapping one ends the call first (so the
-/// phone's audio is free) and then opens the Phone or Messages app.
+/// 988 / 911 (and, for abuse or stalking, the National Domestic Violence
+/// Hotline) on the call screen. Tapping one ends the call first (so the
+/// phone's audio is free) and then opens the Phone or Messages app. Nothing
+/// is ever dialled or opened without a tap.
 private struct CallSupportPanel: View {
     let support: CrisisSupport
+    var showsDVHotline = false
     let open: (URL) -> Void
     let close: () -> Void
 
@@ -329,6 +344,17 @@ private struct CallSupportPanel: View {
             }
             if support == .danger {
                 button("Call 911", url: "tel:911", filled: true, hint: "Ends this call and calls emergency services")
+            }
+            if showsDVHotline {
+                Text("National Domestic Violence Hotline")
+                    .cedTextStyle(.captionBold)
+                    .foregroundStyle(CEDColor.foreground)
+                HStack(spacing: 8) {
+                    button("Call hotline", url: "tel:18007997233", filled: false,
+                           hint: "Ends this call and calls the National Domestic Violence Hotline, 1-800-799-7233")
+                    button("Text START", url: "sms:88788&body=START", filled: false,
+                           hint: "Ends this call and opens Messages to text START to 88788")
+                }
             }
             HStack(spacing: 8) {
                 button("Call 988", url: "tel:988", filled: support == .crisis,
