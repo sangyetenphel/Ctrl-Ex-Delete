@@ -82,21 +82,31 @@ struct ProgressInsightsView: View {
     private func cards(for data: InsightsData) -> some View {
         takeawayCard(data)
 
-        // Both charts look and behave the same; only their data differs.
+        // Both charts look and behave the same; only their data and colors differ.
+        let isWeek = data.period == .week
         BarChartCard(
             title: "Urge to reach out",
-            subtitle: "Your daily urge to contact your ex. Lower bars mean a lower urge.",
+            subtitle: InsightsText.urgeSubtitle(isWeek: isWeek),
             emptyNote: data.hasUrges ? nil : "Your check-ins will appear here.",
             points: data.urges,
-            barColor: CEDColor.foreground
+            color: { _ in CEDColor.foreground },
+            legend: [
+                .init(color: CEDColor.foreground, text: "Your urge, 1\u{2013}10"),
+                .init(color: nil, text: isWeek ? "No check-in" : "No check-in that week"),
+            ]
         )
 
         BarChartCard(
             title: "Mood after activities",
-            subtitle: "How you felt compared with before. Higher bars mean you reported feeling better.",
+            subtitle: InsightsText.moodSubtitle(isWeek: isWeek),
             emptyNote: data.hasMoods ? nil : "Your answers will appear here after you finish an activity.",
             points: data.moods,
-            barColor: Color(hex: 0x4A8A30)
+            color: { $0.mood == .better ? MoodColor.better : MoodColor.notBetter },
+            legend: [
+                .init(color: MoodColor.better, text: "Felt better"),
+                .init(color: MoodColor.notBetter, text: "Same or worse"),
+                .init(color: nil, text: "No activity"),
+            ]
         )
 
         breakdownCard(data)
@@ -179,10 +189,18 @@ struct ProgressInsightsView: View {
 
     private func breakdownCard(_ data: InsightsData) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("What you made time for")
-                .cedTextStyle(.bodyBold)
-                .foregroundStyle(CEDColor.foreground)
-                .padding(.bottom, 4)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("What you made time for")
+                    .cedTextStyle(.bodyBold)
+                    .foregroundStyle(CEDColor.foreground)
+                    .accessibilityAddTraits(.isHeader)
+                // Only this week's or month's completions; earlier books on
+                // the shelf don't count here.
+                Text(data.activitiesCaption)
+                    .cedTextStyle(.caption)
+                    .foregroundStyle(CEDColor.mutedForeground)
+            }
+            .padding(.bottom, 4)
 
             ForEach(data.activities) { share in
                 VStack(spacing: 4) {
@@ -221,19 +239,31 @@ struct ProgressInsightsView: View {
                 .foregroundStyle(CEDColor.foreground)
                 .padding(.bottom, 12)
 
-            if data.observations.isEmpty {
+            if data.patterns.isEmpty {
                 Text("As you check in and finish activities, patterns from your own days will show up here. There\u{2019}s no rush.")
                     .cedTextStyle(.bodyRelaxed)
                     .foregroundStyle(CEDColor.mutedForeground)
             }
 
-            ForEach(data.observations.indices, id: \.self) { index in
+            ForEach(data.patterns.indices, id: \.self) { index in
+                let pattern = data.patterns[index]
                 if index > 0 {
                     Rectangle().fill(CEDColor.border).frame(height: 1).padding(.vertical, 12)
                 }
-                Text(data.observations[index])
-                    .cedTextStyle(.bodyRelaxed)
-                    .foregroundStyle(CEDColor.foreground)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let heading = pattern.heading {
+                        Text(heading)
+                            .cedTextStyle(.bodyBold)
+                            .foregroundStyle(CEDColor.foreground)
+                    }
+                    // The closing totals line is quieter than the patterns.
+                    Text(pattern.body)
+                        .cedTextStyle(pattern.isSummary ? .caption : .bodyRelaxed)
+                        .foregroundStyle(pattern.isSummary ? CEDColor.mutedForeground : CEDColor.foreground)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
             }
 
             // The prototype ends this card with a divider and an empty space
@@ -247,19 +277,40 @@ struct ProgressInsightsView: View {
 
 // MARK: - Bar chart
 
+/// The mood chart's two colors: the existing green for "felt better", and a
+/// quieter sage for "about the same" or "worse" (still a bar: the activity
+/// was completed, which took effort).
+private enum MoodColor {
+    static let better = Color(hex: 0x4A8A30)
+    static let notBetter = Color(hex: 0xB9C7AE)
+}
+
 /// A bar chart on a fixed 0–10 scale: bars start at zero and 10 fills the
 /// full 100pt, so heights compare across weeks. Days without data are gaps
-/// (a short grey stub), never zero. The chart doesn't react to touch: no
-/// highlights or numbers. VoiceOver reads each bar's date and what was recorded.
+/// (a short grey mark), never zero. No numbers are drawn on the bars: tapping
+/// a bar shows what was recorded in words below the chart (tap again to hide),
+/// and VoiceOver reads the same words for each bar.
 private struct BarChartCard: View {
+    struct LegendItem {
+        let color: Color?       // nil = the grey "nothing recorded" mark
+        let text: String
+    }
+
     let title: String
     let subtitle: String
     let emptyNote: String?
     let points: [ChartPoint]
-    let barColor: Color
+    let color: (ChartPoint) -> Color
+    let legend: [LegendItem]
+
+    @State private var selected: String?   // the tapped bar's label
 
     private let chartHeight: CGFloat = 100
     private let scaleMaximum = 10.0
+
+    private var selectedPoint: ChartPoint? {
+        points.first { $0.id == selected }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -275,51 +326,100 @@ private struct BarChartCard: View {
                 .padding(.bottom, 20) // 16 below the subtitle + the prototype's empty 4pt row
 
             HStack(alignment: .bottom, spacing: 6) {
-                ForEach(points.indices, id: \.self) { index in
-                    bar(at: index)
+                ForEach(points) { point in
+                    bar(point)
                 }
             }
             .frame(height: chartHeight)
 
             HStack(spacing: 6) {
                 ForEach(points) { point in
+                    // The tapped bar is marked by its label (bold, underlined),
+                    // not by fading the others: a faded green would look like
+                    // the "same or worse" color.
+                    let isSelected = point.id == selected
                     Text(point.label)
-                        .cedTextStyle(.tiny)
-                        .foregroundStyle(CEDColor.mutedForeground)
+                        .cedTextStyle(isSelected ? .smallBold : .tiny)
+                        .foregroundStyle(isSelected ? CEDColor.foreground : CEDColor.mutedForeground)
+                        .overlay(alignment: .bottom) {
+                            if isSelected {
+                                Capsule().fill(CEDColor.foreground).frame(width: 14, height: 2).offset(y: 4)
+                            }
+                        }
                         .frame(maxWidth: .infinity)
                 }
             }
             .padding(.top, 6)
             .accessibilityHidden(true) // each bar already says its date
 
+            // The tapped bar in words, or else the legend, in the same place.
+            Group {
+                if let point = selectedPoint {
+                    Text(point.accessibilityText)
+                        .cedTextStyle(.caption)
+                        .foregroundStyle(CEDColor.foreground)
+                        .accessibilityHidden(true) // VoiceOver reads it on the bar itself
+                } else {
+                    legendRow
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
+            .padding(.top, 12)
+
             if let emptyNote {
                 Text(emptyNote)
                     .cedTextStyle(.small)
                     .foregroundStyle(CEDColor.hint)
-                    .padding(.top, 14)
+                    .padding(.top, 10)
             }
         }
         .cardStyle()
+        // A new week or month: forget the tapped bar.
+        .onChange(of: points.first?.accessibilityText) { selected = nil }
+    }
+
+    private var legendRow: some View {
+        HStack(spacing: 12) {
+            ForEach(legend.indices, id: \.self) { index in
+                let item = legend[index]
+                HStack(spacing: 4) {
+                    if let color = item.color {
+                        RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 8, height: 8)
+                    } else {
+                        RoundedRectangle(cornerRadius: 1).fill(CEDColor.border).frame(width: 10, height: 3)
+                    }
+                    Text(item.text)
+                        .cedTextStyle(.small)
+                        .foregroundStyle(CEDColor.mutedForeground)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Key: " + legend.map(\.text).joined(separator: ", "))
     }
 
     @ViewBuilder
-    private func bar(at index: Int) -> some View {
-        let point = points[index]
-        if let value = point.value {
-            UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6)
-                .fill(barColor)
-                .frame(height: CGFloat(min(max(value, 0), scaleMaximum) / scaleMaximum) * chartHeight)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .accessibilityElement()
-                .accessibilityLabel(point.accessibilityText)
-        } else {
-            UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6)
-                .fill(CEDColor.border)
-                .frame(height: 4)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .accessibilityElement()
-                .accessibilityLabel(point.accessibilityText)
+    private func bar(_ point: ChartPoint) -> some View {
+        Group {
+            if let value = point.value {
+                UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6)
+                    .fill(color(point))
+                    .frame(height: CGFloat(min(max(value, 0), scaleMaximum) / scaleMaximum) * chartHeight)
+            } else {
+                UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6)
+                    .fill(CEDColor.border)
+                    .frame(height: 4)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .contentShape(Rectangle()) // the whole column is tappable, even a gap
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                selected = (selected == point.id) ? nil : point.id
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel(point.accessibilityText)
     }
 }
 
