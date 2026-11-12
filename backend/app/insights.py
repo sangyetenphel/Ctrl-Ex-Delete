@@ -14,6 +14,7 @@ from typing import Literal
 
 from app.schemas import (
     CategoryShare,
+    InsightPattern,
     InsightsResponse,
     MoodCount,
     MoodPoint,
@@ -173,6 +174,9 @@ def build(period: Period, today: date, records: dict, weeks: list | None = None,
         else:
             trend = "steady"
 
+    # Did the urge go up from one check-in day to the next at least once?
+    urge_rose = any(later > earlier for earlier, later in zip(day_averages, day_averages[1:]))
+
     # ── Mood per category
     moods_by_category: dict[str, list[str]] = defaultdict(list)
     for row in records["moods"]:
@@ -180,59 +184,21 @@ def build(period: Period, today: date, records: dict, weeks: list | None = None,
     better_total = sum(1 for row in records["moods"] if row["mood_change"] in BETTER)
     mood_total = len(records["moods"])
 
-    # ── Patterns you might recognize
-    observations = []
-    if completed_total:
-        observations.append(f"You completed {_plural(completed_total, 'activity', 'activities')} {in_period}.")
-    if check_in_days:
-        observations.append(f"You checked in on {_plural(check_in_days, 'day')} {in_period}.")
-    if trend == "lower":
-        observations.append(f"Your urge to reach out was lower in your later check-ins {in_period} than in the earlier ones.")
-    elif trend == "higher":
-        observations.append(f"Your urge to reach out was higher in your later check-ins {in_period}. Urges can rise and fall, and that’s okay.")
-    elif trend == "steady":
-        observations.append(f"Your urge to reach out stayed fairly steady across your check-ins {in_period}.")
-    for key, label in category_labels.items():
-        answers = moods_by_category.get(key, [])
-        better = sum(1 for a in answers if a in BETTER)
-        if len(answers) >= MIN_MOODS_PER_CATEGORY and better:
-            observations.append(
-                f"You reported feeling better after {better} of {len(answers)} {label} activities."
-            )
+    # ── Main takeaway: one overall fact. The patterns below then add what it
+    # didn't say, so the two never repeat each other.
+    takeaway, takeaway_topic = _takeaway(
+        in_period, check_in_days, completed_total, completed_counts, category_labels,
+        trend, better_total, mood_total,
+    )
 
-    # ── Main takeaway: the most notable supported fact, in this order
-    top = completed_counts.most_common(2)
-    if not completed_total and not check_in_days:
-        takeaway = Takeaway(
-            headline="Your patterns will appear here.",
-            body=f"Check in and finish an activity {in_period}, and what you notice will start to show up here.",
-        )
-    elif top and top[0][1] >= 2 and (len(top) == 1 or top[0][1] > top[1][1]):
-        label = category_labels.get(top[0][0], top[0][0])
-        takeaway = Takeaway(
-            headline=f"{label} stood out.",
-            body=f"You completed {top[0][1]} {label} activities {in_period}, more than any other kind.",
-        )
-    elif trend == "lower":
-        takeaway = Takeaway(
-            headline="Urges eased a little.",
-            body=f"Your later check-ins {in_period} had lower urge ratings than the earlier ones.",
-        )
-    elif mood_total >= 2 and better_total * 2 >= mood_total:
-        takeaway = Takeaway(
-            headline="You often felt better afterwards.",
-            body=f"After {better_total} of {mood_total} activities {in_period}, you said you felt better than before.",
-        )
-    elif completed_total:
-        takeaway = Takeaway(
-            headline="You made time for yourself.",
-            body=f"You completed {_plural(completed_total, 'activity', 'activities')} {in_period}. Small steps count.",
-        )
-    else:
-        takeaway = Takeaway(
-            headline="You kept checking in.",
-            body=f"You checked in on {_plural(check_in_days, 'day')} {in_period}. Try an activity when it feels doable.",
-        )
+    # ── Patterns you might recognize: heading + supporting sentence
+    patterns = _category_patterns(category_labels, moods_by_category, in_period)
+    urge_pattern = _urge_pattern(trend, urge_rose, in_period, takeaway_topic == "urge")
+    if urge_pattern:
+        patterns.append(urge_pattern)
+    summary = _summary(check_in_days, completed_total, in_period)
+    if summary and takeaway_topic != "check_ins_only":
+        patterns.append(summary)
 
     return InsightsResponse(
         period=period,
@@ -246,5 +212,150 @@ def build(period: Period, today: date, records: dict, weeks: list | None = None,
         mood_points=mood_points,
         categories=categories,
         takeaway=takeaway,
-        observations=observations,
+        # Older app builds show plain sentences: the same items, body only.
+        observations=[pattern.body for pattern in patterns],
+        patterns=patterns,
     )
+
+
+# ─────────────────────────────────────────────
+# Wording. Every sentence says what the user reported ("was followed by",
+# "you reported"), never that an activity caused it, and never that someone
+# has healed. Higher urges and harder days are described without judgement.
+# ─────────────────────────────────────────────
+
+# Heading, the way the sentence is built, and a gentle closing suggestion for
+# a category that was mostly followed by feeling better. Any category the
+# catalog adds later falls back to DEFAULT_CATEGORY_PATTERN.
+CATEGORY_PATTERNS = {
+    "outdoor_movement": ("Getting outside seems to help", "reported",
+                         "Stepping outside or moving your body may be worth keeping in your days."),
+    "mindfulness_rest": ("Slowing down seems to help", "followed",
+                         "Quiet moments to rest may be worth protecting."),
+    "solo_exploration": ("Finding comfort in your own company", "reported",
+                         "Making time for yourself may be worth continuing."),
+    "social_connection": ("Connection seems to help", "followed",
+                          "Spending time with people you trust may be worth making room for."),
+}
+DEFAULT_CATEGORY_PATTERN = ("{label} seems to help", "reported", "It may be worth making room for more of these.")
+
+NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten"}
+
+
+def _mostly_better(better: int, total: int) -> bool:
+    """At least two answers, and at least two thirds of them 'a little' or 'much better'."""
+    return total >= MIN_MOODS_PER_CATEGORY and better * 3 >= total * 2
+
+
+def _how_many(better: int, total: int) -> str:
+    """'both', 'all three', 'all 12' or '3 of 4'."""
+    if better == total:
+        return "both" if total == 2 else f"all {NUMBER_WORDS.get(total, str(total))}"
+    return f"{better} of {total}"
+
+
+def _category_patterns(category_labels: dict, moods_by_category: dict, in_period: str) -> list:
+    patterns, neutral = [], []
+    for key, label in category_labels.items():
+        answers = moods_by_category.get(key, [])
+        total = len(answers)
+        if total < MIN_MOODS_PER_CATEGORY:
+            continue   # one answer is not a pattern
+        better = sum(1 for a in answers if a in BETTER)
+        if _mostly_better(better, total):
+            heading, style, suggestion = CATEGORY_PATTERNS.get(key, DEFAULT_CATEGORY_PATTERN)
+            amount = _how_many(better, total)
+            if style == "followed":
+                sentence = f"{amount[0].upper()}{amount[1:]} {label} activities {in_period} were followed by feeling better."
+            else:
+                sentence = f"You reported feeling better after {amount} {label} activities {in_period}."
+            patterns.append(InsightPattern(kind="category", heading=heading.format(label=label),
+                                           body=f"{sentence} {suggestion}"))
+        else:
+            neutral.append((total, label, better))
+    # Mixed or not-better results: one gentle note at most (the category with
+    # the most answers), so the card never fills up with "it varied".
+    if neutral:
+        total, label, better = max(neutral, key=lambda item: item[0])
+        if better:
+            patterns.append(InsightPattern(
+                kind="category", heading="Still finding what fits",
+                body=f"How you felt after {label} activities {in_period} was mixed. It’s okay to keep exploring.",
+            ))
+        else:
+            patterns.append(InsightPattern(
+                kind="category", heading="Not every activity fits every day",
+                body=f"The {label} activities you completed {in_period} weren’t followed by feeling better. "
+                     "Something different might suit you right now, and that’s okay.",
+            ))
+    return patterns
+
+
+def _urge_pattern(trend: str | None, urge_rose: bool, in_period: str, takeaway_said_lower: bool):
+    if trend == "lower":
+        if urge_rose:
+            body = (f"Your urge to reach out rose on some days {in_period}, and that’s okay."
+                    if takeaway_said_lower else
+                    f"Your urge to reach out has generally decreased {in_period}, even though it rose on some days.")
+            return InsightPattern(kind="urge", heading="Some days are still harder than others", body=body)
+        if takeaway_said_lower:
+            return None
+        return InsightPattern(kind="urge", heading="Your urge to reach out eased",
+                              body=f"Your later check-ins {in_period} had lower urge ratings than your earlier ones.")
+    if trend == "higher":
+        return InsightPattern(kind="urge", heading="Urges can rise and fall",
+                              body=f"Your later check-ins {in_period} had higher urge ratings than your earlier ones. "
+                                   "That’s worth noticing, not a setback.")
+    if trend == "steady":
+        return InsightPattern(kind="urge", heading="Your urge stayed fairly steady",
+                              body=f"Your urge ratings {in_period} stayed in a similar range.")
+    return None
+
+
+def _summary(check_in_days: int, completed_total: int, in_period: str):
+    """The totals, once, in one short closing line."""
+    parts = []
+    if check_in_days:
+        parts.append(f"checked in on {_plural(check_in_days, 'day')}")
+    if completed_total:
+        parts.append(f"completed {_plural(completed_total, 'activity', 'activities')}")
+    if not parts:
+        return None
+    return InsightPattern(kind="summary", heading=None, body=f"You {' and '.join(parts)} {in_period}.")
+
+
+def _takeaway(in_period, check_in_days, completed_total, completed_counts, category_labels,
+              trend, better_total, mood_total) -> tuple[Takeaway, str | None]:
+    """The most notable supported fact, in this order, and its topic."""
+    if not completed_total and not check_in_days:
+        return Takeaway(
+            headline="Your patterns will appear here.",
+            body=f"Check in and finish an activity {in_period}, and what you notice will start to show up here.",
+        ), "empty"
+    if _mostly_better(better_total, mood_total):
+        body = (f"Every activity you completed {in_period} was followed by feeling better than before."
+                if better_total == mood_total else
+                f"Most activities you completed {in_period} were followed by feeling better than before.")
+        return Takeaway(headline="You often felt better afterwards.", body=body), "mood"
+    if trend == "lower":
+        return Takeaway(
+            headline="Your urge to reach out eased.",
+            body=f"Your later check-ins {in_period} had lower urge ratings than your earlier ones.",
+        ), "urge"
+    top = completed_counts.most_common(2)
+    if top and top[0][1] >= 2 and (len(top) == 1 or top[0][1] > top[1][1]):
+        label = category_labels.get(top[0][0], top[0][0])
+        return Takeaway(
+            headline=f"{label} stood out.",
+            body=f"You made the most time for {label} activities {in_period}.",
+        ), "category"
+    if completed_total:
+        return Takeaway(
+            headline="You made time for yourself.",
+            body=f"Completing an activity takes effort, and you did it {in_period}. Small steps count.",
+        ), "completed"
+    return Takeaway(
+        headline="You kept checking in.",
+        body=f"You checked in on {_plural(check_in_days, 'day')} {in_period}. "
+             "Noticing how you feel counts too; an activity can wait until it feels doable.",
+    ), "check_ins_only"

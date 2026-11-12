@@ -28,3 +28,8 @@ xcrun swiftc -D DEBUG -o "$out/tests" CtrlExDelete/Models/LocalJourneyCache.swif
 cp DevTests/RoomDialogueTests.swift "$out/main.swift"
 xcrun swiftc -o "$out/room-dialogue-tests" CtrlExDelete/Models/RoomDialogue.swift "$out/main.swift"
 "$out/room-dialogue-tests"
+
+# The Progress screen's chart states, descriptions, captions and patterns.
+cp DevTests/InsightsTextTests.swift "$out/main.swift"
+xcrun swiftc -o "$out/insights-text-tests" CtrlExDelete/Models/InsightsText.swift "$out/main.swift"
+"$out/insights-text-tests"

@@ -163,7 +163,8 @@ def test_month_totals_stay_on_the_calendar_month():
     result = insights.build("month", today, calendar, insights.journey_weeks(date(2026, 10, 24), today), chart)
     assert (result.start, result.end) == (date(2026, 11, 1), date(2026, 11, 30))
     assert result.check_in_days == 1
-    assert result.observations == ["You checked in on 1 day this month."]
+    assert result.takeaway.body.startswith("You checked in on 1 day this month.")
+    assert result.observations == []   # the takeaway already says it
     assert [p.value for p in result.urges][:2] == [8, 4]
 
 
@@ -193,7 +194,7 @@ def test_mood_answers_are_still_counted_as_given():
     assert [(m.response, m.count) for m in result.moods] == [
         ("worse", 1), ("about_the_same", 0), ("a_little_better", 1), ("much_better", 1),
     ]
-    assert "You reported feeling better after 2 of 2 Outdoor & Movement activities." in result.observations
+    assert any(p.heading == "Getting outside seems to help" for p in result.patterns)
     # One reflection isn't enough to say anything about Mindfulness & Rest.
     assert not any("Mindfulness & Rest" in o for o in result.observations)
 
@@ -262,18 +263,165 @@ def test_urge_trend_needs_enough_days_and_a_real_change():
 
     lower = records(check_ins=[(date(2026, 10, 12), 8), (date(2026, 10, 13), 7), (date(2026, 10, 14), 4), (date(2026, 10, 15), 3)])
     result = insights.build("week", TODAY, lower)
-    assert any("was lower in your later check-ins" in o for o in result.observations)
-    assert result.takeaway.headline == "Urges eased a little."
+    assert result.takeaway.headline == "Your urge to reach out eased."
+    assert not any(p.kind == "urge" for p in result.patterns)   # said once, in the takeaway
 
     steady = records(check_ins=[(date(2026, 10, 12), 5), (date(2026, 10, 13), 5), (date(2026, 10, 14), 5)])
-    assert any("stayed fairly steady" in o for o in insights.build("week", TODAY, steady).observations)
+    assert [p.heading for p in insights.build("week", TODAY, steady).patterns if p.kind == "urge"] == ["Your urge stayed fairly steady"]
 
 
 def test_check_ins_only_takeaway():
     result = insights.build("week", TODAY, records(check_ins=[(date(2026, 10, 13), 5)]))
     assert result.has_data is True
     assert result.takeaway.headline == "You kept checking in."
-    assert result.observations == ["You checked in on 1 day this week."]
+    assert result.observations == []
+    assert "1 day this week" in result.takeaway.body
+
+
+# ── Patterns you might recognize ─────────────
+
+D = lambda day: date(2026, 10, day)   # noqa: E731  (Oct 12–18 is TODAY's week)
+BANNED = ("because", "caused", "healed", "recovered", "should", "failed", "failure", "only ")
+
+
+def moods_for(category, *answers, day=13):
+    return [(D(day), answer, category) for answer in answers]
+
+
+def assert_gentle(result):
+    """Every sentence: no causal claims, no 'healed', no judgement."""
+    texts = [result.takeaway.headline, result.takeaway.body] + [
+        f"{p.heading or ''} {p.body}" for p in result.patterns]
+    for text in texts:
+        assert not any(word in text.lower() for word in BANNED), text
+
+
+def test_positive_category_patterns_have_a_heading_for_every_category():
+    headings = {}
+    for key in ("outdoor_movement", "mindfulness_rest", "solo_exploration", "social_connection"):
+        result = insights.build("week", TODAY, records(moods=moods_for(key, "much_better", "a_little_better", "about_the_same")))
+        [pattern] = [p for p in result.patterns if p.kind == "category"]
+        headings[key] = pattern.heading
+        assert "2 of 3" in pattern.body
+        assert_gentle(result)
+    assert headings == {
+        "outdoor_movement": "Getting outside seems to help",
+        "mindfulness_rest": "Slowing down seems to help",
+        "solo_exploration": "Finding comfort in your own company",
+        "social_connection": "Connection seems to help",
+    }
+
+
+def test_category_pattern_wording_counts():
+    solo = insights.build("month", TODAY, records(moods=moods_for("solo_exploration", "much_better", "much_better", "a_little_better")))
+    assert solo.patterns[0].body.startswith("You reported feeling better after all three Solo Exploration activities this month.")
+    social = insights.build("week", TODAY, records(moods=moods_for("social_connection", "much_better", "a_little_better")))
+    assert social.patterns[0].body.startswith("Both Social Connection activities this week were followed by feeling better.")
+
+
+def test_category_needs_two_answers_and_two_thirds_better():
+    one = insights.build("week", TODAY, records(moods=moods_for("solo_exploration", "much_better")))
+    assert not any(p.kind == "category" for p in one.patterns)
+    half = insights.build("week", TODAY, records(moods=moods_for("solo_exploration", "much_better", "worse")))
+    [pattern] = [p for p in half.patterns if p.kind == "category"]
+    assert pattern.heading == "Still finding what fits"           # mixed, not a positive claim
+    assert "seems to help" not in pattern.heading
+    assert_gentle(half)
+
+
+def test_categories_never_followed_by_feeling_better_get_a_gentle_note():
+    result = insights.build("week", TODAY, records(moods=moods_for("mindfulness_rest", "worse", "about_the_same")))
+    [pattern] = [p for p in result.patterns if p.kind == "category"]
+    assert pattern.heading == "Not every activity fits every day"
+    assert "that’s okay" in pattern.body
+    assert result.takeaway.headline != "You often felt better afterwards."
+    assert_gentle(result)
+
+
+def test_only_one_neutral_category_note():
+    moods = (moods_for("outdoor_movement", "worse", "much_better", "about_the_same")
+             + moods_for("mindfulness_rest", "worse", "worse"))
+    result = insights.build("week", TODAY, records(moods=moods))
+    assert [p.heading for p in result.patterns if p.kind == "category"] == ["Still finding what fits"]
+    assert "Outdoor & Movement" in result.patterns[0].body   # the one with the most answers
+
+
+def test_urge_lower_with_a_harder_day_in_between():
+    rows = records(check_ins=[(D(12), 8), (D(13), 6), (D(14), 7), (D(15), 3)],
+                   moods=moods_for("solo_exploration", "much_better", "much_better"))
+    result = insights.build("week", TODAY, rows)
+    assert result.takeaway.headline == "You often felt better afterwards."
+    [urge] = [p for p in result.patterns if p.kind == "urge"]
+    assert urge.heading == "Some days are still harder than others"
+    assert "generally decreased" in urge.body and "rose on some days" in urge.body
+    assert_gentle(result)
+
+
+def test_urge_takeaway_and_harder_days_do_not_repeat():
+    rows = records(check_ins=[(D(12), 8), (D(13), 9), (D(14), 4), (D(15), 3)])
+    result = insights.build("week", TODAY, rows)
+    assert result.takeaway.headline == "Your urge to reach out eased."
+    [urge] = [p for p in result.patterns if p.kind == "urge"]
+    assert "generally decreased" not in urge.body   # the takeaway already said it
+    assert "rose on some days" in urge.body
+
+
+def test_no_harder_days_pattern_without_a_rise():
+    rows = records(check_ins=[(D(12), 9), (D(13), 8), (D(14), 4)], moods=moods_for("solo_exploration", "much_better", "much_better"))
+    [urge] = [p for p in insights.build("week", TODAY, rows).patterns if p.kind == "urge"]
+    assert urge.heading == "Your urge to reach out eased"
+
+
+def test_higher_urges_are_described_without_judgement():
+    rows = records(check_ins=[(D(12), 3), (D(13), 4), (D(14), 8), (D(15), 9)])
+    result = insights.build("week", TODAY, rows)
+    [urge] = [p for p in result.patterns if p.kind == "urge"]
+    assert urge.heading == "Urges can rise and fall"
+    assert "not a setback" in urge.body
+    assert result.takeaway.headline == "You kept checking in."
+    assert_gentle(result)
+
+
+def test_worse_moods_never_produce_a_positive_takeaway():
+    rows = records(completed=[(D(13), "outdoor_movement"), (D(14), "outdoor_movement")],
+                   moods=moods_for("outdoor_movement", "worse", "worse"))
+    result = insights.build("week", TODAY, rows)
+    assert result.takeaway.headline == "Outdoor & Movement stood out."
+    assert "better" not in result.takeaway.body
+    assert_gentle(result)
+
+
+def test_summary_is_one_line_and_comes_last():
+    rows = records(check_ins=[(D(12), 5), (D(13), 5)], completed=[(D(12), "solo_exploration")],
+                   moods=moods_for("solo_exploration", "much_better", day=12))
+    result = insights.build("week", TODAY, rows)
+    assert result.patterns[-1].kind == "summary"
+    assert result.patterns[-1].heading is None
+    assert result.patterns[-1].body == "You checked in on 2 days and completed 1 activity this week."
+    assert sum(p.kind == "summary" for p in result.patterns) == 1
+    assert result.takeaway.headline == "You made time for yourself."
+
+
+def test_observations_mirror_patterns_for_older_apps():
+    rows = records(check_ins=[(D(12), 8), (D(13), 9), (D(14), 4)],
+                   completed=[(D(13), "social_connection"), (D(14), "social_connection")],
+                   moods=moods_for("social_connection", "much_better", "a_little_better"))
+    result = insights.build("week", TODAY, rows)
+    assert result.observations == [p.body for p in result.patterns]
+    assert all(isinstance(o, str) and o for o in result.observations)
+
+
+def test_month_patterns_use_calendar_month_not_journey_weeks():
+    # A pattern needs two answers in the calendar month; an October answer in
+    # the journey week shown on the chart doesn't count toward November.
+    today = date(2026, 11, 2)
+    calendar = records(moods=[(date(2026, 11, 1), "much_better", "solo_exploration")])
+    chart = records(moods=[(date(2026, 10, 31), "much_better", "solo_exploration"),
+                           (date(2026, 11, 1), "much_better", "solo_exploration")])
+    result = insights.build("month", today, calendar, insights.journey_weeks(date(2026, 10, 25), today), chart)
+    assert not any(p.kind == "category" for p in result.patterns)
+    # The chart still shows both: W1 = Oct 25–31, W2 = Nov 1–7.
+    assert [p.answers for p in result.mood_points[:2]] == [["much_better"], ["much_better"]]
 
 
 # ── API with real records ────────────────────
@@ -423,6 +571,19 @@ def test_api_mood_chart_uses_the_completion_day_and_averages(installation_id):
     next_week = get_insights(installation_id, today="2026-10-19")
     assert next_week["start"] == "2026-10-19"
     assert all(p["value"] is None for p in next_week["mood_points"])
+
+
+def test_api_returns_structured_patterns_and_the_old_observations(installation_id):
+    for day, urge in (("2026-10-12", 8), ("2026-10-13", 9), ("2026-10-14", 4)):
+        check_in(installation_id, day, urge)
+    complete_activity(installation_id, 0, "2026-10-14", "much_better")
+    week = get_insights(installation_id)
+    patterns = week["patterns"]
+    assert patterns and all(set(p) == {"kind", "heading", "body"} for p in patterns)
+    assert patterns[-1] == {"kind": "summary", "heading": None,
+                            "body": "You checked in on 3 days and completed 1 activity this week."}
+    # Older app builds still get one plain sentence per item.
+    assert week["observations"] == [p["body"] for p in patterns]
 
 
 def test_api_an_absurd_date_is_rejected_not_a_server_error(installation_id):

@@ -214,7 +214,16 @@ struct InsightsDTO: Decodable {
     let moodPoints: [MoodPointDTO]?     // the mood chart; nil from an older backend
     let categories: [CategoryShareDTO]
     let takeaway: TakeawayDTO
-    let observations: [String]
+    let observations: [String]            // plain sentences (what older apps show)
+    let patterns: [InsightPatternDTO]?    // heading + sentence; nil from an older backend
+}
+
+/// One item of "Patterns you might recognize". `kind`: "category", "urge"
+/// or "summary" (the closing totals line, without a heading).
+struct InsightPatternDTO: Decodable {
+    let kind: String
+    let heading: String?
+    let body: String
 }
 
 struct UrgePointDTO: Decodable {

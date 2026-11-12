@@ -335,6 +335,17 @@ class Takeaway(BaseModel):
     body: str
 
 
+class InsightPattern(BaseModel):
+    """
+    One item of "Patterns you might recognize": a short heading and a
+    supporting sentence. `kind` is "category", "urge" or "summary" (the
+    closing totals line, which has no heading).
+    """
+    kind: Literal["category", "urge", "summary"]
+    heading: str | None
+    body: str
+
+
 class InsightsResponse(BaseModel):
     period: Literal["week", "month"]
     start: date
@@ -347,7 +358,10 @@ class InsightsResponse(BaseModel):
     mood_points: list[MoodPoint] = []
     categories: list[CategoryShare]
     takeaway: Takeaway
+    # The same items as `patterns`, one sentence each, for app builds made
+    # before `patterns` existed. Newer apps show `patterns` instead.
     observations: list[str]
+    patterns: list[InsightPattern] = []
 
 
 # ─────────────────────────────────────────────
