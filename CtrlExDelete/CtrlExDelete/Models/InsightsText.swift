@@ -71,14 +71,15 @@ enum InsightsText {
     }
 
     static func urgeSubtitle(isWeek: Bool) -> String {
-        let base = "How strong your urge to contact your ex was. A taller bar means a stronger urge; it\u{2019}s information, not a grade."
-        return isWeek ? base : base + " Each bar is one week of your journey."
+        "A taller bar means a stronger urge." + (isWeek ? "" : journeyWeeks)
     }
 
     static func moodSubtitle(isWeek: Bool) -> String {
-        let base = "How you felt after completing an activity, compared with before."
-        return isWeek ? base : base + " Each bar is one week of your journey."
+        "A taller bar means you felt better after the activity." + (isWeek ? "" : journeyWeeks)
     }
+
+    /// The month charts' bars are the user's own seven-day weeks (W1, W2, …).
+    private static let journeyWeeks = " Each bar is a week of your journey."
 
     // MARK: Patterns
 
@@ -88,13 +89,31 @@ enum InsightsText {
         let isSummary: Bool      // the closing totals line, shown quieter
     }
 
-    /// `patterns` from a newer backend; an older one only sends `observations`
-    /// (plain sentences), which are shown as they are, without headings.
+    /// At most this many items in "Patterns you might recognize".
+    static let maxPatterns = 3
+
+    /// The few patterns worth showing, in the backend's order:
+    /// - the urge pattern ("Some days are still harder than others", …) always
+    ///   gets a place;
+    /// - category patterns fill the rest, in the backend's order;
+    /// - the totals line ("You checked in on … and completed …") only when
+    ///   there would otherwise be fewer than two items.
+    /// An older backend only sends `observations` (plain sentences): the
+    /// first few are shown as they are, without headings.
     static func patterns(_ structured: [(kind: String, heading: String?, body: String)]?,
                          observations: [String]) -> [Pattern] {
         guard let structured, !structured.isEmpty || observations.isEmpty else {
-            return observations.map { Pattern(heading: nil, body: $0, isSummary: false) }
+            return observations.prefix(maxPatterns).map { Pattern(heading: nil, body: $0, isSummary: false) }
         }
-        return structured.map { Pattern(heading: $0.heading, body: $0.body, isSummary: $0.kind == "summary") }
+        let items = Array(structured.enumerated())
+        let urge = items.filter { $0.element.kind == "urge" }.prefix(1)
+        let others = items.filter { $0.element.kind != "urge" && $0.element.kind != "summary" }
+        var keep = Set((Array(others.prefix(maxPatterns - urge.count)) + urge).map(\.offset))
+        if keep.count < 2, let summary = items.first(where: { $0.element.kind == "summary" }) {
+            keep.insert(summary.offset)
+        }
+        return items.filter { keep.contains($0.offset) }.map {
+            Pattern(heading: $0.element.heading, body: $0.element.body, isSummary: $0.element.kind == "summary")
+        }
     }
 }

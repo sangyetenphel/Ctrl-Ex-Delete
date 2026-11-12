@@ -287,9 +287,8 @@ private enum MoodColor {
 
 /// A bar chart on a fixed 0–10 scale: bars start at zero and 10 fills the
 /// full 100pt, so heights compare across weeks. Days without data are gaps
-/// (a short grey mark), never zero. No numbers are drawn on the bars: tapping
-/// a bar shows what was recorded in words below the chart (tap again to hide),
-/// and VoiceOver reads the same words for each bar.
+/// (a short grey mark), never zero. A static chart: no numbers on the bars and
+/// nothing to tap; VoiceOver reads each bar's date and what was recorded.
 private struct BarChartCard: View {
     struct LegendItem {
         let color: Color?       // nil = the grey "nothing recorded" mark
@@ -303,14 +302,8 @@ private struct BarChartCard: View {
     let color: (ChartPoint) -> Color
     let legend: [LegendItem]
 
-    @State private var selected: String?   // the tapped bar's label
-
     private let chartHeight: CGFloat = 100
     private let scaleMaximum = 10.0
-
-    private var selectedPoint: ChartPoint? {
-        points.first { $0.id == selected }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -334,37 +327,18 @@ private struct BarChartCard: View {
 
             HStack(spacing: 6) {
                 ForEach(points) { point in
-                    // The tapped bar is marked by its label (bold, underlined),
-                    // not by fading the others: a faded green would look like
-                    // the "same or worse" color.
-                    let isSelected = point.id == selected
                     Text(point.label)
-                        .cedTextStyle(isSelected ? .smallBold : .tiny)
-                        .foregroundStyle(isSelected ? CEDColor.foreground : CEDColor.mutedForeground)
-                        .overlay(alignment: .bottom) {
-                            if isSelected {
-                                Capsule().fill(CEDColor.foreground).frame(width: 14, height: 2).offset(y: 4)
-                            }
-                        }
+                        .cedTextStyle(.tiny)
+                        .foregroundStyle(CEDColor.mutedForeground)
                         .frame(maxWidth: .infinity)
                 }
             }
             .padding(.top, 6)
             .accessibilityHidden(true) // each bar already says its date
 
-            // The tapped bar in words, or else the legend, in the same place.
-            Group {
-                if let point = selectedPoint {
-                    Text(point.accessibilityText)
-                        .cedTextStyle(.caption)
-                        .foregroundStyle(CEDColor.foreground)
-                        .accessibilityHidden(true) // VoiceOver reads it on the bar itself
-                } else {
-                    legendRow
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
-            .padding(.top, 12)
+            legendRow
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 12)
 
             if let emptyNote {
                 Text(emptyNote)
@@ -374,8 +348,6 @@ private struct BarChartCard: View {
             }
         }
         .cardStyle()
-        // A new week or month: forget the tapped bar.
-        .onChange(of: points.first?.accessibilityText) { selected = nil }
     }
 
     private var legendRow: some View {
@@ -412,12 +384,6 @@ private struct BarChartCard: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .contentShape(Rectangle()) // the whole column is tappable, even a gap
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                selected = (selected == point.id) ? nil : point.id
-            }
-        }
         .accessibilityElement()
         .accessibilityLabel(point.accessibilityText)
     }

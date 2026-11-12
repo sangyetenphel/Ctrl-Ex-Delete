@@ -47,11 +47,11 @@ check(InsightsText.mood(date: tue, answers: ["Worse", "Much better", "Worse"], c
 // Captions follow the selected period.
 check(InsightsText.categoryCaption(isWeek: true, monthName: "November") == "Activities completed this week", "week caption")
 check(InsightsText.categoryCaption(isWeek: false, monthName: "November") == "Activities completed in November", "month caption")
-check(!InsightsText.urgeSubtitle(isWeek: true).contains("week of your journey"), "week subtitle: days")
-check(InsightsText.urgeSubtitle(isWeek: false).hasSuffix("Each bar is one week of your journey."),
-      "month subtitle explains the journey-week bars")
-check(InsightsText.urgeSubtitle(isWeek: true).contains("taller bar means a stronger urge"), "urge subtitle: direction")
-check(InsightsText.moodSubtitle(isWeek: false).hasSuffix("Each bar is one week of your journey."), "mood month subtitle")
+check(InsightsText.urgeSubtitle(isWeek: true) == "A taller bar means a stronger urge.", "urge subtitle (week): short")
+check(InsightsText.urgeSubtitle(isWeek: false) == "A taller bar means a stronger urge. Each bar is a week of your journey.",
+      "urge subtitle (month): says the bars are journey weeks")
+check(InsightsText.moodSubtitle(isWeek: true) == "A taller bar means you felt better after the activity.", "mood subtitle (week): short")
+check(InsightsText.moodSubtitle(isWeek: false).hasSuffix("Each bar is a week of your journey."), "mood subtitle (month)")
 
 // Patterns: structured from a newer backend, plain sentences from an older one.
 let newer = InsightsText.patterns([
@@ -65,6 +65,31 @@ check(older == [.init(heading: nil, body: "You completed 2 activities this week.
       "older backend: its sentences, as they are")
 check(InsightsText.patterns(nil, observations: []).isEmpty && InsightsText.patterns([], observations: []).isEmpty,
       "nothing to show: the empty-state text")
+
+// At most three patterns: the urge pattern always, then categories; the
+// totals line only when there would otherwise be fewer than two items.
+typealias Item = (kind: String, heading: String?, body: String)
+let solo: Item = (kind: "category", heading: "Finding comfort in your own company", body: "solo")
+let social: Item = (kind: "category", heading: "Connection seems to help", body: "social")
+let outdoor: Item = (kind: "category", heading: "Getting outside seems to help", body: "outdoor")
+let rest: Item = (kind: "category", heading: "Slowing down seems to help", body: "rest")
+let urge: Item = (kind: "urge", heading: "Some days are still harder than others", body: "urge")
+let totals: Item = (kind: "summary", heading: nil, body: "You checked in on 8 days and completed 5 activities this month.")
+let heads = { (items: [Item]) in InsightsText.patterns(items, observations: items.map(\.body)).map { $0.heading ?? "(totals)" } }
+check(heads([solo, social, urge, totals]) == ["Finding comfort in your own company", "Connection seems to help",
+                                              "Some days are still harder than others"],
+      "Karla's month: two categories + the urge pattern, no totals line")
+check(heads([urge, totals]) == ["Some days are still harder than others", "(totals)"],
+      "Karla's week: the urge pattern, plus the totals so the card isn't a single line")
+check(heads([outdoor, rest, solo, social, urge, totals]) == ["Getting outside seems to help", "Slowing down seems to help",
+                                                            "Some days are still harder than others"],
+      "four strong categories: the urge pattern still gets a place; never more than three")
+check(heads([outdoor, rest, solo, social, totals]).count == 3 && !heads([outdoor, rest, solo, social, totals]).contains("(totals)"),
+      "no urge pattern: three categories, no totals")
+check(heads([totals]) == ["(totals)"], "only totals (e.g. check-ins but too little else): the totals line")
+check(heads([solo, urge]) == ["Finding comfort in your own company", "Some days are still harder than others"],
+      "two real patterns: no totals line")
+check(InsightsText.patterns(nil, observations: ["a", "b", "c", "d", "e"]).count == 3, "older backend: at most three sentences")
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("InsightsText: all passed")

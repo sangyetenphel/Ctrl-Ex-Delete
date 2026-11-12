@@ -16,7 +16,7 @@ enum InsightsPeriod: String, CaseIterable, Identifiable {
 struct ChartPoint: Identifiable {
     let label: String              // "Mon" … "Sun", or "W1", "W2", … (the user's own weeks)
     let value: Double?
-    let accessibilityText: String  // the date and what was recorded, in words (also shown on tap)
+    let accessibilityText: String  // the date and what was recorded, in words (VoiceOver)
     var mood: InsightsText.MoodBar = .noActivity   // mood chart only: sets the bar's color
     var id: String { label }
 }
