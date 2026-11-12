@@ -58,8 +58,9 @@ let newer = InsightsText.patterns([
     (kind: "category", heading: "Connection seems to help", body: "Both … were followed by feeling better."),
     (kind: "summary", heading: nil, body: "You checked in on 3 days and completed 2 activities this week."),
 ], observations: ["Both … were followed by feeling better.", "You checked in on 3 days and completed 2 activities this week."])
-check(newer.count == 2 && newer[0].heading == "Connection seems to help" && !newer[0].isSummary, "heading + sentence")
-check(newer[1].heading == nil && newer[1].isSummary, "the totals line is the quieter summary")
+check(newer.count == 1 && newer[0].heading == "Connection seems to help" && !newer[0].isSummary, "heading + sentence; totals left out")
+let onlyTotals = InsightsText.patterns([(kind: "summary", heading: nil, body: "You checked in on 1 day this week.")], observations: ["You checked in on 1 day this week."])
+check(onlyTotals.count == 1 && onlyTotals[0].heading == nil && onlyTotals[0].isSummary, "the fallback totals line is the quieter summary")
 let older = InsightsText.patterns(nil, observations: ["You completed 2 activities this week."])
 check(older == [.init(heading: nil, body: "You completed 2 activities this week.", isSummary: false)],
       "older backend: its sentences, as they are")
@@ -67,7 +68,7 @@ check(InsightsText.patterns(nil, observations: []).isEmpty && InsightsText.patte
       "nothing to show: the empty-state text")
 
 // At most three patterns: the urge pattern always, then categories; the
-// totals line only when there would otherwise be fewer than two items.
+// totals line only when there is no category or urge pattern at all.
 typealias Item = (kind: String, heading: String?, body: String)
 let solo: Item = (kind: "category", heading: "Finding comfort in your own company", body: "solo")
 let social: Item = (kind: "category", heading: "Connection seems to help", body: "social")
@@ -79,14 +80,15 @@ let heads = { (items: [Item]) in InsightsText.patterns(items, observations: item
 check(heads([solo, social, urge, totals]) == ["Finding comfort in your own company", "Connection seems to help",
                                               "Some days are still harder than others"],
       "Karla's month: two categories + the urge pattern, no totals line")
-check(heads([urge, totals]) == ["Some days are still harder than others", "(totals)"],
-      "Karla's week: the urge pattern, plus the totals so the card isn't a single line")
+check(heads([urge, totals]) == ["Some days are still harder than others"],
+      "Karla's week: only the urge pattern, no totals line")
 check(heads([outdoor, rest, solo, social, urge, totals]) == ["Getting outside seems to help", "Slowing down seems to help",
                                                             "Some days are still harder than others"],
       "four strong categories: the urge pattern still gets a place; never more than three")
 check(heads([outdoor, rest, solo, social, totals]).count == 3 && !heads([outdoor, rest, solo, social, totals]).contains("(totals)"),
       "no urge pattern: three categories, no totals")
-check(heads([totals]) == ["(totals)"], "only totals (e.g. check-ins but too little else): the totals line")
+check(heads([totals]) == ["(totals)"], "no meaningful pattern at all: the totals line as the neutral fallback")
+check(heads([solo, totals]) == ["Finding comfort in your own company"], "one category pattern: no totals line")
 check(heads([solo, urge]) == ["Finding comfort in your own company", "Some days are still harder than others"],
       "two real patterns: no totals line")
 check(InsightsText.patterns(nil, observations: ["a", "b", "c", "d", "e"]).count == 3, "older backend: at most three sentences")

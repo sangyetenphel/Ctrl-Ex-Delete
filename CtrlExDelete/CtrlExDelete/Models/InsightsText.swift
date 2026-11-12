@@ -97,7 +97,7 @@ enum InsightsText {
     ///   gets a place;
     /// - category patterns fill the rest, in the backend's order;
     /// - the totals line ("You checked in on … and completed …") only when
-    ///   there would otherwise be fewer than two items.
+    ///   there is no category or urge pattern at all.
     /// An older backend only sends `observations` (plain sentences): the
     /// first few are shown as they are, without headings.
     static func patterns(_ structured: [(kind: String, heading: String?, body: String)]?,
@@ -109,7 +109,7 @@ enum InsightsText {
         let urge = items.filter { $0.element.kind == "urge" }.prefix(1)
         let others = items.filter { $0.element.kind != "urge" && $0.element.kind != "summary" }
         var keep = Set((Array(others.prefix(maxPatterns - urge.count)) + urge).map(\.offset))
-        if keep.count < 2, let summary = items.first(where: { $0.element.kind == "summary" }) {
+        if keep.isEmpty, let summary = items.first(where: { $0.element.kind == "summary" }) {
             keep.insert(summary.offset)
         }
         return items.filter { keep.contains($0.offset) }.map {
