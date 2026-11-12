@@ -265,6 +265,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/Debug-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Ctrl+Ex+Delete";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take a photo of your activity to keep in your scrapbook.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connects to the Ctrl+Ex+Delete development server on your local network.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is used while you talk with Ced on a voice call, and while you read an affirmation aloud in Grow with Kindness so its words can light up. Your voice is never recorded or saved.";
@@ -308,6 +309,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Ctrl+Ex+Delete";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take a photo of your activity to keep in your scrapbook.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connects to the Ctrl+Ex+Delete development server on your local network.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is used while you talk with Ced on a voice call, and while you read an affirmation aloud in Grow with Kindness so its words can light up. Your voice is never recorded or saved.";
