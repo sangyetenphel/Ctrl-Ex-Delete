@@ -34,7 +34,9 @@ struct HealingRoomView: View {
                 PixelBubble(tailTipX: (RoomBackdrop.speechBubbleTailTipX - RoomBackdrop.speechBubbleFrame.minX) * scale)
                     .frame(width: RoomBackdrop.speechBubbleFrame.width * scale,
                            height: RoomBackdrop.speechBubbleFrame.height * scale + PixelBubble.tailHeight)
-                    .offset(x: RoomBackdrop.speechBubbleFrame.minX * scale, y: RoomBackdrop.speechBubbleFrame.minY * scale)
+                    // Whole points, so its pixel blocks land on whole device pixels.
+                    .offset(x: (RoomBackdrop.speechBubbleFrame.minX * scale).rounded(),
+                            y: (RoomBackdrop.speechBubbleFrame.minY * scale).rounded())
                 roomMessage(scale: scale)
                     .offset(x: RoomCedMessage.frame.minX * scale, y: RoomCedMessage.frame.minY * scale)
 
@@ -209,13 +211,12 @@ private enum RoomObject {
         case .plant:
             PixelRoomPlantArt()
         case .phone:
-            // The prototype mutes the phone with saturate(0.7) brightness(0.87).
-            Image("phone-clear")
-                .interpolation(.none)
-                .resizable()
-                .scaledToFit()
-                .saturation(0.7)
-                .colorMultiply(Color(white: 0.87))
+            // Drawn in the room's simpler pixel style. The original artwork
+            // stays in the asset catalog ("phone-clear"); to go back to it,
+            // replace this line with:
+            //   Image("phone-clear").interpolation(.none).resizable().scaledToFit()
+            //       .saturation(0.7).colorMultiply(Color(white: 0.87))
+            PixelPhoneArt()
         }
     }
 }
