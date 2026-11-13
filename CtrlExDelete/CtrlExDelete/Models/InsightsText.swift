@@ -112,11 +112,66 @@ enum InsightsText {
         if keep.isEmpty, let summary = items.first(where: { $0.element.kind == "summary" }) {
             keep.insert(summary.offset)
         }
-        return items.filter { keep.contains($0.offset) }.map {
-            Pattern(heading: nil,
-                    body: displayLine(kind: $0.element.kind, heading: $0.element.heading, body: $0.element.body),
-                    isSummary: $0.element.kind == "summary")
+        // Positive category patterns are counted so the second and third
+        // one can be worded differently from the first.
+        var categoryIndex = 0
+        return items.filter { keep.contains($0.offset) }.map { item in
+            let (kind, heading, body) = item.element
+            var line = displayLine(kind: kind, heading: heading, body: body)
+            if kind == "category", let heading, let varied = variedCategoryLine(heading: heading, body: body, index: categoryIndex) {
+                line = varied
+                categoryIndex += 1
+            }
+            return Pattern(heading: nil, body: line, isSummary: kind == "summary")
         }
+    }
+
+    /// A positive category pattern in its own words, using the count and the
+    /// category name from the backend's sentence ("all three", "both",
+    /// "2 of 3"; "Solo Exploration"):
+    ///   1st: "Taking time for yourself was followed by feeling better after
+    ///         all three Solo Exploration activities."
+    ///   2nd: "Connecting with others also seemed supportive, with improved
+    ///         moods after both Social Connection activities."
+    ///   3rd: "Getting outside seemed to help too, with improved moods after
+    ///         2 of 3 Outdoor & Movement activities."
+    /// nil when the heading or sentence isn't one it knows (then the plainer
+    /// `displayLine` is used), so nothing is ever guessed.
+    static func variedCategoryLine(heading: String, body: String, index: Int) -> String? {
+        let leads = [
+            "Finding comfort in your own company": "Taking time for yourself",
+            "Connection seems to help": "Connecting with others",
+            "Getting outside seems to help": "Getting outside",
+            "Slowing down seems to help": "Slowing down",
+        ]
+        guard let lead = leads[heading], let (amount, label) = countAndCategory(firstSentence(body)) else { return nil }
+        let what = "\(amount) \(label) activities"
+        switch index {
+        case 0: return "\(lead) was followed by feeling better after \(what)."
+        case 1: return "\(lead) also seemed supportive, with improved moods after \(what)."
+        default: return "\(lead) seemed to help too, with improved moods after \(what)."
+        }
+    }
+
+    /// ("all three", "Solo Exploration") from either of the backend's two
+    /// sentence shapes:
+    ///   "You reported feeling better after all three Solo Exploration activities this month."
+    ///   "Both Social Connection activities this week were followed by feeling better."
+    private static func countAndCategory(_ sentence: String) -> (String, String)? {
+        let amount = #"(both|all \w+|\d+ of \d+)"#
+        let period = #"this (?:week|month)"#
+        let shapes = [
+            #"^You reported feeling better after \#(amount) (.+) activities \#(period)\.$"#,
+            #"^\#(amount) (.+) activities \#(period) were followed by feeling better\.$"#,
+        ]
+        for shape in shapes {
+            guard let regex = try? NSRegularExpression(pattern: shape, options: [.caseInsensitive]),
+                  let match = regex.firstMatch(in: sentence, range: NSRange(sentence.startIndex..., in: sentence)),
+                  let amountRange = Range(match.range(at: 1), in: sentence),
+                  let labelRange = Range(match.range(at: 2), in: sentence) else { continue }
+            return (sentence[amountRange].lowercased(), String(sentence[labelRange]))
+        }
+        return nil
     }
 
     /// One concise, informative sentence per pattern, built from the

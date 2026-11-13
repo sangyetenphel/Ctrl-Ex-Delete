@@ -62,8 +62,8 @@ let newer = InsightsText.patterns([
     (kind: "category", heading: "Connection seems to help", body: socialBody),
     (kind: "summary", heading: nil, body: "You checked in on 3 days and completed 2 activities this week."),
 ], observations: [])
-check(newer == [.init(heading: nil, body: "Both Social Connection activities this month were followed by feeling better, suggesting that connecting with others may be supportive.", isSummary: false)],
-      "category: the backend's factual sentence + a careful clause; no heading; totals left out")
+check(newer == [.init(heading: nil, body: "Connecting with others was followed by feeling better after both Social Connection activities.", isSummary: false)],
+      "category: own wording with the backend's count and category; no heading; totals left out")
 let onlyTotals = InsightsText.patterns([(kind: "summary", heading: nil, body: "You checked in on 1 day this week.")], observations: [])
 check(onlyTotals == [.init(heading: nil, body: "You checked in on 1 day this week.", isSummary: true)],
       "no real pattern: the totals line as the quieter fallback")
@@ -109,10 +109,30 @@ let urge: Item = (kind: "urge", heading: "Some days are still harder than others
 let totals: Item = (kind: "summary", heading: nil, body: "You checked in on 9 days and completed 5 activities this month.")
 let lines = { (items: [Item]) in InsightsText.patterns(items, observations: []).map(\.body) }
 check(lines([solo, social, urge, totals]) == [
-        "You reported feeling better after all three Solo Exploration activities this month, suggesting that time for yourself may be helping.",
-        "Both Social Connection activities this month were followed by feeling better, suggesting that connecting with others may be supportive.",
+        "Taking time for yourself was followed by feeling better after all three Solo Exploration activities.",
+        "Connecting with others also seemed supportive, with improved moods after both Social Connection activities.",
         "Your urge to reach out was generally lower in your later check-ins this month, even though it rose on some days."],
-      "a month like Karla's: three informative sentences, no totals")
+      "a month like Karla's: varied wording, real counts, no totals")
+check(lines([social, solo]) == [
+        "Connecting with others was followed by feeling better after both Social Connection activities.",
+        "Taking time for yourself also seemed supportive, with improved moods after all three Solo Exploration activities."],
+      "the wording follows the order, not the category")
+let partial: Item = (kind: "category", heading: "Getting outside seems to help",
+                     body: "You reported feeling better after 2 of 3 Outdoor & Movement activities this week. Stepping outside or moving your body may be worth keeping in your days.")
+let restBoth: Item = (kind: "category", heading: "Slowing down seems to help",
+                      body: "Both Mindfulness & Rest activities this week were followed by feeling better. Quiet moments to rest may be worth protecting.")
+check(lines([partial, restBoth, solo]) == [
+        "Getting outside was followed by feeling better after 2 of 3 Outdoor & Movement activities.",
+        "Slowing down also seemed supportive, with improved moods after both Mindfulness & Rest activities.",
+        "Taking time for yourself seemed to help too, with improved moods after all three Solo Exploration activities."],
+      "2 of 3 and '&' in a category name; a third category gets its own wording")
+let future: Item = (kind: "category", heading: "Creative Arts seems to help",
+                    body: "You reported feeling better after both Creative Arts activities this week. It may be worth making room for more of these.")
+check(lines([future]) == ["You reported feeling better after both Creative Arts activities this week, suggesting that these activities may be helping."],
+      "a category the app doesn't know: the plainer backend-based sentence")
+let oddShape: Item = (kind: "category", heading: "Finding comfort in your own company", body: "Something the backend may say later. Advice.")
+check(lines([oddShape]) == ["Something the backend may say later, suggesting that time for yourself may be helping."],
+      "a sentence shape it can't read: nothing guessed, the plainer line")
 check(lines([(kind: "urge", heading: "Your urge stayed fairly steady", body: "Your urge ratings this week stayed in a similar range."), totals])
       == ["Your urge ratings this week stayed in a similar range."], "a week with one pattern: just that sentence")
 check(lines([outdoor, rest, solo, social, urge, totals]).count == 3 && lines([outdoor, rest, solo, social, urge, totals]).last == line("urge", urge.heading, urgeBody),

@@ -157,8 +157,8 @@ private enum RoomObject {
     var tooltip: String {
         switch self {
         case .ced: "View Today\u{2019}s Activity"
-        case .scrapbook: "Open Scrapbook"
-        case .phone: "Talk Instead"
+        case .scrapbook: "Open Story"
+        case .phone: "Get Support"
         case .plant: "Grow with Kindness"
         }
     }
