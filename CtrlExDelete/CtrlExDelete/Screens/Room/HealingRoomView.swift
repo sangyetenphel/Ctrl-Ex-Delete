@@ -31,11 +31,7 @@ struct HealingRoomView: View {
 
                 // Ced's speech bubble (pixel outline, tail toward him) and his
                 // words for today inside it.
-                // The wall's color at the bubble's top (its gradient there)
-                // fills the top-left corner's steps, so the sill and the
-                // bookshelf behind them don't.
-                PixelBubble(tailTipX: (RoomBackdrop.speechBubbleTailTipX - RoomBackdrop.speechBubbleFrame.minX) * scale,
-                            topLeftCornerBackdrop: Color(hex: 0xA3C4D3))
+                PixelBubble(tailTipX: (RoomBackdrop.speechBubbleTailTipX - RoomBackdrop.speechBubbleFrame.minX) * scale)
                     .frame(width: RoomBackdrop.speechBubbleFrame.width * scale,
                            height: RoomBackdrop.speechBubbleFrame.height * scale + PixelBubble.tailHeight)
                     // Whole points, so its pixel blocks land on whole device pixels.
