@@ -1,22 +1,22 @@
 import SwiftUI
 
 /// A cream card with a pixel-art outline, built from square "pixels" the
-/// size of the line width (like a sprite, not a stroked shape): each corner
-/// is a little rounded staircase, and an optional speech-bubble tail hangs
-/// under the bottom edge. Ced's message in the healing room uses the tail;
-/// the Grow with Kindness cards use the plain box.
+/// size of the line width (like a sprite, not a stroked shape). Each corner
+/// is a staircase of two big square steps (two pixels across, two down),
+/// and an optional speech-bubble tail hangs under the bottom edge with the
+/// same steps. Ced's message in the healing room uses the tail; the Grow
+/// with Kindness cards use the plain box.
 ///
 ///   corner (top-left)        tail (tip on the right)
 ///   . . . . X X X X          X X X X . . . X X X   ← bottom edge
-///   . . X X                        X . . X
-///   . X                              X . X
-///   . X                                X X
-///   X                                    X
+///   . . . . X                      X . . . X
+///   . . X X X                      X X X . X
+///   . . X                              X . X
+///   X X X                              X X X ← tip
 ///   X
 struct PixelBubble: View {
-    /// Outline color (a soft taupe-brown, lighter than the room's furniture
-    /// outlines), shared by every pixel card.
-    static let outline = Color(hex: 0x8B7768)
+    /// Outline color (soft charcoal gray), shared by every pixel card.
+    static let outline = Color(hex: 0x68686B)
     /// One pixel of the outline, in points: 8 device pixels on a 3× iPhone,
     /// so every block lands on whole device pixels.
     static let pixel: CGFloat = 8.0 / 3.0
@@ -33,70 +33,55 @@ struct PixelBubble: View {
         Canvas { context, size in
             let p = Self.pixel
             let boxHeight = size.height - (tailTipX == nil ? 0 : Self.tailHeight)
-            let columns = max(Int(size.width / p), 12)
-            let rows = max(Int(boxHeight / p), 10)
+            let columns = max(Int(size.width / p), 16)
+            let rows = max(Int(boxHeight / p), 12)
             // The few points left over are split evenly on each side,
             // rounded to whole device pixels.
             let x0 = ((size.width - CGFloat(columns) * p) / 2 * 3).rounded(.down) / 3
             let y0 = ((boxHeight - CGFloat(rows) * p) / 2 * 3).rounded(.down) / 3
             let tipColumn = tailTipX.map { Int((($0 - x0) / p).rounded(.down)) }
-            let runs = Self.runs(columns: columns, rows: rows, tailColumn: tipColumn)
+            let corners = Self.outlinePoints(columns: columns, rows: rows, tailColumn: tipColumn)
 
-            func draw(_ run: Run, _ color: Color) {
-                let rect = CGRect(x: x0 + CGFloat(run.column) * p, y: y0 + CGFloat(run.row) * p,
-                                  width: CGFloat(run.length) * p, height: p)
-                context.fill(Path(rect), with: .color(color))
+            // Fill: the outline traced through the pixels' centers.
+            var shape = Path()
+            shape.addLines(corners.map { CGPoint(x: x0 + (CGFloat($0.x) + 0.5) * p, y: y0 + (CGFloat($0.y) + 0.5) * p) })
+            shape.closeSubpath()
+            context.fill(shape, with: .color(fill))
+
+            // Outline: each straight segment as a row or column of whole pixels.
+            for (a, b) in zip(corners, corners.dropFirst() + corners.prefix(1)) {
+                let rect = CGRect(x: x0 + CGFloat(min(a.x, b.x)) * p, y: y0 + CGFloat(min(a.y, b.y)) * p,
+                                  width: CGFloat(abs(a.x - b.x) + 1) * p, height: CGFloat(abs(a.y - b.y) + 1) * p)
+                context.fill(Path(rect), with: .color(Self.outline))
             }
-            runs.fill.forEach { draw($0, fill) }
-            runs.outline.forEach { draw($0, Self.outline) }
         }
         .accessibilityHidden(true)
     }
 
-    /// A horizontal run of pixels: `length` pixels from `column` in `row`.
-    struct Run: Equatable {
-        let row: Int, column: Int, length: Int
+    struct GridPoint: Equatable {
+        let x: Int, y: Int
     }
 
-    /// The outline and fill pixels for a box `columns` × `rows` pixels, with
-    /// the tail's tip in `tailColumn` (kept clear of the corners), or none.
-    static func runs(columns w: Int, rows h: Int, tailColumn: Int?) -> (outline: [Run], fill: [Run]) {
-        var outline: [Run] = [], fill: [Run] = []
-        func line(_ row: Int, _ from: Int, _ to: Int, into list: inout [Run]) {
-            if to >= from { list.append(Run(row: row, column: from, length: to - from + 1)) }
+    /// The outline's corners, in pixels, clockwise from the top-left: every
+    /// segment between two of them is horizontal or vertical. The box is
+    /// `columns` × `rows` pixels; the tail's tip is in `tailColumn` (kept
+    /// clear of the corners) and reaches four pixels below the box.
+    static func outlinePoints(columns w: Int, rows h: Int, tailColumn: Int?) -> [GridPoint] {
+        let r = w - 1, b = h - 1
+        var points: [(Int, Int)] = [
+            (4, 0), (r - 4, 0),                                   // top edge
+            (r - 4, 2), (r - 2, 2), (r - 2, 4), (r, 4),           // top-right steps
+            (r, b - 4),                                           // right edge
+            (r - 2, b - 4), (r - 2, b - 2), (r - 4, b - 2), (r - 4, b), // bottom-right steps
+        ]
+        if let tip = tailColumn.map({ min(max($0, 10), w - 7) }) {
+            // Straight down on the right, two steps back up on the left.
+            points += [(tip, b), (tip, b + 4), (tip - 2, b + 4), (tip - 2, b + 2), (tip - 4, b + 2), (tip - 4, b)]
         }
-        // Rows 0–3 and the last four mirror each other; the sides in between.
-        for (offset, outer, inner) in [(0, 4, -1), (1, 2, 4), (2, 1, 2), (3, 1, 2)] {
-            for row in Set([offset, h - 1 - offset]) {
-                if offset == 0 {
-                    if row == h - 1, let tail = tailColumn.map({ min(max($0, 8), w - 6) }) {
-                        line(row, 4, tail - 4, into: &outline)      // bottom edge, left of the tail
-                        line(row, tail - 3, tail - 1, into: &fill)  // the tail's opening
-                        line(row, tail, w - 5, into: &outline)      // right of the tail
-                    } else {
-                        line(row, 4, w - 5, into: &outline)
-                    }
-                } else {
-                    line(row, outer, inner - 1, into: &outline)
-                    line(row, w - inner, w - 1 - outer, into: &outline)
-                    line(row, inner, w - 1 - inner, into: &fill)
-                }
-            }
-        }
-        for row in 4..<(h - 4) {
-            line(row, 0, 0, into: &outline)
-            line(row, w - 1, w - 1, into: &outline)
-            line(row, 1, w - 2, into: &fill)
-        }
-        if let tail = tailColumn.map({ min(max($0, 8), w - 6) }) {
-            // Straight down on the right; one pixel per row on the left.
-            for step in 0..<4 {
-                let row = h + step
-                line(row, tail - 3 + step, tail - 3 + step, into: &outline)
-                line(row, tail - 2 + step, tail - 1, into: &fill)
-                if step < 3 { line(row, tail, tail, into: &outline) }
-            }
-        }
-        return (outline, fill)
+        points += [
+            (4, b), (4, b - 2), (2, b - 2), (2, b - 4), (0, b - 4), // bottom-left steps
+            (0, 4), (2, 4), (2, 2), (4, 2),                        // left edge, top-left steps
+        ]
+        return points.map { GridPoint(x: $0.0, y: $0.1) }
     }
 }
