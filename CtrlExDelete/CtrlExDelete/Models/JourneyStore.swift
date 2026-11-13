@@ -127,6 +127,8 @@ final class JourneyStore {
 
         selectedActivity = currentSelection.map(SelectedActivity.init)
         memories = savedReflections.map(ScrapbookMemory.init)
+        // Fetch the photos quietly now (once each), so Story shows them at once.
+        ScrapbookPhotoCache.shared.prefetch(memories.compactMap(\.imageURL))
         self.summary = progress
         loadError = nil
         hasLoaded = true

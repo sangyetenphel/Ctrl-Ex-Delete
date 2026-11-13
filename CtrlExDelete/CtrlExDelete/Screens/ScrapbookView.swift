@@ -186,15 +186,7 @@ private struct MemoryCard: View {
                 .frame(height: 96)
                 .overlay {
                     if let imageURL = memory.imageURL {
-                        AsyncImage(url: imageURL) { phase in
-                            if let image = phase.image {
-                                image.resizable().scaledToFill()
-                            } else if phase.error != nil {
-                                CEDIconView(icon: .image, size: 32, color: CEDColor.mutedForeground)
-                            } else {
-                                ProgressView().tint(CEDColor.primary)
-                            }
-                        }
+                        MemoryPhoto(url: imageURL)
                     } else {
                         CEDIconView(icon: .image, size: 32, color: CEDColor.mutedForeground)
                     }
@@ -223,6 +215,43 @@ private struct MemoryCard: View {
         .clipShape(RoundedRectangle(cornerRadius: CEDRadius.xl))
         .overlay(RoundedRectangle(cornerRadius: CEDRadius.xl).strokeBorder(CEDColor.border, lineWidth: 1))
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A memory's photo, filled and cropped like before, through
+/// ScrapbookPhotoCache: a photo shown before appears at once (no spinner),
+/// even though every refresh brings a new temporary link for it. It's only
+/// downloaded if it was never fetched, or retried when a new link arrives
+/// after a failed one.
+private struct MemoryPhoto: View {
+    let url: URL
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    init(url: URL) {
+        self.url = url
+        _image = State(initialValue: ScrapbookPhotoCache.shared.cachedImage(for: url))
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else if failed {
+                CEDIconView(icon: .image, size: 32, color: CEDColor.mutedForeground)
+            } else {
+                ProgressView().tint(CEDColor.primary)
+            }
+        }
+        .task(id: url) {
+            guard image == nil else { return }
+            if let loaded = await ScrapbookPhotoCache.shared.image(for: url) {
+                image = loaded
+                failed = false
+            } else if !Task.isCancelled {
+                failed = true
+            }
+        }
     }
 }
 
