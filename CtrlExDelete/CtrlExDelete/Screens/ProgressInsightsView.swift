@@ -250,20 +250,12 @@ struct ProgressInsightsView: View {
                 if index > 0 {
                     Rectangle().fill(CEDColor.border).frame(height: 1).padding(.vertical, 12)
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    if let heading = pattern.heading {
-                        Text(heading)
-                            .cedTextStyle(.bodyBold)
-                            .foregroundStyle(CEDColor.foreground)
-                    }
-                    // The closing totals line is quieter than the patterns.
-                    Text(pattern.body)
-                        .cedTextStyle(pattern.isSummary ? .caption : .bodyRelaxed)
-                        .foregroundStyle(pattern.isSummary ? CEDColor.mutedForeground : CEDColor.foreground)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityElement(children: .combine)
+                // One short sentence per pattern; the totals fallback is quieter.
+                Text(pattern.body)
+                    .cedTextStyle(pattern.isSummary ? .caption : .bodyRelaxed)
+                    .foregroundStyle(pattern.isSummary ? CEDColor.mutedForeground : CEDColor.foreground)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // The prototype ends this card with a divider and an empty space

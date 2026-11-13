@@ -101,7 +101,7 @@ enum InsightsText {
     /// An older backend only sends `observations` (plain sentences): the
     /// first few are shown as they are, without headings.
     static func patterns(_ structured: [(kind: String, heading: String?, body: String)]?,
-                         observations: [String]) -> [Pattern] {
+                         observations: [String], isWeek: Bool = true) -> [Pattern] {
         guard let structured, !structured.isEmpty || observations.isEmpty else {
             return observations.prefix(maxPatterns).map { Pattern(heading: nil, body: $0, isSummary: false) }
         }
@@ -113,7 +113,36 @@ enum InsightsText {
             keep.insert(summary.offset)
         }
         return items.filter { keep.contains($0.offset) }.map {
-            Pattern(heading: $0.element.heading, body: $0.element.body, isSummary: $0.element.kind == "summary")
+            Pattern(heading: nil,
+                    body: shortLine(heading: $0.element.heading, body: $0.element.body, isWeek: isWeek),
+                    isSummary: $0.element.kind == "summary")
+        }
+    }
+
+    /// One short sentence per pattern, for a quick read: the backend's
+    /// heading tells which pattern it is ("Connection seems to help" →
+    /// "Social connection seemed to help this week."). A heading the app
+    /// doesn't know (or none, like the totals line) keeps the backend's text.
+    static func shortLine(heading: String?, body: String, isWeek: Bool) -> String {
+        let period = isWeek ? "this week" : "this month"
+        guard let heading else { return body }
+        switch heading {
+        case "Finding comfort in your own company": return "Solo time seemed to help \(period)."
+        case "Connection seems to help": return "Social connection seemed to help \(period)."
+        case "Getting outside seems to help": return "Getting outside seemed to help \(period)."
+        case "Slowing down seems to help": return "Slowing down seemed to help \(period)."
+        case "Some days are still harder than others": return "Some days were still harder than others \(period)."
+        case "Your urge to reach out eased": return "Your urge to reach out eased \(period)."
+        case "Your urge stayed fairly steady": return "Your urge stayed fairly steady \(period)."
+        case "Urges can rise and fall": return "Your urge rose later \(period), and that\u{2019}s okay."
+        case "Still finding what fits": return "How you felt after activities was mixed \(period)."
+        case "Not every activity fits every day": return "Not every activity fit \(period), and that\u{2019}s okay."
+        default:
+            // A category the catalog may add later: "<Label> seems to help".
+            if heading.hasSuffix(" seems to help") {
+                return heading.replacingOccurrences(of: " seems to help", with: " seemed to help") + " \(period)."
+            }
+            return body
         }
     }
 }
