@@ -29,6 +29,16 @@ struct HealingRoomView: View {
                     .accessibilityLabel("Day \(journey.dayNumber). Your Healing Room.")
                     .accessibilityAddTraits(.isHeader)
 
+                // A thin band of wall around the bubble keeps its outline
+                // apart from the window frame and bookshelf behind it.
+                let haloGap = 2 * PixelBubble.pixel
+                let haloOrigin = CGPoint(x: (RoomBackdrop.speechBubbleFrame.minX * scale).rounded() - haloGap,
+                                         y: (RoomBackdrop.speechBubbleFrame.minY * scale).rounded() - haloGap)
+                PixelBubbleHalo(gap: 2, wallTop: -haloOrigin.y, wallBottom: 556 * scale - haloOrigin.y)
+                    .frame(width: RoomBackdrop.speechBubbleFrame.width * scale + 2 * haloGap,
+                           height: RoomBackdrop.speechBubbleFrame.height * scale + 2 * haloGap)
+                    .offset(x: haloOrigin.x, y: haloOrigin.y)
+
                 // Ced's speech bubble (pixel outline, tail toward him) and his
                 // words for today inside it.
                 PixelBubble(tailTipX: (RoomBackdrop.speechBubbleTailTipX - RoomBackdrop.speechBubbleFrame.minX) * scale)

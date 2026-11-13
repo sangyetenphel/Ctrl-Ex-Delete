@@ -31,31 +31,52 @@ struct PixelBubble: View {
 
     var body: some View {
         Canvas { context, size in
-            let p = Self.pixel
             let boxHeight = size.height - (tailTipX == nil ? 0 : Self.tailHeight)
-            let columns = max(Int(size.width / p), 16)
-            let rows = max(Int(boxHeight / p), 12)
-            // The few points left over are split evenly on each side,
-            // rounded to whole device pixels.
-            let x0 = ((size.width - CGFloat(columns) * p) / 2 * 3).rounded(.down) / 3
-            let y0 = ((boxHeight - CGFloat(rows) * p) / 2 * 3).rounded(.down) / 3
-            let tipColumn = tailTipX.map { Int((($0 - x0) / p).rounded(.down)) }
+            let (columns, rows, x0, y0) = Self.grid(width: size.width, boxHeight: boxHeight)
+            let tipColumn = tailTipX.map { Int((($0 - x0) / Self.pixel).rounded(.down)) }
             let corners = Self.outlinePoints(columns: columns, rows: rows, tailColumn: tipColumn)
 
-            // Fill: the outline traced through the pixels' centers.
-            var shape = Path()
-            shape.addLines(corners.map { CGPoint(x: x0 + (CGFloat($0.x) + 0.5) * p, y: y0 + (CGFloat($0.y) + 0.5) * p) })
-            shape.closeSubpath()
-            context.fill(shape, with: .color(fill))
-
-            // Outline: each straight segment as a row or column of whole pixels.
-            for (a, b) in zip(corners, corners.dropFirst() + corners.prefix(1)) {
-                let rect = CGRect(x: x0 + CGFloat(min(a.x, b.x)) * p, y: y0 + CGFloat(min(a.y, b.y)) * p,
-                                  width: CGFloat(abs(a.x - b.x) + 1) * p, height: CGFloat(abs(a.y - b.y) + 1) * p)
+            context.fill(Self.silhouette(corners, x0: x0, y0: y0), with: .color(fill))
+            for rect in Self.outlineRects(corners, x0: x0, y0: y0) {
                 context.fill(Path(rect), with: .color(Self.outline))
             }
         }
         .accessibilityHidden(true)
+    }
+
+    /// The grid a card of this size is drawn on: its columns and rows, and
+    /// where pixel (0, 0) starts (the leftover points split evenly on each
+    /// side, rounded to whole device pixels).
+    static func grid(width: CGFloat, boxHeight: CGFloat) -> (columns: Int, rows: Int, x0: CGFloat, y0: CGFloat) {
+        let columns = max(Int(width / pixel), 16), rows = max(Int(boxHeight / pixel), 12)
+        let x0 = ((width - CGFloat(columns) * pixel) / 2 * 3).rounded(.down) / 3
+        let y0 = ((boxHeight - CGFloat(rows) * pixel) / 2 * 3).rounded(.down) / 3
+        return (columns, rows, x0, y0)
+    }
+
+    /// The solid stepped shape the outline encloses, outline included.
+    static func silhouette(_ corners: [GridPoint], x0: CGFloat, y0: CGFloat) -> Path {
+        let p = pixel
+        var path = Path()
+        path.addLines(corners.map { CGPoint(x: x0 + (CGFloat($0.x) + 0.5) * p, y: y0 + (CGFloat($0.y) + 0.5) * p) })
+        path.closeSubpath()
+        for rect in outlineRects(corners, x0: x0, y0: y0) { path.addRect(rect) }
+        return path
+    }
+
+    /// Each straight segment of the outline as a row or column of whole pixels.
+    static func outlineRects(_ corners: [GridPoint], x0: CGFloat, y0: CGFloat) -> [CGRect] {
+        let p = pixel
+        var rects: [CGRect] = []
+        for (index, a) in corners.enumerated() {
+            let b = corners[(index + 1) % corners.count]
+            let x = x0 + CGFloat(min(a.x, b.x)) * p
+            let y = y0 + CGFloat(min(a.y, b.y)) * p
+            let width = CGFloat(abs(a.x - b.x) + 1) * p
+            let height = CGFloat(abs(a.y - b.y) + 1) * p
+            rects.append(CGRect(x: x, y: y, width: width, height: height))
+        }
+        return rects
     }
 
     struct GridPoint: Equatable {
@@ -83,5 +104,30 @@ struct PixelBubble: View {
             (0, 4), (2, 4), (2, 2), (4, 2),                        // left edge, top-left steps
         ]
         return points.map { GridPoint(x: $0.0, y: $0.1) }
+    }
+}
+
+/// A narrow band of wall behind a pixel bubble: the bubble's own stepped
+/// silhouette grown by `gap` pixels on every side, painted with the room's
+/// wall gradient, so where the bubble sits on the window frame or the
+/// bookshelf their outlines don't touch. Over the open wall it's invisible.
+/// Its frame is the bubble's box (without the tail) grown by `gap` pixels
+/// on every side; `wallTop`/`wallBottom` are where the wall starts and ends,
+/// in points from this view's top, so the gradient lines up with the room.
+struct PixelBubbleHalo: View {
+    var gap = 2
+    var wallTop: CGFloat
+    var wallBottom: CGFloat
+
+    var body: some View {
+        Canvas { context, size in
+            let (columns, rows, x0, y0) = PixelBubble.grid(width: size.width, boxHeight: size.height)
+            let corners = PixelBubble.outlinePoints(columns: columns, rows: rows, tailColumn: nil)
+            let wall = Gradient(stops: RoomPalette.wallStops.map { Gradient.Stop(color: Color(hex: $0.1), location: $0.0) })
+            context.fill(PixelBubble.silhouette(corners, x0: x0, y0: y0),
+                         with: .linearGradient(wall, startPoint: CGPoint(x: 0, y: wallTop),
+                                               endPoint: CGPoint(x: 0, y: wallBottom)))
+        }
+        .accessibilityHidden(true)
     }
 }
