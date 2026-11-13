@@ -29,7 +29,12 @@ struct HealingRoomView: View {
                     .accessibilityLabel("Day \(journey.dayNumber). Your Healing Room.")
                     .accessibilityAddTraits(.isHeader)
 
-                // Ced's words for today, inside the cream card above him.
+                // Ced's speech bubble (pixel outline, tail toward him) and his
+                // words for today inside it.
+                PixelBubble(tailTipX: (RoomBackdrop.speechBubbleTailTipX - RoomBackdrop.speechBubbleFrame.minX) * scale)
+                    .frame(width: RoomBackdrop.speechBubbleFrame.width * scale,
+                           height: RoomBackdrop.speechBubbleFrame.height * scale + PixelBubble.tailHeight)
+                    .offset(x: RoomBackdrop.speechBubbleFrame.minX * scale, y: RoomBackdrop.speechBubbleFrame.minY * scale)
                 roomMessage(scale: scale)
                     .offset(x: RoomCedMessage.frame.minX * scale, y: RoomCedMessage.frame.minY * scale)
 
