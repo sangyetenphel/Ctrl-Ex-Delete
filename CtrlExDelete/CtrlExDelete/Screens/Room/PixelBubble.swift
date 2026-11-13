@@ -28,11 +28,10 @@ struct PixelBubble: View {
     /// down and to the right, toward something below and right of it.
     var tailTipX: CGFloat?
     var fill = Color(hex: RoomPalette.cardFill)
-    /// When set, paints the empty pixels outside the top-left corner's steps,
-    /// and one pixel beyond them to the left and above, in this color, behind
-    /// the bubble. The healing room uses the wall's color there: the window
-    /// sill and the bookshelf's post sit right behind that corner and would
-    /// otherwise touch its outline.
+    /// When set, paints the few empty pixels outside the top-left corner's
+    /// steps in this color, hiding whatever is behind them. The healing room
+    /// uses the wall's color there: the window sill and the bookshelf's post
+    /// sit right behind that corner and would otherwise fill in its steps.
     var topLeftCornerBackdrop: Color? = nil
 
     var body: some View {
@@ -48,6 +47,15 @@ struct PixelBubble: View {
             let tipColumn = tailTipX.map { Int((($0 - x0) / p).rounded(.down)) }
             let corners = Self.outlinePoints(columns: columns, rows: rows, tailColumn: tipColumn)
 
+            // Only the pixels outside the top-left steps: four across in the
+            // first two rows, two across in the next two.
+            if let backdrop = topLeftCornerBackdrop {
+                var notch = Path()
+                notch.addRect(CGRect(x: x0, y: y0, width: 4 * p, height: 2 * p))
+                notch.addRect(CGRect(x: x0, y: y0 + 2 * p, width: 2 * p, height: 2 * p))
+                context.fill(notch, with: .color(backdrop))
+            }
+
             // Fill: the outline traced through the pixels' centers.
             var shape = Path()
             shape.addLines(corners.map { CGPoint(x: x0 + (CGFloat($0.x) + 0.5) * p, y: y0 + (CGFloat($0.y) + 0.5) * p) })
@@ -61,37 +69,7 @@ struct PixelBubble: View {
                 context.fill(Path(rect), with: .color(Self.outline))
             }
         }
-        .background(alignment: .topLeading) {
-            if let backdrop = topLeftCornerBackdrop {
-                cornerGap(backdrop)
-            }
-        }
         .accessibilityHidden(true)
-    }
-
-    /// Behind the bubble (in front of whatever it sits on): the empty pixels
-    /// outside the top-left steps, plus one pixel more to the left and above,
-    /// in `color`. The view reaches one pixel past the bubble's top and
-    /// leading edges; its pixels line up with the bubble's own.
-    private func cornerGap(_ color: Color) -> some View {
-        Canvas { context, size in
-            let p = Self.pixel
-            // The bubble's own grid origin, one pixel in from this view's corner.
-            let bubbleWidth = size.width - p
-            let bubbleBoxHeight = size.height - p - (tailTipX == nil ? 0 : Self.tailHeight)
-            let x0 = ((bubbleWidth - CGFloat(max(Int(bubbleWidth / p), 16)) * p) / 2 * 3).rounded(.down) / 3
-            let y0 = ((bubbleBoxHeight - CGFloat(max(Int(bubbleBoxHeight / p), 12)) * p) / 2 * 3).rounded(.down) / 3
-            // Each part reaches half a pixel further down, under the bubble's
-            // outline, so a device-pixel difference in layout rounding never
-            // lets a line of what's behind show through.
-            var gap = Path()
-            gap.addRect(CGRect(x: x0, y: y0, width: 5 * p, height: 3.5 * p))                // row above + first two rows
-            gap.addRect(CGRect(x: x0, y: y0 + 3 * p, width: 3 * p, height: 2 * p))          // next two rows
-            gap.addRect(CGRect(x: x0 + p, y: y0 + 5 * p, width: 2 * p, height: 0.5 * p))    // under the outline
-            context.fill(gap, with: .color(color))
-        }
-        .padding(.leading, -Self.pixel)
-        .padding(.top, -Self.pixel)
     }
 
     struct GridPoint: Equatable {
