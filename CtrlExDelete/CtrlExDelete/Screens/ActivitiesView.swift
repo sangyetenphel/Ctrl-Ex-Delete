@@ -14,8 +14,6 @@ struct ActivitiesView: View {
     /// The card the horizontal pager is showing (its index). Kept in step
     /// with `deck.index`, which the buttons act on.
     @State private var visibleCard: Int?
-    /// How the user said they feel in the check-in these cards came from.
-    @State private var checkInFeeling: Emotion?
     @State private var isWorking = false
     /// True from tapping "I'll try this" until the reflection opens. The deck
     /// stays on screen meanwhile, so the in-progress page doesn't flash by.
@@ -236,7 +234,6 @@ struct ActivitiesView: View {
         if loadState != .loaded { loadState = .loading }
         do {
             let response = try await APIClient.shared.latestRecommendations()
-            checkInFeeling = response.checkIn?.feeling
             if response.checkInId == nil {
                 loadState = .noCheckIn
             } else if response.recommendations.isEmpty {
@@ -361,7 +358,7 @@ struct ActivitiesView: View {
                 .foregroundStyle(CEDColor.primary)
                 .padding(.bottom, 4)
 
-            Text(isInProgress ? "One small step at a time." : Self.heading(for: checkInFeeling))
+            Text(isInProgress ? "One small step at a time." : "A little something for today.")
                 .cedTextStyle(.pageTitle)
                 .foregroundStyle(CEDColor.foreground)
                 .accessibilityAddTraits(.isHeader)
@@ -374,18 +371,6 @@ struct ActivitiesView: View {
         .padding(.horizontal, 24)
         .padding(.top, 16)
         .padding(.bottom, 16)
-    }
-
-    /// The page heading follows how the user said they feel today.
-    /// "Heavy" keeps the prototype's wording.
-    private static func heading(for feeling: Emotion?) -> String {
-        switch feeling {
-        case .heavy: "Today seems a little heavy."
-        case .gettingThrough: "You\u{2019}re getting through it."
-        case .missingThem: "Missing them is hard today."
-        case .hopeful: "Today feels a little lighter."
-        case nil: "Activities for today."
-        }
     }
 
     // MARK: Dots

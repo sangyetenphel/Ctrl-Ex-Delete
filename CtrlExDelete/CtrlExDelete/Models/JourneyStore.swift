@@ -34,6 +34,7 @@ struct ScrapbookMemory: Identifiable {
     let title: String
     let reflection: String?   // "What did you notice?", shown in quotes; nil if left empty
     let date: String          // e.g. "September 4"
+    let localDate: String     // "YYYY-MM-DD", for grouping by month
     let tint: Color           // background behind the photo
     let imageURL: URL?        // temporary S3 link; nil without a photo
 
@@ -42,6 +43,7 @@ struct ScrapbookMemory: Identifiable {
         title = dto.activity?.title ?? "Today\u{2019}s activity"
         reflection = dto.note
         date = LocalDate.format(dto.localDate, .dateTime.month(.wide).day())
+        localDate = dto.localDate
         tint = dto.activity.map { Activity.palette(for: $0.category).background } ?? CEDColor.secondary
         imageURL = dto.imageUrl
     }
