@@ -79,7 +79,9 @@ struct InsightsData {
             isWeek: period == .week,
             monthName: LocalDate.format(dto.start, .dateTime.month(.wide)))
         patterns = InsightsText.patterns(dto.patterns?.map { ($0.kind, $0.heading, $0.body) },
-                                         observations: dto.observations)
+                                         observations: dto.observations,
+                                         urgeValues: dto.urges.map { $0.value.map(Double.init) },
+                                         isWeek: period == .week)
         takeawayHeadline = dto.takeaway.headline
         takeawayBody = dto.takeaway.body
     }

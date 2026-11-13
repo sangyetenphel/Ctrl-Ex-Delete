@@ -10,7 +10,7 @@ struct HealingRoomView: View {
     @State private var pressedObject: RoomObject?
     /// Under a pointer (iPad or trackpad): the same glow and tooltip as pressing.
     @State private var hoveredObject: RoomObject?
-    @State private var tooltipWidth: CGFloat = 0
+    @State private var tooltipSize: CGSize = .zero
     @State private var isCedFloating = false
 
     var body: some View {
@@ -47,12 +47,11 @@ struct HealingRoomView: View {
                     // Kept fully on screen: the room can be wider than the
                     // screen (its sides are cropped), and the plant is near the edge.
                     let visibleLeft = -(geometry.size.width - roomWidth) / 2
-                    let half = tooltipWidth / 2 + 8
-                    let x = min(max(object.tooltipCenter.x * scale, visibleLeft + half),
-                                visibleLeft + geometry.size.width - half)
                     RoomTooltip(text: object.tooltip)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tooltipWidth = $0 }
-                        .position(x: x, y: object.tooltipCenter.y * scale)
+                        .onGeometryChange(for: CGSize.self) { $0.size } action: { tooltipSize = $0 }
+                        .position(RoomTooltipLayout.center(for: object, size: tooltipSize, scale: scale,
+                                                           visibleLeft: visibleLeft,
+                                                           visibleWidth: geometry.size.width))
                 }
             }
             .frame(width: roomWidth, height: roomHeight, alignment: .topLeading)
@@ -137,6 +136,8 @@ struct HealingRoomView: View {
 private enum RoomObject {
     case ced, scrapbook, phone, plant
 
+    static let all: [RoomObject] = [.ced, .scrapbook, .phone, .plant]
+
     var destination: AppScreen {
         switch self {
         case .ced: .activities
@@ -173,14 +174,21 @@ private enum RoomObject {
         }
     }
 
-    /// Tooltip centers from the prototype (it used percentages of the room).
-    var tooltipCenter: CGPoint {
+    /// Where another object's tooltip must not go: the drawn art, which is a
+    /// little narrower than the tap area for Ced (his sides) and the plant
+    /// (its leftmost leaves start about 8 units in).
+    var keepClearFrame: CGRect {
         switch self {
-        case .ced: CGPoint(x: 390 * 0.62, y: 700 * 0.62)
-        case .scrapbook: CGPoint(x: 390 * 0.25, y: 700 * 0.68)
-        case .phone: CGPoint(x: 390 * 0.73, y: 700 * 0.64)
-        case .plant: CGPoint(x: 350, y: 306)      // just above the top leaves (clamped on screen)
+        case .ced: frame.insetBy(dx: 10, dy: 0)
+        case .plant: CGRect(x: frame.minX + 8, y: frame.minY, width: frame.width - 8, height: frame.height)
+        default: frame
         }
+    }
+
+    /// The object's lowest drawn point on the room grid (Ced's includes his
+    /// shadow on the floor).
+    var visibleBottom: CGFloat {
+        self == .ced ? 521 : frame.maxY
     }
 
     @ViewBuilder var artwork: some View {
@@ -223,6 +231,42 @@ private struct RoomObjectButtonStyle: ButtonStyle {
                     pressedObject = nil
                 }
             }
+    }
+}
+
+/// Where an object's tooltip goes: the same gap for every object, centered
+/// over it. Above the object, unless that would touch Ced's message card or
+/// another object (only Ced, whose card sits just above him): then the same
+/// gap below it. Always inside the visible screen.
+enum RoomTooltipLayout {
+    /// Space between a tooltip and its object, in screen points.
+    static let gap: CGFloat = 11
+    /// Kept clear of the screen edges, in screen points.
+    static let edgeMargin: CGFloat = 8
+
+    fileprivate static func center(for object: RoomObject, size: CGSize, scale: CGFloat,
+                                   visibleLeft: CGFloat, visibleWidth: CGFloat) -> CGPoint {
+        let frame = object.frame
+        let half = size.width / 2 + edgeMargin
+        let onScreen = { (x: CGFloat) in min(max(x, visibleLeft + half), visibleLeft + visibleWidth - half) }
+        // Ced's message card (with its 3-unit border) and the other objects.
+        let card = RoomCedMessage.frame.insetBy(dx: -3, dy: -3)
+        let blockers = ([card] + RoomObject.all.filter { $0 != object }.map(\.keepClearFrame)).map { scaled($0, by: scale) }
+        let aboveY = frame.minY * scale - gap - size.height / 2
+        // Centered first; if a neighbour is in the way, slide sideways by up
+        // to half the object's width so the tooltip still sits over it.
+        let reach = frame.width * scale / 2
+        let shifts: [CGFloat] = [0] + stride(from: CGFloat(4), through: reach, by: 4).flatMap { [-$0, $0] }
+        for shift in shifts {
+            let x = onScreen(frame.midX * scale + shift)
+            let rect = CGRect(x: x - size.width / 2, y: aboveY - size.height / 2, width: size.width, height: size.height)
+            if !blockers.contains(where: { rect.intersects($0) }) { return CGPoint(x: x, y: aboveY) }
+        }
+        return CGPoint(x: onScreen(frame.midX * scale), y: object.visibleBottom * scale + gap + size.height / 2)
+    }
+
+    private static func scaled(_ rect: CGRect, by scale: CGFloat) -> CGRect {
+        CGRect(x: rect.minX * scale, y: rect.minY * scale, width: rect.width * scale, height: rect.height * scale)
     }
 }
 

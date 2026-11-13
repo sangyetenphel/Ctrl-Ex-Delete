@@ -100,8 +100,10 @@ enum InsightsText {
     ///   there is no category or urge pattern at all.
     /// An older backend only sends `observations` (plain sentences): the
     /// first few are shown as they are, without headings.
+    /// - urgeValues: the urge chart's values (nil = no check-in), used to say
+    ///   whether a "steady" trend went up and down or stayed flat.
     static func patterns(_ structured: [(kind: String, heading: String?, body: String)]?,
-                         observations: [String]) -> [Pattern] {
+                         observations: [String], urgeValues: [Double?] = [], isWeek: Bool = true) -> [Pattern] {
         guard let structured, !structured.isEmpty || observations.isEmpty else {
             return observations.prefix(maxPatterns).map { Pattern(heading: nil, body: $0, isSummary: false) }
         }
@@ -118,12 +120,32 @@ enum InsightsText {
         return items.filter { keep.contains($0.offset) }.map { item in
             let (kind, heading, body) = item.element
             var line = displayLine(kind: kind, heading: heading, body: body)
+            // Week only: the week chart has one bar per day; the month chart's
+            // weekly averages would hide the day-to-day ups and downs.
+            if kind == "urge", heading == "Your urge stayed fairly steady", isWeek {
+                line = steadyUrgeLine(values: urgeValues.compactMap { $0 }, isWeek: isWeek) ?? line
+            }
             if kind == "category", let heading, let varied = variedCategoryLine(heading: heading, body: body, index: categoryIndex) {
                 line = varied
                 categoryIndex += 1
             }
             return Pattern(heading: nil, body: line, isSummary: kind == "summary")
         }
+    }
+
+    /// The backend's "steady" means the later check-ins weren't clearly
+    /// higher or lower than the earlier ones. The chart's own values tell
+    /// whether the ratings moved around in between:
+    ///   spread of 2 or more → "Your urge to reach out fluctuated this week,
+    ///                          without a clear upward or downward trend."
+    ///   spread under 2      → "Your urge to reach out stayed about the same this week."
+    /// nil with fewer than two values (then the backend's sentence is used).
+    static func steadyUrgeLine(values: [Double], isWeek: Bool) -> String? {
+        guard values.count >= 2, let low = values.min(), let high = values.max() else { return nil }
+        let period = isWeek ? "this week" : "this month"
+        return high - low >= 2
+            ? "Your urge to reach out fluctuated \(period), without a clear upward or downward trend."
+            : "Your urge to reach out stayed about the same \(period)."
     }
 
     /// A positive category pattern in its own words, using the count and the

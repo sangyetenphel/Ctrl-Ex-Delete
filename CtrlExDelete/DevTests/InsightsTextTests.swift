@@ -145,5 +145,25 @@ check(InsightsText.patterns([solo, social, urge], observations: []).allSatisfy {
 check(!lines([solo, social, urge]).contains { $0.lowercased().contains("caused") || $0.lowercased().contains("because") },
       "careful language: nothing says an activity caused the change")
 
+// A "steady" week: the real daily values decide between "fluctuated" and
+// "stayed about the same"; nothing is called an improvement.
+let steadyItem: Item = (kind: "urge", heading: "Your urge stayed fairly steady", body: "Your urge ratings this week stayed in a similar range.")
+check(InsightsText.patterns([steadyItem, totals], observations: [], urgeValues: [5, 7, 4, 8, nil, nil, nil], isWeek: true).map(\.body)
+      == ["Your urge to reach out fluctuated this week, without a clear upward or downward trend."],
+      "steady week with ratings 5, 7, 4, 8: fluctuated, no trend")
+check(InsightsText.patterns([steadyItem], observations: [], urgeValues: [5, 5, 6, nil], isWeek: true).map(\.body)
+      == ["Your urge to reach out stayed about the same this week."], "steady week with ratings 5, 5, 6: stayed about the same")
+check(InsightsText.patterns([steadyItem], observations: [], urgeValues: [6, nil, nil], isWeek: true).map(\.body)
+      == ["Your urge ratings this week stayed in a similar range."], "only one rating: the backend's sentence")
+let steadyMonth: Item = (kind: "urge", heading: "Your urge stayed fairly steady", body: "Your urge ratings this month stayed in a similar range.")
+check(InsightsText.patterns([steadyMonth], observations: [], urgeValues: [8, 3, 7], isWeek: false).map(\.body)
+      == ["Your urge ratings this month stayed in a similar range."], "month: unchanged (weekly averages hide daily changes)")
+check(InsightsText.patterns([urge], observations: [], urgeValues: [5, 7, 4], isWeek: true).map(\.body)
+      == [line("urge", urge.heading, urgeBody)], "a lower trend keeps its own sentence")
+let higherItem: Item = (kind: "urge", heading: "Urges can rise and fall",
+                        body: "Your later check-ins this week had higher urge ratings than your earlier ones. That\u{2019}s worth noticing, not a setback.")
+check(InsightsText.patterns([higherItem], observations: [], urgeValues: [3, 4, 8, 9], isWeek: true).map(\.body) == [higherItem.body],
+      "a higher trend is said as the backend says it, never softened into an improvement")
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("InsightsText: all passed")
