@@ -28,6 +28,11 @@ struct PixelBubble: View {
     /// down and to the right, toward something below and right of it.
     var tailTipX: CGFloat?
     var fill = Color(hex: RoomPalette.cardFill)
+    /// When set, paints the few empty pixels outside the top-left corner's
+    /// steps in this color, hiding whatever is behind them. The healing room
+    /// uses the wall's color there: the window sill and the bookshelf's post
+    /// sit right behind that corner and would otherwise fill in its steps.
+    var topLeftCornerBackdrop: Color? = nil
 
     var body: some View {
         Canvas { context, size in
@@ -41,6 +46,15 @@ struct PixelBubble: View {
             let y0 = ((boxHeight - CGFloat(rows) * p) / 2 * 3).rounded(.down) / 3
             let tipColumn = tailTipX.map { Int((($0 - x0) / p).rounded(.down)) }
             let corners = Self.outlinePoints(columns: columns, rows: rows, tailColumn: tipColumn)
+
+            // Only the pixels outside the top-left steps: four across in the
+            // first two rows, two across in the next two.
+            if let backdrop = topLeftCornerBackdrop {
+                var notch = Path()
+                notch.addRect(CGRect(x: x0, y: y0, width: 4 * p, height: 2 * p))
+                notch.addRect(CGRect(x: x0, y: y0 + 2 * p, width: 2 * p, height: 2 * p))
+                context.fill(notch, with: .color(backdrop))
+            }
 
             // Fill: the outline traced through the pixels' centers.
             var shape = Path()
