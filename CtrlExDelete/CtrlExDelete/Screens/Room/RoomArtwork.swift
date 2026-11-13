@@ -230,6 +230,10 @@ struct RoomBackdrop: View {
         // Sill
         c.rect(114, 337, 172, 12, 0x8B5A2B)
         c.rect(114, 343, 172, 5, 0x9B6A3B)
+        // The wall gap between the bookshelf and the window stays open down
+        // through the sill's left end, so it meets the top-left corner of
+        // Ced's speech bubble as wall instead of brown.
+        c.rect(116, 337, 4, 12, verticalGradient(RoomPalette.wallStops, in: CGRect(x: 0, y: 0, width: 390, height: 556)))
 
         // Wall painting
         c.rect(296, 96, 90, 84, 0x8B5A2B)
