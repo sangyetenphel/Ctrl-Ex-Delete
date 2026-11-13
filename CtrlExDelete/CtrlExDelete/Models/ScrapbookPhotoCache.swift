@@ -30,6 +30,7 @@ nonisolated final class ScrapbookPhotoCache: @unchecked Sendable {
     }()
     private let lock = NSLock()
     private var inFlight: [String: Task<UIImage?, Never>] = [:]
+    private var memoryKeys: Set<String> = []
 
     /// The shrunk photo if it's already in memory (no waiting), else nil.
     func cachedImage(for url: URL) -> UIImage? {
@@ -66,19 +67,82 @@ nonisolated final class ScrapbookPhotoCache: @unchecked Sendable {
         let installation = await MainActor.run { try? InstallationID.current() }
         let file = installation.flatMap { Self.file(for: key, installation: $0) }
         if let file, let data = try? Data(contentsOf: file), let image = Self.downsample(data) {
-            memory.setObject(image, forKey: key as NSString)
+            remember(image, key: key)
             Self.log.debug("photo from disk")
             return image
         }
         Self.log.debug("photo downloading")
         guard let data = try? await APIClient.shared.downloadPhoto(from: url),
               let image = Self.downsample(data) else { return nil }
-        memory.setObject(image, forKey: key as NSString)
+        remember(image, key: key)
         if let file {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? data.write(to: file, options: .atomic)
         }
         return image
+    }
+
+    private func remember(_ image: UIImage, key: String) {
+        memory.setObject(image, forKey: key as NSString)
+        lock.withLock { _ = memoryKeys.insert(key) }
+    }
+
+    // MARK: Cleanup
+
+    /// Keeps only these photos (the memories the server just returned) and
+    /// deletes every other cached copy: other files of this installation
+    /// (e.g. a deleted memory's, or a rehearsal photo removed by a reset) and
+    /// any other installation's folder. Call it only with a list from a
+    /// successful load, never from offline or saved data.
+    func keepOnly(_ urls: [URL], installation: UUID) {
+        let keep = Set(urls.map(Self.key(for:)))
+        let evict = lock.withLock { () -> Set<String> in
+            let gone = memoryKeys.subtracting(keep)
+            memoryKeys.subtract(gone)
+            return gone
+        }
+        evict.forEach { memory.removeObject(forKey: $0 as NSString) }
+        Task.detached(priority: .utility) {
+            Self.pruneFiles(keeping: keep, installation: installation)
+        }
+    }
+
+    /// Deletes every cached photo (memory and disk), for when this
+    /// installation's journey was reset on the server.
+    func removeAll() {
+        lock.withLock { memoryKeys.removeAll() }
+        memory.removeAllObjects()
+        Task.detached(priority: .utility) {
+            guard let root = Self.root else { return }
+            try? FileManager.default.removeItem(at: root)
+            Self.log.debug("photo cache cleared")
+        }
+    }
+
+    /// The file part of `keepOnly`, testable with any folder.
+    @discardableResult
+    static func pruneFiles(keeping keep: Set<String>, installation: UUID, root: URL? = root,
+                           fileManager: FileManager = .default) -> [String] {
+        guard let root, let folders = try? fileManager.contentsOfDirectory(atPath: root.path) else { return [] }
+        var removed: [String] = []
+        for folder in folders {
+            let folderURL = root.appending(path: folder)
+            guard folder == installation.uuidString else {
+                if (try? fileManager.removeItem(at: folderURL)) != nil { removed.append(folder + "/") }
+                continue
+            }
+            for name in (try? fileManager.contentsOfDirectory(atPath: folderURL.path)) ?? []
+            where !keep.contains((name as NSString).deletingPathExtension) {
+                if (try? fileManager.removeItem(at: folderURL.appending(path: name))) != nil { removed.append(name) }
+            }
+        }
+        if !removed.isEmpty { log.debug("photo cache pruned \(removed.count) item(s)") }
+        return removed
+    }
+
+    /// Caches/ScrapbookPhotos.
+    static var root: URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appending(path: "ScrapbookPhotos")
     }
 
     private static let log = Logger(subsystem: "CtrlExDelete", category: "photos")
@@ -90,8 +154,7 @@ nonisolated final class ScrapbookPhotoCache: @unchecked Sendable {
 
     /// Caches/ScrapbookPhotos/<installation ID>/<key>.jpg; nil without an ID.
     private static func file(for key: String, installation: UUID) -> URL? {
-        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
-        return caches.appending(path: "ScrapbookPhotos/\(installation.uuidString)/\(key).jpg")
+        root?.appending(path: "\(installation.uuidString)/\(key).jpg")
     }
 
     /// Decodes the JPEG straight to a smaller bitmap (ImageIO thumbnail),
