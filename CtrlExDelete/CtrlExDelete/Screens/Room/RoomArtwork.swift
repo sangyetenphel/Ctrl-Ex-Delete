@@ -230,6 +230,10 @@ struct RoomBackdrop: View {
         // Sill
         c.rect(114, 337, 172, 12, 0x8B5A2B)
         c.rect(114, 343, 172, 5, 0x9B6A3B)
+        // The wall gap between the bookshelf and the window stays open down
+        // through the sill's left end, so it meets the top-left corner of
+        // Ced's speech bubble as wall instead of brown.
+        c.rect(116, 337, 4, 12, verticalGradient(RoomPalette.wallStops, in: CGRect(x: 0, y: 0, width: 390, height: 556)))
 
         // Wall painting
         c.rect(296, 96, 90, 84, 0x8B5A2B)
@@ -243,7 +247,7 @@ struct RoomBackdrop: View {
     /// Ced's speech bubble on the room grid: its outer edge (the text sits
     /// inside, at RoomCedMessage.frame) and where its tail points, just left
     /// of Ced's head so it never covers his face.
-    static let speechBubbleFrame = CGRect(x: 123, y: 356, width: 184, height: 64)
+    static let speechBubbleFrame = CGRect(x: 112, y: 338, width: 200, height: 81)
     static let speechBubbleTailTipX: CGFloat = 162
 
     private static func drawDesk(in c: GraphicsContext) {
@@ -451,7 +455,7 @@ struct RoomCedMessage: View {
     let scale: CGFloat
 
     /// The card's inside on the room grid (inside its 3-unit frame, a little padding).
-    static let frame = CGRect(x: 130, y: 361, width: 170, height: 54)
+    static let frame = CGRect(x: 119, y: 343, width: 186, height: 71)
 
     var body: some View {
         let textScale = min(UIFontMetrics(forTextStyle: .caption1).scaledValue(for: 1), 1.4)
