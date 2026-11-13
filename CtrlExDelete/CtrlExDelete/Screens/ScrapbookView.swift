@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// "Your Journey": a celebration, recent memories (one row you swipe
-/// through) and every memory, grouped by month like a photo journal.
+/// "Your Journey": a celebration and every memory, grouped by month like a
+/// photo journal.
 struct ScrapbookView: View {
     @Environment(AppRouter.self) private var router
     @Environment(JourneyStore.self) private var journey
@@ -20,7 +20,6 @@ struct ScrapbookView: View {
                     if completed > 0 {
                         celebrationCard
                     }
-                    recentMemories
                     memoriesByMonth
 
                     Button("View your insights \u{2192}") {
@@ -96,60 +95,9 @@ struct ScrapbookView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var recentMemories: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Recent Memories")
-                .cedTextStyle(.sectionTitle)
-                .foregroundStyle(CEDColor.foreground)
-                .accessibilityAddTraits(.isHeader)
-
-            if let deleteError {
-                Text(deleteError)
-                    .cedTextStyle(.body)
-                    .foregroundStyle(CEDColor.rose)
-            }
-
-            if journey.memories.isEmpty {
-                Text(memoriesPlaceholder)
-                    .cedTextStyle(.body)
-                    .foregroundStyle(CEDColor.mutedForeground)
-            }
-
-            if !journey.memories.isEmpty {
-                memoriesRow
-            }
-        }
-    }
-
-    /// Every memory in one row, newest first. About two cards fit on screen
-    /// and the next one peeks in; swipe to see older ones. Cards share the
-    /// height of the tallest one.
-    private var memoriesRow: some View {
-        ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: 12) {
-                ForEach(journey.memories) { memory in
-                    memoryCard(memory)
-                        .containerRelativeFrame(.horizontal) { width, _ in
-                            (width - 12) / 2.15
-                        }
-                        .frame(maxHeight: .infinity, alignment: .top)
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .scrollTargetLayout()
-        }
-        .scrollIndicators(.hidden)
-        .scrollTargetBehavior(.viewAligned)
-        // Run edge to edge, so cards scroll under the screen's side margins.
-        .contentMargins(.horizontal, 24, for: .scrollContent)
-        .padding(.horizontal, -24)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Recent memories, newest first")
-    }
-
     /// Long-press a memory for "Delete memory".
-    private func memoryCard(_ memory: ScrapbookMemory, compact: Bool = false) -> some View {
-        MemoryCard(memory: memory, compact: compact)
+    private func memoryCard(_ memory: ScrapbookMemory) -> some View {
+        MemoryCard(memory: memory)
             .contextMenu {
                 Button("Delete memory", systemImage: "trash", role: .destructive) {
                     memoryToDelete = memory
@@ -176,32 +124,48 @@ struct ScrapbookView: View {
     }
 
     /// Every memory, newest month first ("November 2026", then "October
-    /// 2026"), two per row, from the memories already loaded. Hidden until
-    /// there's a memory (the row above explains why it's empty).
-    @ViewBuilder
+    /// 2026"), two per row, from the memories already loaded. Each row's two
+    /// cards share one height, so they line up whatever the note's length.
     private var memoriesByMonth: some View {
         let groups = StoryText.byMonth(journey.memories.map { ($0.id, $0.localDate) })
-        if !groups.isEmpty {
-            let byId = Dictionary(journey.memories.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Your memories")
-                    .cedTextStyle(.sectionTitle)
-                    .foregroundStyle(CEDColor.foreground)
-                    .accessibilityAddTraits(.isHeader)
+        let byId = Dictionary(journey.memories.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Your Memories")
+                .cedTextStyle(.sectionTitle)
+                .foregroundStyle(CEDColor.foreground)
+                .accessibilityAddTraits(.isHeader)
 
-                ForEach(groups, id: \.title) { group in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(group.title)
-                            .textCase(.uppercase)
-                            .cedTextStyle(.captionBold.tracking(0.6))
-                            .foregroundStyle(CEDColor.mutedForeground)
-                            .accessibilityAddTraits(.isHeader)
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12, alignment: .top),
-                                            GridItem(.flexible(), spacing: 12, alignment: .top)],
-                                  alignment: .leading, spacing: 12) {
-                            ForEach(group.ids, id: \.self) { id in
-                                if let memory = byId[id] {
-                                    memoryCard(memory, compact: true)
+            if let deleteError {
+                Text(deleteError)
+                    .cedTextStyle(.body)
+                    .foregroundStyle(CEDColor.rose)
+            }
+
+            if journey.memories.isEmpty {
+                Text(memoriesPlaceholder)
+                    .cedTextStyle(.body)
+                    .foregroundStyle(CEDColor.mutedForeground)
+            }
+
+            ForEach(groups, id: \.title) { group in
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(group.title)
+                        .textCase(.uppercase)
+                        .cedTextStyle(.captionBold.tracking(0.6))
+                        .foregroundStyle(CEDColor.mutedForeground)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.top, 4)
+                    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                        ForEach(Array(stride(from: 0, to: group.ids.count, by: 2)), id: \.self) { start in
+                            GridRow(alignment: .top) {
+                                ForEach(group.ids[start..<min(start + 2, group.ids.count)], id: \.self) { id in
+                                    if let memory = byId[id] {
+                                        memoryCard(memory)
+                                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                                    }
+                                }
+                                if start + 1 == group.ids.count {
+                                    Color.clear.frame(maxWidth: .infinity, maxHeight: 0)   // keeps a lone card half width
                                 }
                             }
                         }
@@ -210,14 +174,11 @@ struct ScrapbookView: View {
             }
         }
     }
-
 }
 
 /// One memory: a tinted photo placeholder with the title, quote and date below.
-/// `compact` (the month grid) leaves out the quote and keeps titles to two lines.
 private struct MemoryCard: View {
     let memory: ScrapbookMemory
-    var compact = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -241,16 +202,10 @@ private struct MemoryCard: View {
                 .clipped()
 
             VStack(alignment: .leading, spacing: 0) {
-                Group {
-                    if compact {
-                        Text(memory.title).lineLimit(2, reservesSpace: true)
-                    } else {
-                        Text(memory.title)
-                    }
-                }
-                .cedTextStyle(.captionBold)
-                .foregroundStyle(CEDColor.foreground)
-                if !compact, let reflection = memory.reflection {
+                Text(memory.title)
+                    .cedTextStyle(.captionBold)
+                    .foregroundStyle(CEDColor.foreground)
+                if let reflection = memory.reflection {
                     Text("\"\(reflection)\"")
                         .cedTextStyle(.memoryQuote)
                         .foregroundStyle(CEDColor.mutedForeground)
