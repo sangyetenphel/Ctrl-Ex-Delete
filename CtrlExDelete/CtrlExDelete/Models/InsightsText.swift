@@ -101,7 +101,7 @@ enum InsightsText {
     /// An older backend only sends `observations` (plain sentences): the
     /// first few are shown as they are, without headings.
     static func patterns(_ structured: [(kind: String, heading: String?, body: String)]?,
-                         observations: [String], isWeek: Bool = true) -> [Pattern] {
+                         observations: [String]) -> [Pattern] {
         guard let structured, !structured.isEmpty || observations.isEmpty else {
             return observations.prefix(maxPatterns).map { Pattern(heading: nil, body: $0, isSummary: false) }
         }
@@ -114,35 +114,54 @@ enum InsightsText {
         }
         return items.filter { keep.contains($0.offset) }.map {
             Pattern(heading: nil,
-                    body: shortLine(heading: $0.element.heading, body: $0.element.body, isWeek: isWeek),
+                    body: displayLine(kind: $0.element.kind, heading: $0.element.heading, body: $0.element.body),
                     isSummary: $0.element.kind == "summary")
         }
     }
 
-    /// One short sentence per pattern, for a quick read: the backend's
-    /// heading tells which pattern it is ("Connection seems to help" →
-    /// "Social connection seemed to help this week."). A heading the app
-    /// doesn't know (or none, like the totals line) keeps the backend's text.
-    static func shortLine(heading: String?, body: String, isWeek: Bool) -> String {
-        let period = isWeek ? "this week" : "this month"
-        guard let heading else { return body }
+    /// One concise, informative sentence per pattern, built from the
+    /// backend's own sentence (which states what was reported, with the
+    /// numbers: "You reported feeling better after all three Solo
+    /// Exploration activities this month. Making time for yourself may be
+    /// worth continuing."):
+    /// - category patterns keep that first, factual sentence and replace the
+    ///   longer advice sentence with a short, careful clause
+    ///   ("…, suggesting that time for yourself may be helping.");
+    /// - the urge pattern's "has generally decreased" is said more exactly as
+    ///   "was generally lower in your later check-ins" (that is what the
+    ///   backend compares);
+    /// - everything else (steady or higher urges, mixed or not-better
+    ///   results, the totals fallback) is the backend's sentence as it is.
+    /// Nothing is invented: every number and trend comes from the backend.
+    static func displayLine(kind: String, heading: String?, body: String) -> String {
+        if kind == "category", let heading, let clause = categoryClause(heading) {
+            return String(firstSentence(body).dropLast()) + ", suggesting that " + clause + "."
+        }
+        if kind == "urge" {
+            return body.replacingOccurrences(of: "Your urge to reach out has generally decreased",
+                                             with: "Your urge to reach out was generally lower in your later check-ins")
+        }
+        return body
+    }
+
+    /// The careful closing clause for a category that was mostly followed by
+    /// feeling better (only those have these headings).
+    private static func categoryClause(_ heading: String) -> String? {
         switch heading {
-        case "Finding comfort in your own company": return "Solo time seemed to help \(period)."
-        case "Connection seems to help": return "Social connection seemed to help \(period)."
-        case "Getting outside seems to help": return "Getting outside seemed to help \(period)."
-        case "Slowing down seems to help": return "Slowing down seemed to help \(period)."
-        case "Some days are still harder than others": return "Some days were still harder than others \(period)."
-        case "Your urge to reach out eased": return "Your urge to reach out eased \(period)."
-        case "Your urge stayed fairly steady": return "Your urge stayed fairly steady \(period)."
-        case "Urges can rise and fall": return "Your urge rose later \(period), and that\u{2019}s okay."
-        case "Still finding what fits": return "How you felt after activities was mixed \(period)."
-        case "Not every activity fits every day": return "Not every activity fit \(period), and that\u{2019}s okay."
+        case "Finding comfort in your own company": return "time for yourself may be helping"
+        case "Connection seems to help": return "connecting with others may be supportive"
+        case "Getting outside seems to help": return "getting outside may be helping"
+        case "Slowing down seems to help": return "slowing down may be helping"
         default:
             // A category the catalog may add later: "<Label> seems to help".
-            if heading.hasSuffix(" seems to help") {
-                return heading.replacingOccurrences(of: " seems to help", with: " seemed to help") + " \(period)."
-            }
-            return body
+            return heading.hasSuffix(" seems to help") ? "these activities may be helping" : nil
         }
     }
+
+    /// "A. B." → "A." (the whole text when there's only one sentence).
+    private static func firstSentence(_ text: String) -> String {
+        guard let range = text.range(of: ". ") else { return text.hasSuffix(".") ? text : text + "." }
+        return String(text[..<range.lowerBound]) + "."
+    }
+
 }

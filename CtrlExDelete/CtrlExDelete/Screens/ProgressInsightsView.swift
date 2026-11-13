@@ -91,7 +91,7 @@ struct ProgressInsightsView: View {
             points: data.urges,
             color: { _ in CEDColor.foreground },
             legend: [
-                .init(color: CEDColor.foreground, text: "Your urge, 1\u{2013}10"),
+                .init(color: CEDColor.foreground, text: "Your urge"),
                 .init(color: nil, text: isWeek ? "No check-in" : "No check-in that week"),
             ]
         )

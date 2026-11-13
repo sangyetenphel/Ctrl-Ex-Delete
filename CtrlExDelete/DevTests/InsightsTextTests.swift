@@ -53,63 +53,77 @@ check(InsightsText.urgeSubtitle(isWeek: false) == "A taller bar means a stronger
 check(InsightsText.moodSubtitle(isWeek: true) == "A taller bar means you felt better after the activity.", "mood subtitle (week): short")
 check(InsightsText.moodSubtitle(isWeek: false).hasSuffix("Each bar is a week of your journey."), "mood subtitle (month)")
 
-// Patterns: one short line each (no heading), built from the backend's
-// structured patterns; an older backend's plain sentences are shown as they are.
+// Patterns: one informative sentence each (no heading), built from the
+// backend's own sentence; an older backend's plain sentences are shown as they are.
+let soloBody = "You reported feeling better after all three Solo Exploration activities this month. Making time for yourself may be worth continuing."
+let socialBody = "Both Social Connection activities this month were followed by feeling better. Spending time with people you trust may be worth making room for."
+let urgeBody = "Your urge to reach out has generally decreased this month, even though it rose on some days."
 let newer = InsightsText.patterns([
-    (kind: "category", heading: "Connection seems to help", body: "Both … were followed by feeling better."),
+    (kind: "category", heading: "Connection seems to help", body: socialBody),
     (kind: "summary", heading: nil, body: "You checked in on 3 days and completed 2 activities this week."),
-], observations: ["Both … were followed by feeling better.", "You checked in on 3 days and completed 2 activities this week."])
-check(newer == [.init(heading: nil, body: "Social connection seemed to help this week.", isSummary: false)],
-      "one short line, no heading; totals left out")
-let onlyTotals = InsightsText.patterns([(kind: "summary", heading: nil, body: "You checked in on 1 day this week.")], observations: ["You checked in on 1 day this week."])
+], observations: [])
+check(newer == [.init(heading: nil, body: "Both Social Connection activities this month were followed by feeling better, suggesting that connecting with others may be supportive.", isSummary: false)],
+      "category: the backend's factual sentence + a careful clause; no heading; totals left out")
+let onlyTotals = InsightsText.patterns([(kind: "summary", heading: nil, body: "You checked in on 1 day this week.")], observations: [])
 check(onlyTotals == [.init(heading: nil, body: "You checked in on 1 day this week.", isSummary: true)],
-      "the fallback totals line keeps its text and is the quieter summary")
+      "no real pattern: the totals line as the quieter fallback")
 let older = InsightsText.patterns(nil, observations: ["You completed 2 activities this week."])
 check(older == [.init(heading: nil, body: "You completed 2 activities this week.", isSummary: false)],
       "older backend: its sentences, as they are")
 check(InsightsText.patterns(nil, observations: []).isEmpty && InsightsText.patterns([], observations: []).isEmpty,
       "nothing to show: the empty-state text")
 
-// The short line for every pattern the backend can send, week and month.
-let short = { (h: String?, week: Bool) in InsightsText.shortLine(heading: h, body: "(backend text)", isWeek: week) }
-check(short("Finding comfort in your own company", false) == "Solo time seemed to help this month.", "solo (month)")
-check(short("Connection seems to help", true) == "Social connection seemed to help this week.", "social (week)")
-check(short("Getting outside seems to help", true) == "Getting outside seemed to help this week.", "outdoor")
-check(short("Slowing down seems to help", false) == "Slowing down seemed to help this month.", "rest")
-check(short("Some days are still harder than others", false) == "Some days were still harder than others this month.", "harder days")
-check(short("Your urge to reach out eased", true) == "Your urge to reach out eased this week.", "urge eased")
-check(short("Your urge stayed fairly steady", true) == "Your urge stayed fairly steady this week.", "urge steady")
-check(short("Urges can rise and fall", true) == "Your urge rose later this week, and that\u{2019}s okay.", "urge higher: no judgement")
-check(short("Still finding what fits", false) == "How you felt after activities was mixed this month.", "mixed results")
-check(short("Not every activity fits every day", true) == "Not every activity fit this week, and that\u{2019}s okay.", "not better")
-check(short("Creative Arts seems to help", true) == "Creative Arts seemed to help this week.", "a future category")
-check(short("Something new", true) == "(backend text)", "unknown heading: the backend's own sentence")
-check(short(nil, true) == "(backend text)", "no heading (totals): the backend's own sentence")
+// Every kind of pattern the backend sends.
+let line = { (k: String, h: String?, b: String) in InsightsText.displayLine(kind: k, heading: h, body: b) }
+check(line("category", "Finding comfort in your own company", soloBody)
+      == "You reported feeling better after all three Solo Exploration activities this month, suggesting that time for yourself may be helping.",
+      "solo: keeps the real count (all three) and says 'may be helping', not 'caused'")
+check(line("category", "Getting outside seems to help", "You reported feeling better after 2 of 3 Outdoor & Movement activities this week. Stepping outside or moving your body may be worth keeping in your days.")
+      == "You reported feeling better after 2 of 3 Outdoor & Movement activities this week, suggesting that getting outside may be helping.",
+      "outdoor: '2 of 3' stays as the backend counted it")
+check(line("category", "Slowing down seems to help", "Both Mindfulness & Rest activities this week were followed by feeling better. Quiet moments to rest may be worth protecting.")
+      == "Both Mindfulness & Rest activities this week were followed by feeling better, suggesting that slowing down may be helping.", "rest")
+check(line("category", "Creative Arts seems to help", "You reported feeling better after both Creative Arts activities this week. It may be worth making room for more of these.")
+      == "You reported feeling better after both Creative Arts activities this week, suggesting that these activities may be helping.", "a future category")
+check(line("urge", "Some days are still harder than others", urgeBody)
+      == "Your urge to reach out was generally lower in your later check-ins this month, even though it rose on some days.",
+      "urge lower with harder days: says what was compared (later check-ins)")
+check(line("urge", "Your urge stayed fairly steady", "Your urge ratings this week stayed in a similar range.")
+      == "Your urge ratings this week stayed in a similar range.", "steady urge: the backend's sentence, no invented improvement")
+let higher = "Your later check-ins this week had higher urge ratings than your earlier ones. That\u{2019}s worth noticing, not a setback."
+check(line("urge", "Urges can rise and fall", higher) == higher, "higher urge: shown honestly, as the backend says it")
+let mixed = "How you felt after Solo Exploration activities this month was mixed. It\u{2019}s okay to keep exploring."
+check(line("category", "Still finding what fits", mixed) == mixed, "mixed results: shown honestly, no positive clause")
+let notBetter = "The Mindfulness & Rest activities you completed this week weren\u{2019}t followed by feeling better. Something different might suit you right now, and that\u{2019}s okay."
+check(line("category", "Not every activity fits every day", notBetter) == notBetter, "not better: shown honestly, no positive clause")
+check(line("summary", nil, "You checked in on 9 days and completed 5 activities this month.") == "You checked in on 9 days and completed 5 activities this month.", "totals: as is")
 
 // At most three patterns: the urge pattern always, then categories; the
 // totals line only when there is no category or urge pattern at all.
 typealias Item = (kind: String, heading: String?, body: String)
-let solo: Item = (kind: "category", heading: "Finding comfort in your own company", body: "solo")
-let social: Item = (kind: "category", heading: "Connection seems to help", body: "social")
-let outdoor: Item = (kind: "category", heading: "Getting outside seems to help", body: "outdoor")
-let rest: Item = (kind: "category", heading: "Slowing down seems to help", body: "rest")
-let urge: Item = (kind: "urge", heading: "Some days are still harder than others", body: "urge")
-let totals: Item = (kind: "summary", heading: nil, body: "You checked in on 8 days and completed 5 activities this month.")
-let lines = { (items: [Item]) in InsightsText.patterns(items, observations: items.map(\.body), isWeek: false).map(\.body) }
-check(lines([solo, social, urge, totals]) == ["Solo time seemed to help this month.", "Social connection seemed to help this month.",
-                                              "Some days were still harder than others this month."],
-      "Karla's month: three short lines, no totals")
-check(InsightsText.patterns([urge, totals], observations: [], isWeek: true).map(\.body) == ["Some days were still harder than others this week."],
-      "Karla's week: one short line")
-check(lines([outdoor, rest, solo, social, urge, totals]) == ["Getting outside seemed to help this month.", "Slowing down seemed to help this month.",
-                                                            "Some days were still harder than others this month."],
+let solo: Item = (kind: "category", heading: "Finding comfort in your own company", body: soloBody)
+let social: Item = (kind: "category", heading: "Connection seems to help", body: socialBody)
+let outdoor: Item = (kind: "category", heading: "Getting outside seems to help", body: "Outdoor sentence. Advice.")
+let rest: Item = (kind: "category", heading: "Slowing down seems to help", body: "Rest sentence. Advice.")
+let urge: Item = (kind: "urge", heading: "Some days are still harder than others", body: urgeBody)
+let totals: Item = (kind: "summary", heading: nil, body: "You checked in on 9 days and completed 5 activities this month.")
+let lines = { (items: [Item]) in InsightsText.patterns(items, observations: []).map(\.body) }
+check(lines([solo, social, urge, totals]) == [
+        "You reported feeling better after all three Solo Exploration activities this month, suggesting that time for yourself may be helping.",
+        "Both Social Connection activities this month were followed by feeling better, suggesting that connecting with others may be supportive.",
+        "Your urge to reach out was generally lower in your later check-ins this month, even though it rose on some days."],
+      "a month like Karla's: three informative sentences, no totals")
+check(lines([(kind: "urge", heading: "Your urge stayed fairly steady", body: "Your urge ratings this week stayed in a similar range."), totals])
+      == ["Your urge ratings this week stayed in a similar range."], "a week with one pattern: just that sentence")
+check(lines([outdoor, rest, solo, social, urge, totals]).count == 3 && lines([outdoor, rest, solo, social, urge, totals]).last == line("urge", urge.heading, urgeBody),
       "four strong categories: the urge pattern still gets a place; never more than three")
-check(lines([outdoor, rest, solo, social, totals]).count == 3 && !lines([outdoor, rest, solo, social, totals]).contains(totals.body),
+check(!lines([outdoor, rest, solo, social, totals]).contains(totals.body) && lines([outdoor, rest, solo, social, totals]).count == 3,
       "no urge pattern: three categories, no totals")
 check(lines([totals]) == [totals.body], "no meaningful pattern at all: the totals line as the neutral fallback")
-check(lines([solo, totals]) == ["Solo time seemed to help this month."], "one category pattern: no totals line")
 check(InsightsText.patterns(nil, observations: ["a", "b", "c", "d", "e"]).count == 3, "older backend: at most three sentences")
 check(InsightsText.patterns([solo, social, urge], observations: []).allSatisfy { $0.heading == nil }, "no bold headings anywhere")
+check(!lines([solo, social, urge]).contains { $0.lowercased().contains("caused") || $0.lowercased().contains("because") },
+      "careful language: nothing says an activity caused the change")
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("InsightsText: all passed")
