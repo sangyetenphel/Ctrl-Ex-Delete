@@ -30,3 +30,6 @@ CtrlExDelete/Config/DeveloperSettings.xcconfig
 /technical-report/
 /presentation-assets/
 /backend/demo_seed/
+
+# Personal Claude Code instructions (each developer's own, never committed)
+CLAUDE.local.md
