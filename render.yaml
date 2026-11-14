@@ -1,14 +1,11 @@
 # The CED backend's Render web service (FastAPI in backend/), Free plan.
-# Documentation of the live service `ctrl-ex-delete-api`: it is NOT connected
-# as a Blueprint, so editing this file changes nothing on Render. The settings
-# match backend/README.md ("Deploying to Render"). Production resources:
-# Neon `ctrl-ex-delete` / branch `production` / `neondb`; S3 `ced-photos-prod`
-# (IAM user `ced-production`); Groq (text); Gemini Live (voice).
+# Documentation only: this file is not connected as a Blueprint, so editing it
+# changes nothing on Render. The settings match backend/README.md
+# ("Deploying to Render").
 #
 # Secrets are NOT here: entries with `sync: false` are typed into Render's
 # dashboard (Environment tab), never committed. Nothing here migrates, seeds
-# or resets the database; Neon is already migrated (python -m scripts.migrate
-# --status from a laptop shows it).
+# or resets the database.
 services:
   - type: web
     name: ctrl-ex-delete-api

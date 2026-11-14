@@ -4,7 +4,7 @@ This is the contract between the iOS app and the FastAPI backend.
 **Field names and allowed values must match exactly.** If something here needs to change, update this doc in the same pull request as the code.
 
 - **Status:** check-ins, recommendations, activity status (one in progress), bookmarks, scrapbook photos, reflections (completion), progress summary, insights, Ced chat, Ced voice calls
-- **Deployed base URL:** `https://ctrl-ex-delete-api.onrender.com` (Render Free; see `backend/README.md`, "Deploying to Render")
+- **Deployed base URL:** set in the app (`APIConfig.deployedBaseURL`); the backend runs on Render Free (see `docs/architecture.md`, "Deployment")
 - **Local base URL:** `http://127.0.0.1:8000` (works from the iOS Simulator on the same Mac)
 - **Interactive docs:** `http://127.0.0.1:8000/docs` (while the backend is running)
 
@@ -25,7 +25,7 @@ X-Installation-ID: A4781CB6-8637-4789-BD52-9AB075D2AB1C
 Notes:
 - It must be a valid UUID, or the request is rejected with `422`.
 - Uppercase or lowercase both work. The server always **returns it lowercase**, so don't compare IDs as plain strings in Swift. Compare them as `UUID` values.
-- The server registers a new installation automatically on its first check-in. No separate signup call is needed.
+- The server registers a new installation automatically on its first write: a check-in, an activity choice, a bookmark, a photo upload, a memory, the moving-forward save or a Ced message. No separate signup call is needed.
 
 ---
 
@@ -102,7 +102,7 @@ Saving a check-in also creates its activity recommendations (same database trans
 
 **One check-in per local calendar day.** `local_date` is the user's own calendar day: the app's current date in the phone's current time zone (midnight to midnight). The server never uses its own clock, UTC or a rolling 24 hours. If this installation already has a check-in for that `local_date`, nothing is saved and no new recommendations are made: the response is **`200 OK`** with the day's existing check-in (its original answers). This covers a repeated tap, a retry after a lost response, and two requests at the same moment (the database's unique index lets exactly one through). An activity in progress from an earlier day stays in progress.
 
-**Response `201 Created`** (or `200 OK` with the existing one, see above): the saved check-in, with three server-generated fields added:
+**Response `201 Created`** (or `200 OK` with the existing one, see above): the saved check-in, with server-generated fields added (`id`, `installation_id` and `created_at` below; `room_message` and `activities_completed_today` are described in the next sections):
 ```json
 {
   "feeling": "missing_them",
@@ -151,7 +151,7 @@ Has the user checked in on their local day? The app asks on every start (includi
 ```
 - `check_in`: that day's check-in (same shape as above), or `null` if there isn't one yet.
 - `has_any_check_in`: `false` for someone who has never checked in (the app shows the welcome screen).
-- `installation`: which server record this installation ID has. `exists` is `false` (and `created_at` `null`) before the first write and after the installation was reset (`./ced-reset`); after the next write it is a new record with a new `created_at`. The app remembers the last one it saw and, when a successful response shows a different one, forgets its on-phone copies of the old journey (`journey-cache.json`, `room-message.json`, the bookshelf counter) and shows a fresh day 1; the installation ID stays. Only ever about the caller's own installation. Added 2026-11-04; older app builds ignore it, and the app ignores its absence (older backend).
+- `installation`: which server record this installation ID has. `exists` is `false` (and `created_at` `null`) before the first write and after the installation was reset by a developer tool; after the next write it is a new record with a new `created_at`. The app remembers the last one it saw and, when a successful response shows a different one, forgets its on-phone copies of the old journey (`journey-cache.json`, `room-message.json`, the bookshelf counter) and shows a fresh day 1; the installation ID stays. Only ever about the caller's own installation. Added 2026-11-04; older app builds ignore it, and the app ignores its absence (older backend).
 
 If this request fails, the app shows a connection message with Try again. It never treats a failure as "hasn't checked in".
 
@@ -191,13 +191,13 @@ Activity cards for this installation's **most recent** check-in. Called when the
       "selected_at": null,
       "activity": {
         "id": 1,
-        "slug": "sit_in_sunlight",
-        "title": "Sit somewhere with sunlight.",
+        "slug": "guided_mindfulness_meditation",
+        "title": "Listen to a short guided mindfulness meditation.",
         "category": "mindfulness_rest",
         "category_label": "Mindfulness & Rest",
-        "duration_minutes": 10,
-        "instructions": "No productivity needed. ...",
-        "why_it_fits": "A few quiet minutes in natural light ..."
+        "duration_minutes": 5,
+        "instructions": "Find a short guided practice you like and follow along, as best you can. ...",
+        "why_it_fits": "A few guided minutes can give your mind a gentle place to rest."
       }
     }
   ]
@@ -211,7 +211,7 @@ Activity cards for this installation's **most recent** check-in. Called when the
 - `energy_level` (`low`, `medium`, `high`): the activity's overall demand, separate from `duration_minutes`. Both are editorial estimates.
 - **Retired activities** (no longer in the catalog) aren't recommended or offered. A card from an older check-in whose activity was retired is left out of this list unless it was already chosen (in progress or completed), so history still shows and an activity in progress can still be finished. Choosing an unchosen retired card answers `409`.
 - `category` is one of `outdoor_movement`, `mindfulness_rest`, `solo_exploration`, `social_connection`: the stable key. The app picks the card's icon and colors from it; never show it.
-- `category_label` is the category's display name, the same everywhere (cards, reflections, Story, bookmarks, Insights). It is stored on each activity and kept in step by the database (migration `011`): the names are defined once in the `activity_categories` table, a trigger fills `category_label` on every insert or update, and a foreign key on (`category`, `category_label`) rejects any mismatched pair. To rename a category, update its row in `activity_categories`; the change cascades to every activity.
+- `category_label` is the category's display name, the same everywhere (cards, reflections, Story, bookmarks, Insights). The names are defined once, in the `activity_categories` table, and every query reads them from there, so activities do not carry a copy. To rename a category, update its row in `activity_categories`; every activity follows.
 
   | `category` | `category_label` |
   |---|---|
@@ -233,7 +233,7 @@ Activity cards for this installation's **most recent** check-in. Called when the
 
 **Card order:**
 
-1. At most **3** unique cards. Only activities short enough for today's energy are suitable; nothing too long is added just to fill the deck, so a low-energy day can get fewer.
+1. At most **3** unique cards. Only activities whose demand today's energy allows are eligible (see the table above); nothing above that allowance is added just to fill the deck, so a low-energy day can get fewer.
 2. Every card but the last comes from today's answers only (best score first, at most 2 cards per category). Saved activities are never picked here.
 3. The last card may be **one** saved activity, if it fits today's energy **and** today's feeling, hardest areas or a strong urge point to its category. A saved activity completed in the last 3 days isn't offered. Otherwise the last card is the next regular recommendation.
 
@@ -266,7 +266,7 @@ The database allows **at most one `in_progress` activity per installation** (a p
 The activity in progress, or `{"selection": null}`. This is how it survives an app restart.
 ```json
 { "selection": { "selection_id": 57, "recommendation_id": 120, "check_in_id": 43,
-                 "selected_at": "…", "activity": { "id": 1, "slug": "sit_in_sunlight", "…": "…" } } }
+                 "selected_at": "…", "activity": { "id": 1, "slug": "guided_mindfulness_meditation", "…": "…" } } }
 ```
 
 ### `POST /activity-selections/{id}/abandon`
@@ -320,7 +320,7 @@ The photo becomes part of a memory through `POST /reflections`. `DELETE /scrapbo
 | `mood_change` | `worse`, `about_the_same`, `a_little_better`, `much_better` (stored as chosen; the mood chart derives fixed internal scores from it, see `GET /insights`) |
 | `note` | **required**, not blank. The one text answer, "What did you notice?". Up to 1000 characters; shown as the memory's quote |
 | `photo_id` | **required**. A photo of **this installation** that finished uploading (`POST /scrapbook/photos` → PUT → `/complete`) and isn't in another memory. Another installation's or an unknown photo: `404`; not uploaded yet or already used: `409` |
-| `noticed` | **deprecated.** Older app builds sent a second text answer here. It is still accepted (up to 1000 characters) and joined into `note`, so it isn't lost. Migration `010` did the same for saved memories and removed the column |
+| `noticed` | **deprecated.** Older app builds sent a second text answer here. It is still accepted (up to 1000 characters) and joined into `note`, so it isn't lost. Saved memories were converted the same way |
 
 
 **Response `201 Created`**, or **`200 OK`** if that selection already has a reflection (the first one is returned unchanged, so retries never duplicate):
@@ -328,7 +328,7 @@ The photo becomes part of a memory through `POST /reflections`. `DELETE /scrapbo
 {
   "id": 8,
   "activity_selection_id": 15,
-  "activity": { "id": 2, "slug": "walk_without_social_media", "…": "…" },
+  "activity": { "id": 2, "slug": "notice_nature_outside", "…": "…" },
   "note": "The walk cleared my head",
   "thought_about_ex": "a_little",
   "mood_change": "a_little_better",
@@ -369,7 +369,7 @@ Every memory, newest first, in the same shape. The Scrapbook's "Recent Memories"
   ]
 }
 ```
-`journey_started_on` is the first check-in's `local_date`; the app shows "Day N" from it. `reached_on: null` means not reached yet ("Upcoming").
+`journey_started_on` is the first check-in's `local_date`; the app shows "Day N" from it. `reached_on: null` means not reached yet. The current app reads the milestones but no screen displays them.
 
 ---
 
@@ -541,9 +541,12 @@ The app streams microphone audio here; the backend relays it to **Gemini Live** 
 | Code | Meaning | Common cause |
 |---|---|---|
 | `404` | Not found | Using a recommendation, selection or photo id that isn't yours |
-| `409` | Conflict | Using a photo that isn't uploaded yet or is already in another memory |
+| `409` | Conflict | Choosing an activity while another is in progress, or using a photo that isn't uploaded yet or is already in another memory |
+| `413` | Photo too large | A photo over 5 MB (`POST /scrapbook/photos/{id}/complete`) |
 | `422` | Validation error | Missing or invalid `X-Installation-ID`, a misspelled value (e.g. `"missing"` instead of `"missing_them"`), `contact_urge` outside 1–10, wrong date format |
+| `429` | Too many requests | A Ced usage limit (see `POST /ced/messages`); the `Retry-After` header says when to try again |
 | `503` | Service unavailable | The backend can't reach Neon (body: `{"detail": "The database is unavailable. Please try again shortly."}`), or, for scrapbook photos, AWS isn't configured on the server |
+| `502` / `504` | Provider error / timeout | Ced's AI provider failed or took too long (`POST /ced/messages`) |
 
 Example `422` body:
 ```json
@@ -567,7 +570,7 @@ Example `422` body:
 
 These are already implemented in `CtrlExDelete/CtrlExDelete/Networking/`:
 
-- **Base URL:** `APIConfig.swift` is the only place it's set. Every build uses the deployed backend, `https://ctrl-ex-delete-api.onrender.com` (`APIConfig.deployedBaseURL`); voice calls use `wss://` on the same host. Debug builds can opt into a local server with `CED_BACKEND = local` in `CtrlExDelete/Config/DeveloperSettings.xcconfig` (gitignored, one per Mac; see `backend/README.md`). `CED_API_BASE_URL = <host>` in the same file points every Debug launch (Home Screen included) at another deployed backend, e.g. the Render test service. The launch argument `-CEDAPIBaseURL http://Your-Mac-Name.local:8000` still overrides both for runs started from Xcode.
+- **Base URL:** `APIConfig.swift` is the only place it's set. Every build uses the deployed backend (`APIConfig.deployedBaseURL`); voice calls use `wss://` on the same host. Debug builds can opt into a local server with `CED_BACKEND = local` in `CtrlExDelete/Config/DeveloperSettings.xcconfig` (gitignored, one per Mac; see `backend/README.md`). `CED_API_BASE_URL = <host>` in the same file points every Debug launch (Home Screen included) at another deployed backend, for example a staging service. The launch argument `-CEDAPIBaseURL http://Your-Mac-Name.local:8000` still overrides both for runs started from Xcode.
 - **Installation ID:** `InstallationID.swift` creates the UUID once, stores it in the Keychain, and `APIClient` sends it on every request.
 - **Key names:** `APIClient` uses `.convertToSnakeCase` / `.convertFromSnakeCase`, so Swift's `contactUrge` maps to `contact_urge` automatically.
 - **Enums:** `Emotion`, `EnergyLevel` and `HardestArea` (in `Models/SampleData.swift`) have raw values matching the tables above. The UI labels can change freely; the raw values can't.
