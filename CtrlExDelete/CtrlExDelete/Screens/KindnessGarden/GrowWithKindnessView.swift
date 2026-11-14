@@ -100,13 +100,25 @@ struct GrowWithKindnessView: View {
     /// same place in every state (very large text lets it grow and scroll).
     private var cardArea: CGFloat { dynamicTypeSize.isAccessibilitySize ? 0 : 326 }
     /// The fully grown plant's space (grid 100 × 130), with the pot at its foot.
-    private var plantSize: CGSize {
+    private var basePlantSize: CGSize {
         dynamicTypeSize.isAccessibilitySize ? CGSize(width: 170, height: 221) : CGSize(width: 236, height: 307)
+    }
+    /// Space under the card for the plant, shelf and bottom margin.
+    private static let ledgeHeight: CGFloat = 26
+    private static let plantTopGap: CGFloat = 4
+    private static let bottomMargin: CGFloat = 16
+    /// Up to 17% larger than the base size, as far as the screen's height
+    /// allows (never smaller than the base): the shelf always fits.
+    private func plantScale(available height: CGFloat) -> CGFloat {
+        guard !dynamicTypeSize.isAccessibilitySize else { return 1 }
+        let room = height - cardArea - 8 - Self.plantTopGap - Self.ledgeHeight - Self.bottomMargin
+        return min(max(room / basePlantSize.height, 1), 1.17)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
+            GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
                     Group {
@@ -123,13 +135,19 @@ struct GrowWithKindnessView: View {
                     .padding(.top, 8)
                     .frame(minHeight: cardArea, alignment: .top)
 
-                    plantCorner
-                        .padding(.top, 4)
-                        .padding(.bottom, 24)
+                    // Sits at the bottom of the space under the card, so the
+                    // shelf rests a small margin above the bottom of the screen.
+                    plantCorner(scale: plantScale(available: geometry.size.height))
+                        .padding(.top, Self.plantTopGap)
+                        .frame(minHeight: dynamicTypeSize.isAccessibilitySize ? 0
+                                   : max(0, geometry.size.height - cardArea - 8 - Self.bottomMargin),
+                               alignment: .bottom)
+                        .padding(.bottom, Self.bottomMargin)
                 }
             }
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
+            }
         }
         // A cosy corner of the healing room: its wall, its card, its wood.
         .background(RoomWallBackground().ignoresSafeArea())
@@ -142,14 +160,15 @@ struct GrowWithKindnessView: View {
         }
     }
 
-    /// The plant on a little wooden ledge. Its size never changes, so the pot
-    /// stays put from sprout to flower.
-    private var plantCorner: some View {
-        VStack(spacing: 0) {
+    /// The plant on a little wooden ledge. Its size never changes during a
+    /// game, so the pot stays put from sprout to flower.
+    private func plantCorner(scale: CGFloat) -> some View {
+        let size = CGSize(width: basePlantSize.width * scale, height: basePlantSize.height * scale)
+        return VStack(spacing: 0) {
             KindnessPlantView(leaves: game.leaves, isBloomed: game.phase == .finished)
-                .frame(width: plantSize.width, height: plantSize.height)
+                .frame(width: size.width, height: size.height)
             WoodenLedge()
-                .frame(width: plantSize.width * 1.25, height: 26)
+                .frame(width: size.width * 1.25, height: Self.ledgeHeight)
         }
         .frame(maxWidth: .infinity)
     }

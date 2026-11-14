@@ -10,7 +10,7 @@ struct HealingRoomView: View {
     @State private var pressedObject: RoomObject?
     /// Under a pointer (iPad or trackpad): the same glow and tooltip as pressing.
     @State private var hoveredObject: RoomObject?
-    @State private var tooltipWidth: CGFloat = 0
+    @State private var tooltipSize: CGSize = .zero
     @State private var isCedFloating = false
 
     var body: some View {
@@ -29,7 +29,14 @@ struct HealingRoomView: View {
                     .accessibilityLabel("Day \(journey.dayNumber). Your Healing Room.")
                     .accessibilityAddTraits(.isHeader)
 
-                // Ced's words for today, inside the cream card above him.
+                // Ced's speech bubble (pixel outline, tail toward him) and his
+                // words for today inside it.
+                PixelBubble(tailTipX: (RoomBackdrop.speechBubbleTailTipX - RoomBackdrop.speechBubbleFrame.minX) * scale)
+                    .frame(width: RoomBackdrop.speechBubbleFrame.width * scale,
+                           height: RoomBackdrop.speechBubbleFrame.height * scale + PixelBubble.tailHeight)
+                    // Whole points, so its pixel blocks land on whole device pixels.
+                    .offset(x: (RoomBackdrop.speechBubbleFrame.minX * scale).rounded(),
+                            y: (RoomBackdrop.speechBubbleFrame.minY * scale).rounded())
                 roomMessage(scale: scale)
                     .offset(x: RoomCedMessage.frame.minX * scale, y: RoomCedMessage.frame.minY * scale)
 
@@ -47,12 +54,11 @@ struct HealingRoomView: View {
                     // Kept fully on screen: the room can be wider than the
                     // screen (its sides are cropped), and the plant is near the edge.
                     let visibleLeft = -(geometry.size.width - roomWidth) / 2
-                    let half = tooltipWidth / 2 + 8
-                    let x = min(max(object.tooltipCenter.x * scale, visibleLeft + half),
-                                visibleLeft + geometry.size.width - half)
                     RoomTooltip(text: object.tooltip)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tooltipWidth = $0 }
-                        .position(x: x, y: object.tooltipCenter.y * scale)
+                        .onGeometryChange(for: CGSize.self) { $0.size } action: { tooltipSize = $0 }
+                        .position(RoomTooltipLayout.center(for: object, size: tooltipSize, scale: scale,
+                                                           visibleLeft: visibleLeft,
+                                                           visibleWidth: geometry.size.width))
                 }
             }
             .frame(width: roomWidth, height: roomHeight, alignment: .topLeading)
@@ -137,6 +143,8 @@ struct HealingRoomView: View {
 private enum RoomObject {
     case ced, scrapbook, phone, plant
 
+    static let all: [RoomObject] = [.ced, .scrapbook, .phone, .plant]
+
     var destination: AppScreen {
         switch self {
         case .ced: .activities
@@ -157,8 +165,8 @@ private enum RoomObject {
     var tooltip: String {
         switch self {
         case .ced: "View Today\u{2019}s Activity"
-        case .scrapbook: "Open Scrapbook"
-        case .phone: "Talk Instead"
+        case .scrapbook: "Open Story"
+        case .phone: "Get Support"
         case .plant: "Grow with Kindness"
         }
     }
@@ -173,13 +181,24 @@ private enum RoomObject {
         }
     }
 
-    /// Tooltip centers from the prototype (it used percentages of the room).
-    var tooltipCenter: CGPoint {
+    /// Where another object's tooltip must not go: the drawn art, which is a
+    /// little narrower than the tap area for Ced (his sides) and the plant
+    /// (its leftmost leaves start about 8 units in).
+    var keepClearFrame: CGRect {
         switch self {
-        case .ced: CGPoint(x: 390 * 0.62, y: 700 * 0.62)
-        case .scrapbook: CGPoint(x: 390 * 0.25, y: 700 * 0.68)
-        case .phone: CGPoint(x: 390 * 0.73, y: 700 * 0.64)
-        case .plant: CGPoint(x: 350, y: 306)      // just above the top leaves (clamped on screen)
+        case .ced: frame.insetBy(dx: 10, dy: 0)
+        case .plant: CGRect(x: frame.minX + 8, y: frame.minY, width: frame.width - 8, height: frame.height)
+        default: frame
+        }
+    }
+
+    /// The object's highest drawn point on the room grid (its art can start
+    /// a little below the top of its tap area).
+    var visibleTop: CGFloat {
+        switch self {
+        case .plant: frame.minY + 3   // the plant's top leaf starts 3 units down
+        case .ced: frame.minY - 2     // the middle of his 4-unit float: about 3-7 pt as he moves
+        default: frame.minY
         }
     }
 
@@ -192,13 +211,12 @@ private enum RoomObject {
         case .plant:
             PixelRoomPlantArt()
         case .phone:
-            // The prototype mutes the phone with saturate(0.7) brightness(0.87).
-            Image("phone-clear")
-                .interpolation(.none)
-                .resizable()
-                .scaledToFit()
-                .saturation(0.7)
-                .colorMultiply(Color(white: 0.87))
+            // Drawn in the room's simpler pixel style. The original artwork
+            // stays in the asset catalog ("phone-clear"); to go back to it,
+            // replace this line with:
+            //   Image("phone-clear").interpolation(.none).resizable().scaledToFit()
+            //       .saturation(0.7).colorMultiply(Color(white: 0.87))
+            PixelPhoneArt()
         }
     }
 }
@@ -223,6 +241,46 @@ private struct RoomObjectButtonStyle: ButtonStyle {
                     pressedObject = nil
                 }
             }
+    }
+}
+
+/// Where an object's tooltip goes: just above the object (the same small gap
+/// for every object), centered over it, sliding sideways a little to clear a
+/// neighbour, and always inside the visible screen. Ced's message card ends
+/// only a few points above his head, so his tooltip may cover the card while
+/// he's pressed (it's drawn in front of it).
+enum RoomTooltipLayout {
+    /// Space between a tooltip and its object, in screen points.
+    static let gap: CGFloat = 5
+    /// Kept clear of the screen edges, in screen points.
+    static let edgeMargin: CGFloat = 8
+
+    fileprivate static func center(for object: RoomObject, size: CGSize, scale: CGFloat,
+                                   visibleLeft: CGFloat, visibleWidth: CGFloat) -> CGPoint {
+        let frame = object.frame
+        let half = size.width / 2 + edgeMargin
+        let onScreen = { (x: CGFloat) in min(max(x, visibleLeft + half), visibleLeft + visibleWidth - half) }
+        // Ced's message card (with its 3-unit border). Ced's own tooltip may
+        // cover it while he's pressed (it's drawn in front): there's no room
+        // between the card and his head.
+        let card = scaled(RoomCedMessage.frame.insetBy(dx: -3, dy: -3), by: scale)
+        let others = RoomObject.all.filter { $0 != object }.map { scaled($0.keepClearFrame, by: scale) }
+        let blockers = object == .ced ? others : [card] + others
+        let aboveY = object.visibleTop * scale - gap - size.height / 2
+        // Centered first; if a neighbour is in the way, slide sideways by up
+        // to half the object's width so the tooltip still sits over it.
+        let reach = frame.width * scale / 2
+        let shifts: [CGFloat] = [0] + stride(from: CGFloat(4), through: reach, by: 4).flatMap { [-$0, $0] }
+        for shift in shifts {
+            let x = onScreen(frame.midX * scale + shift)
+            let rect = CGRect(x: x - size.width / 2, y: aboveY - size.height / 2, width: size.width, height: size.height)
+            if !blockers.contains(where: { rect.intersects($0) }) { return CGPoint(x: x, y: aboveY) }
+        }
+        return CGPoint(x: onScreen(frame.midX * scale), y: aboveY)   // above, even if snug
+    }
+
+    private static func scaled(_ rect: CGRect, by scale: CGFloat) -> CGRect {
+        CGRect(x: rect.minX * scale, y: rect.minY * scale, width: rect.width * scale, height: rect.height * scale)
     }
 }
 

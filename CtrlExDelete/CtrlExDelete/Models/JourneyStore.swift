@@ -34,6 +34,7 @@ struct ScrapbookMemory: Identifiable {
     let title: String
     let reflection: String?   // "What did you notice?", shown in quotes; nil if left empty
     let date: String          // e.g. "September 4"
+    let localDate: String     // "YYYY-MM-DD", for grouping by month
     let tint: Color           // background behind the photo
     let imageURL: URL?        // temporary S3 link; nil without a photo
 
@@ -42,6 +43,7 @@ struct ScrapbookMemory: Identifiable {
         title = dto.activity?.title ?? "Today\u{2019}s activity"
         reflection = dto.note
         date = LocalDate.format(dto.localDate, .dateTime.month(.wide).day())
+        localDate = dto.localDate
         tint = dto.activity.map { Activity.palette(for: $0.category).background } ?? CEDColor.secondary
         imageURL = dto.imageUrl
     }
@@ -125,6 +127,14 @@ final class JourneyStore {
 
         selectedActivity = currentSelection.map(SelectedActivity.init)
         memories = savedReflections.map(ScrapbookMemory.init)
+        // This is the server's full list: keep only these memories' cached
+        // photos (a deleted or reset memory's copy goes), then fetch any
+        // missing ones quietly now, so Story shows them at once.
+        let photoURLs = memories.compactMap(\.imageURL)
+        if let installation = try? InstallationID.current() {
+            ScrapbookPhotoCache.shared.keepOnly(photoURLs, installation: installation)
+        }
+        ScrapbookPhotoCache.shared.prefetch(photoURLs)
         self.summary = progress
         loadError = nil
         hasLoaded = true
@@ -162,6 +172,7 @@ final class JourneyStore {
         if decision.forgetLocalJourney {
             let result = LocalJourneyFiles.purge(directory: LocalJourneyFiles.directory(create: false),
                                                  defaults: .standard)
+            ScrapbookPhotoCache.shared.removeAll()   // that journey's photos too
             roomMessage = nil
             books = []
             selectedActivity = nil
