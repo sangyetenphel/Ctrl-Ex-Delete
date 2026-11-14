@@ -117,11 +117,11 @@ cd CtrlExDelete && ./DevTests/run.sh      # Swift logic tests, no simulator need
 
 ## Team
 
-CED was built by four students. The contributions below come from the commit history and from who wrote the code that is in the app today; design, research, planning and testing done outside Git are not captured.
+CED was developed by a four-person team. Each member focused on different parts of the application.
 
-| | Contributions in this repository |
+| | Responsibilities |
 |---|---|
 | **Ayusha Thapa** | Set up the SwiftUI app and wrote most of its screens, components and theme, including the pixel-art Healing Room; the Grow with Kindness game with its affirmation catalog and research notes; the activity catalog and Ced's room messages |
 | **Sangye Tengkhar** | Ced's text chat, voice calls, safety checks and rate limits; connecting the app to the backend; the database schema; hosting and deployment setup; Insights; the backend test suite |
-| **Alexa Chegue-Santos** | The backend's structure, check-in routes and database storage, and the first activity-recommendation rules |
-| **Leonard Parra** | The first AWS S3 scrapbook integration: photo records, presigned upload and download, and the app's first photo upload flow |
+| **Alexa Chegue-Santos** | Developed the FastAPI backend and activity recommendation system, including API endpoints and logic for recommending activities based on users' daily check-ins |
+| **Leonard Parra** | Responsible for the initial database and cloud storage setup using Neon PostgreSQL and AWS S3, supporting persistent user data and photo uploads |
