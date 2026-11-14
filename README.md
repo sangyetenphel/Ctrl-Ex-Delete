@@ -121,7 +121,7 @@ CED was developed by a four-person team. Each member focused on different parts 
 
 | | Responsibilities |
 |---|---|
-| **Ayusha Thapa** | Set up the SwiftUI app and wrote most of its screens, components and theme, including the pixel-art Healing Room; the Grow with Kindness game with its affirmation catalog and research notes; the activity catalog and Ced's room messages |
-| **Sangye Tengkhar** | Ced's text chat, voice calls, safety checks and rate limits; connecting the app to the backend; the database schema; hosting and deployment setup; Insights; the backend test suite |
-| **Alexa Chegue-Santos** | Developed the FastAPI backend and activity recommendation system, including API endpoints and logic for recommending activities based on users' daily check-ins |
-| **Leonard Parra** | Responsible for the initial database and cloud storage setup using Neon PostgreSQL and AWS S3, supporting persistent user data and photo uploads |
+| **Ayusha Thapa** | Designed and developed the SwiftUI frontend, including the app's UI/UX, pixel-art Healing Room, and Grow with Kindness plant game. |
+| **Sangye Tengkhar** | Developed and integrated CED's AI features, including text chat, voice calls, safety mechanisms, and crisis detection. Also managed backend integration, hosting, and deployment. |
+| **Alexa Chegue-Santos** | Developed the FastAPI backend and activity recommendation system, including API endpoints and logic for recommending activities based on users' daily check-ins. |
+| **Leonard Parra** | Responsible for the initial database and cloud storage setup using Neon PostgreSQL and AWS S3, supporting persistent user data and photo uploads. |
