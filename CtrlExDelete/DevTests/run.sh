@@ -33,3 +33,8 @@ xcrun swiftc -o "$out/room-dialogue-tests" CtrlExDelete/Models/RoomDialogue.swif
 cp DevTests/InsightsTextTests.swift "$out/main.swift"
 xcrun swiftc -o "$out/insights-text-tests" CtrlExDelete/Models/InsightsText.swift "$out/main.swift"
 "$out/insights-text-tests"
+
+# The Story header and memories grouped by month.
+cp DevTests/StoryTextTests.swift "$out/main.swift"
+xcrun swiftc -o "$out/story-text-tests" CtrlExDelete/Models/StoryText.swift "$out/main.swift"
+"$out/story-text-tests"

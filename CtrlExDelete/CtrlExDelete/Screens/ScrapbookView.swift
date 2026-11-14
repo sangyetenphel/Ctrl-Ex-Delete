@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// "Your Journey": a celebration, recent memories (one row you swipe
-/// through) and a timeline of milestones.
+/// "Your Journey": a celebration and every memory, grouped by month like a
+/// photo journal.
 struct ScrapbookView: View {
     @Environment(AppRouter.self) private var router
     @Environment(JourneyStore.self) private var journey
@@ -20,8 +20,7 @@ struct ScrapbookView: View {
                     if completed > 0 {
                         celebrationCard
                     }
-                    recentMemories
-                    timeline
+                    memoriesByMonth
 
                     Button("View your insights \u{2192}") {
                         router.go(to: .progress)
@@ -67,7 +66,7 @@ struct ScrapbookView: View {
                 .foregroundStyle(CEDColor.foreground)
                 .accessibilityAddTraits(.isHeader)
 
-            Text("\(completed) \(completed == 1 ? "activity" : "activities") explored \u{B7} \(journey.memories.count) \(journey.memories.count == 1 ? "memory" : "memories") collected")
+            Text(StoryText.memoriesCollected(journey.memories.count))
                 .cedTextStyle(.body)
                 .foregroundStyle(CEDColor.mutedForeground)
                 .padding(.top, 8)
@@ -94,57 +93,6 @@ struct ScrapbookView: View {
         .padding(16)
         .background(Color(hex: 0xFFF3CC), in: RoundedRectangle(cornerRadius: CEDRadius.xl))
         .accessibilityElement(children: .combine)
-    }
-
-    private var recentMemories: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Recent Memories")
-                .cedTextStyle(.sectionTitle)
-                .foregroundStyle(CEDColor.foreground)
-                .accessibilityAddTraits(.isHeader)
-
-            if let deleteError {
-                Text(deleteError)
-                    .cedTextStyle(.body)
-                    .foregroundStyle(CEDColor.rose)
-            }
-
-            if journey.memories.isEmpty {
-                Text(memoriesPlaceholder)
-                    .cedTextStyle(.body)
-                    .foregroundStyle(CEDColor.mutedForeground)
-            }
-
-            if !journey.memories.isEmpty {
-                memoriesRow
-            }
-        }
-    }
-
-    /// Every memory in one row, newest first. About two cards fit on screen
-    /// and the next one peeks in; swipe to see older ones. Cards share the
-    /// height of the tallest one.
-    private var memoriesRow: some View {
-        ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: 12) {
-                ForEach(journey.memories) { memory in
-                    memoryCard(memory)
-                        .containerRelativeFrame(.horizontal) { width, _ in
-                            (width - 12) / 2.15
-                        }
-                        .frame(maxHeight: .infinity, alignment: .top)
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .scrollTargetLayout()
-        }
-        .scrollIndicators(.hidden)
-        .scrollTargetBehavior(.viewAligned)
-        // Run edge to edge, so cards scroll under the screen's side margins.
-        .contentMargins(.horizontal, 24, for: .scrollContent)
-        .padding(.horizontal, -24)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Recent memories, newest first")
     }
 
     /// Long-press a memory for "Delete memory".
@@ -175,64 +123,56 @@ struct ScrapbookView: View {
         return "Your memories will show up here after your first reflection."
     }
 
-    private var timeline: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Your story so far")
+    /// Every memory, newest month first ("November 2026", then "October
+    /// 2026"), two per row, from the memories already loaded. Each row's two
+    /// cards share one height, so they line up whatever the note's length.
+    private var memoriesByMonth: some View {
+        let groups = StoryText.byMonth(journey.memories.map { ($0.id, $0.localDate) })
+        let byId = Dictionary(journey.memories.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Your Memories")
                 .cedTextStyle(.sectionTitle)
                 .foregroundStyle(CEDColor.foreground)
                 .accessibilityAddTraits(.isHeader)
 
-            VStack(alignment: .leading, spacing: 0) {
-                // The moving-forward milestone stays in the data; here the
-                // story just carries on past the last step shown.
-                let milestones = journey.milestones.filter { $0.label != Self.movingForwardMilestone }
-                ForEach(milestones.indices, id: \.self) { index in
-                    let item = milestones[index]
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(spacing: 0) {
-                            Circle()
-                                .fill(item.isDone ? CEDColor.primary : CEDColor.border)
-                                .frame(width: 12, height: 12)
-                                .padding(.top, 4)
-                            if index < milestones.count - 1 {
-                                Rectangle()
-                                    .fill(item.isDone ? CEDColor.rose : CEDColor.border)
-                                    .frame(width: 2, height: Self.connectorHeight)
-                            } else {
-                                storyContinues
+            if let deleteError {
+                Text(deleteError)
+                    .cedTextStyle(.body)
+                    .foregroundStyle(CEDColor.rose)
+            }
+
+            if journey.memories.isEmpty {
+                Text(memoriesPlaceholder)
+                    .cedTextStyle(.body)
+                    .foregroundStyle(CEDColor.mutedForeground)
+            }
+
+            ForEach(groups, id: \.title) { group in
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(group.title)
+                        .textCase(.uppercase)
+                        .cedTextStyle(.captionBold.tracking(0.6))
+                        .foregroundStyle(CEDColor.mutedForeground)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.top, 4)
+                    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                        ForEach(Array(stride(from: 0, to: group.ids.count, by: 2)), id: \.self) { start in
+                            GridRow(alignment: .top) {
+                                ForEach(group.ids[start..<min(start + 2, group.ids.count)], id: \.self) { id in
+                                    if let memory = byId[id] {
+                                        memoryCard(memory)
+                                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                                    }
+                                }
+                                if start + 1 == group.ids.count {
+                                    Color.clear.frame(maxWidth: .infinity, maxHeight: 0)   // keeps a lone card half width
+                                }
                             }
                         }
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(item.label)
-                                .cedTextStyle(.bodySemibold)
-                                .foregroundStyle(item.isDone ? CEDColor.foreground : CEDColor.mutedForeground)
-                            Text(item.date)
-                                .cedTextStyle(.caption)
-                                .foregroundStyle(CEDColor.mutedForeground)
-                        }
-                        .padding(.bottom, 12)
                     }
-                    .accessibilityElement(children: .combine)
                 }
             }
         }
-    }
-
-    private static let movingForwardMilestone = "Moving forward check-in"
-    private static let connectorHeight: CGFloat = 24
-
-    /// Tiny 3pt dots, 3pt apart, in place of the last milestone's line and
-    /// reaching just as far as one: the story goes on. Drawn on a marker-wide
-    /// canvas because separate 3pt views get nudged to whole pixels, just off
-    /// the marker's center.
-    private var storyContinues: some View {
-        Canvas { context, size in
-            for y in stride(from: 3, to: size.height, by: 6) {
-                let dot = CGRect(x: (size.width - 3) / 2, y: y, width: 3, height: 3)
-                context.fill(Path(ellipseIn: dot), with: .color(CEDColor.border))
-            }
-        }
-        .frame(width: 12, height: Self.connectorHeight)
     }
 }
 
@@ -246,15 +186,7 @@ private struct MemoryCard: View {
                 .frame(height: 96)
                 .overlay {
                     if let imageURL = memory.imageURL {
-                        AsyncImage(url: imageURL) { phase in
-                            if let image = phase.image {
-                                image.resizable().scaledToFill()
-                            } else if phase.error != nil {
-                                CEDIconView(icon: .image, size: 32, color: CEDColor.mutedForeground)
-                            } else {
-                                ProgressView().tint(CEDColor.primary)
-                            }
-                        }
+                        MemoryPhoto(url: imageURL)
                     } else {
                         CEDIconView(icon: .image, size: 32, color: CEDColor.mutedForeground)
                     }
@@ -283,6 +215,43 @@ private struct MemoryCard: View {
         .clipShape(RoundedRectangle(cornerRadius: CEDRadius.xl))
         .overlay(RoundedRectangle(cornerRadius: CEDRadius.xl).strokeBorder(CEDColor.border, lineWidth: 1))
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A memory's photo, filled and cropped like before, through
+/// ScrapbookPhotoCache: a photo shown before appears at once (no spinner),
+/// even though every refresh brings a new temporary link for it. It's only
+/// downloaded if it was never fetched, or retried when a new link arrives
+/// after a failed one.
+private struct MemoryPhoto: View {
+    let url: URL
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    init(url: URL) {
+        self.url = url
+        _image = State(initialValue: ScrapbookPhotoCache.shared.cachedImage(for: url))
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else if failed {
+                CEDIconView(icon: .image, size: 32, color: CEDColor.mutedForeground)
+            } else {
+                ProgressView().tint(CEDColor.primary)
+            }
+        }
+        .task(id: url) {
+            guard image == nil else { return }
+            if let loaded = await ScrapbookPhotoCache.shared.image(for: url) {
+                image = loaded
+                failed = false
+            } else if !Task.isCancelled {
+                failed = true
+            }
+        }
     }
 }
 

@@ -22,8 +22,12 @@ check(line(completed: true) == .init(text: "You showed up today.", isInvitation:
       "an activity completed today: the day's own message again")
 check(line(completed: nil) == .init(text: "You showed up today.", isInvitation: false),
       "completions not known yet (loading, offline, older backend): never the invitation")
-check(line(checkIn: false, completed: false).text == "You showed up today.",
-      "before today's check-in: the \"let's check in\" message, not the invitation")
+check(line(text: "Good to see you. Want to start with a quick check-in?", checkIn: false, completed: false)
+      == .init(text: RoomDialogue.welcomeBack, isInvitation: false),
+      "the backend's \"let's check in\" line: a welcome instead (never asks to check in twice), not the invitation")
+check(RoomDialogue.welcomeBack == "Welcome back. Take your time, this space is yours.", "the welcome's exact words")
+check(line(text: "That pull can feel strong.", checkIn: true, completed: true).text == "That pull can feel strong.",
+      "after a check-in and an activity: the day's personal message is unchanged")
 check(line(date: yesterday, completed: false) == .init(text: neutral, isInvitation: false),
       "yesterday's message is never shown, nor its invitation")
 check(line(text: nil, date: nil, completed: nil).text == neutral, "nothing saved: the neutral line")

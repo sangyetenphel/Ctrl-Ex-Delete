@@ -5,11 +5,15 @@ import Foundation
 ///
 /// After today's check-in, until the user has completed an activity today
 /// (their own local calendar day), Ced invites them to try one. Otherwise it's
-/// the day's message from the backend as before. While today's completions
+/// the day's message from the backend, except the backend's "let's check in"
+/// line, which becomes a welcome (the app asks for the check-in first). While today's completions
 /// aren't known (loading, no connection, an older backend) the invitation is
 /// never shown: the day's message stays.
 enum RoomDialogue {
     static let invitation = "Let\u{2019}s try something small together."
+    /// Shown instead of the backend's "let's check in" line, so the room
+    /// never asks for a second check-in.
+    static let welcomeBack = "Welcome back. Take your time, this space is yours."
 
     struct Line: Equatable {
         let text: String
@@ -24,7 +28,11 @@ enum RoomDialogue {
     static func line(messageText: String?, messageDate: String?, isCheckInMessage: Bool,
                      activityCompletedToday: Bool?, today: String, neutralText: String) -> Line {
         guard let messageText, messageDate == today else { return Line(text: neutralText, isInvitation: false) }
-        if isCheckInMessage, activityCompletedToday == false {
+        // Today's message isn't from a check-in: it's the backend's "want to
+        // start with a quick check-in?". The check-in comes before the room in
+        // the app, so Ced welcomes the user instead of asking again.
+        guard isCheckInMessage else { return Line(text: welcomeBack, isInvitation: false) }
+        if activityCompletedToday == false {
             return Line(text: invitation, isInvitation: true)
         }
         return Line(text: messageText, isInvitation: false)

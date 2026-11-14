@@ -80,7 +80,7 @@ struct RoomBackdrop: View {
             Self.drawLampAndBookshelf(in: context)
             Self.drawWindowAndPainting(in: context)
             // The big plant is its own tappable object (PixelRoomPlantArt).
-            Self.drawSpeechBubble(in: context)
+            // Ced's speech bubble is drawn on top in SwiftUI (PixelBubble).
             Self.drawDesk(in: context)
         }
         .aspectRatio(RoomGrid.size, contentMode: .fit)
@@ -230,6 +230,10 @@ struct RoomBackdrop: View {
         // Sill
         c.rect(114, 337, 172, 12, 0x8B5A2B)
         c.rect(114, 343, 172, 5, 0x9B6A3B)
+        // The wall gap between the bookshelf and the window stays open down
+        // through the sill's left end, so it meets the top-left corner of
+        // Ced's speech bubble as wall instead of brown.
+        c.rect(116, 337, 4, 12, verticalGradient(RoomPalette.wallStops, in: CGRect(x: 0, y: 0, width: 390, height: 556)))
 
         // Wall painting
         c.rect(296, 96, 90, 84, 0x8B5A2B)
@@ -240,14 +244,11 @@ struct RoomBackdrop: View {
         c.rect(330, 106, 18, 18, 0xFFE060, opacity: 0.75)
     }
 
-    private static func drawSpeechBubble(in c: GraphicsContext) {
-        c.rect(112, 340, 200, 78, RoomPalette.cardFill)
-        c.rect(112, 338, 200, 3, RoomPalette.cardFrame)
-        c.rect(112, 416, 200, 3, RoomPalette.cardFrame)
-        c.rect(112, 338, 3, 81, RoomPalette.cardFrame)
-        c.rect(309, 338, 3, 81, RoomPalette.cardFrame)
-        // Ced's words are live text on top (RoomCedMessage), chosen from today's check-in.
-    }
+    /// Ced's speech bubble on the room grid: its outer edge (the text sits
+    /// inside, at RoomCedMessage.frame) and where its tail points, just left
+    /// of Ced's head so it never covers his face.
+    static let speechBubbleFrame = CGRect(x: 112, y: 338, width: 200, height: 81)
+    static let speechBubbleTailTipX: CGFloat = 162
 
     private static func drawDesk(in c: GraphicsContext) {
         c.rect(36, 524, 318, 32, 0x9B6235)
@@ -415,11 +416,10 @@ struct RoomWallBackground: View {
 }
 
 extension View {
-    /// Ced's message card from the room: cream, square corners, pale tan frame.
+    /// Ced's message card from the room: cream, with the same thin pixel-art
+    /// outline as his speech bubble (no tail).
     func roomMessageCard() -> some View {
-        self
-            .background(Color(hex: RoomPalette.cardFill))
-            .overlay(Rectangle().strokeBorder(Color(hex: RoomPalette.cardFrame), lineWidth: 3))
+        self.background(PixelBubble())
     }
 }
 
