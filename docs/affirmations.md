@@ -1,6 +1,6 @@
 # Grow with Kindness: affirmation catalog and research notes
 
-Generated from `backend/scripts/affirmation_data.py` (the source of truth). The sentences are original and **research-informed**: the sources shaped the themes and the cautious wording. None of them tested these exact sentences, and neither the sentences nor the game have been clinically validated for breakup recovery.
+Kept in step with `backend/scripts/affirmation_data.py` (the source of truth). The sentences are original and **research-informed**: the sources shaped the themes and the cautious wording. None of them tested these exact sentences, and neither the sentences nor the game have been clinically validated for breakup recovery.
 
 Two research ideas are kept apart:
 

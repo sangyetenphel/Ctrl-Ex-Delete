@@ -1,218 +1,127 @@
+<div align="center">
+
+<img src="CtrlExDelete/CtrlExDelete/Assets.xcassets/AppIcon.appiconset/AppIcon.png" alt="Ctrl + Ex + Delete app icon" width="120">
+
 # Ctrl + Ex + Delete
 
 ### Reflect. Rebuild. Reconnect.
 
-**Ctrl + Ex + Delete (CED)** is an iOS breakup recovery application designed to help users take small steps toward rebuilding their everyday lives at their own pace.
+An iOS app that helps people take small, kind steps after a breakup: a daily check-in, a few well-matched activities, a scrapbook of what they notice, and **Ced**, an AI companion for the hard moments.
 
-The app combines psychology-informed activities, personal reflection, progress tracking, a virtual healing room, and an AI-powered healing companion named **Ced**.
+[Features](#features) · [Demo](#demo) · [Architecture](#architecture) · [Privacy and safety](#privacy-and-safety) · [Getting started](#getting-started) · [Documentation](#documentation) · [Team](#team)
 
-This project is being developed as a **Fall 2026 Senior Capstone Project at the University of North Carolina at Greensboro (UNCG).**
+</div>
 
----
+CED is a Fall 2026 senior capstone project at the University of North Carolina at Greensboro. Instead of counting days since the breakup, it asks people to do small things, notice how they feel afterwards, and watch their own progress build up in a pixel-art Healing Room. There are no accounts or sign-ins.
 
-## Project Overview
+## Features
 
-Ctrl + Ex + Delete provides users with a private and interactive space to reflect on their emotions, rebuild their independence, and reconnect with themselves after a breakup.
+- **Daily check-in.** Four short questions: how you feel, how strong the urge to contact your ex is, your energy, and what feels hardest.
+- **Healing Room.** The pixel-art home screen. Ced's message for the day answers your check-in; tap Ced for today's activity, the scrapbook for your story, the telephone for support, or the big plant for a kindness game. A bookshelf gains one book for every completed activity.
+- **Activities.** Up to three cards a day from a catalog of 100 activities in four categories (outdoor and movement, mindfulness and rest, solo exploration, social connection). Explicit rules choose them from your energy, feeling, hardest areas and urge, so the same answers always give the same cards. One activity is in progress at a time; you can save one for later or change your mind.
+- **Reflection and Story.** Finishing an activity means adding a photo, a short note and two quick questions. Each one becomes a memory in your Story, grouped by month.
+- **Progress.** Week and month views of your urge and how you felt after activities, what you made time for, and a few gentle observations. They describe what you reported and never claim that something caused a change.
+- **Support with Ced.** Talk by text or on a voice call, or use *Say it here first* to write the message you want to send your ex and talk it through instead. Crisis resources appear in the conversation and open only when you tap them.
+- **Grow with Kindness.** A small plant game: read three affirmations aloud and Apple's speech recognition (on-device when your iPhone supports it) highlights the words as you go.
+- **Moving forward.** When you feel ready, five reflection questions lead to a farewell gift: a keepsake PDF scrapbook of your whole journey, made on your phone.
 
-Instead of focusing only on how many days have passed, the app encourages users to complete meaningful activities, reflect on their experiences, and gradually track their progress.
+## Demo
 
-There is **no sign-up or login system**. Users remain anonymous, with the backend using an anonymous installation ID rather than personal user accounts.
+> **Demo video:** coming soon
+>
+> **Screenshots:** coming soon
 
----
+The high-fidelity design prototype is in [Figma](https://www.figma.com/make/duI7iQsbRaVqy7C29hRtjn/C-E-D-High-Fidelity-Prototype?code-node-id=0-6&p=f&t=UUIneb7l82DPCyL4-0&fullscreen=1).
 
-## Key Features
+## Architecture
 
-- **Daily Check-In**  
-  Users answer short questions about how they are feeling to help determine their current emotional state.
+```mermaid
+flowchart LR
+    App["SwiftUI app<br/>iOS 26 or later"] -->|"HTTPS and JSON"| API["FastAPI backend"]
+    App -->|"WebSocket for voice"| API
+    API --> DB[("PostgreSQL on Neon")]
+    API --> S3[("Private S3 bucket")]
+    App -.->|"signed photo links"| S3
+    API --> Groq["Groq: Ced text chat"]
+    API --> Gemini["Gemini Live: Ced voice"]
+```
 
-- **Personalized Activities**  
-  Ced recommends activities based on the user's check-in, mood, and progress.
+- **App:** SwiftUI with Observation; the Healing Room is drawn with `Canvas`.
+- **Backend:** FastAPI with one module for all SQL and one for all S3 access. The recommendation, insights and room-message rules are plain, tested functions.
+- **Data:** PostgreSQL enforces the product rules (one check-in a day, one activity in progress, rows tied to their own installation). Photos go straight to a private bucket through short-lived signed links.
+- **Ced:** the backend relays chat to Groq and voice to Gemini Live, so no provider key reaches the phone.
 
-- **Virtual Healing Room**  
-  An interactive room serves as the main hub of the app, with objects that connect users to different features.
+More detail, with the key flows and design decisions, is in [`docs/architecture.md`](docs/architecture.md).
 
-- **Memory Scrapbook**  
-  Users can upload photos from completed activities and build a visual collection of their experiences and progress.
+## Technology
 
-- **Talk It Through with Ced**  
-  Users can write or speak with Ced when they feel the urge to contact their ex. Ced provides supportive reflection while helping users recognize patterns and triggers over time.
+| Area | Technology |
+|---|---|
+| App | Swift, SwiftUI, Observation; iOS 26 or later, built with Xcode 26 |
+| Backend | Python 3.11, FastAPI, psycopg 3 |
+| Database | PostgreSQL (Neon) |
+| Photo storage | AWS S3 with presigned URLs |
+| Ced | Groq for text chat and risk checks, Gemini Live for voice |
+| Hosting | Render |
+| Design | Figma, Lora and Nunito typefaces, pixel art |
+| Testing | pytest for the backend, Swift logic tests that run on a Mac |
 
-- **Progress & Insights**  
-  Users can view completed activities and track their progress across different areas of recovery.
+## Privacy and safety
 
-- **Moving Forward**  
-  When users feel ready, they can reflect on their progress and complete their experience.
+- **Account-free, ID-based.** There is no sign-up. The app creates a random installation ID, keeps it in the iOS Keychain and sends it with every request; that ID is the only thing that ties data to a phone. CED never asks for a name, email address or phone number.
+- **What is stored.** Check-in answers, activity progress, reflection notes and photos are saved on the backend (database and private bucket) under that installation ID. Notes and photos are personal content, and there are no passwords: anyone who obtained an installation ID could request its data.
+- **Conversations with Ced.** The backend is built not to store chat or call text or write it to its logs; it keeps only a daily message count for rate limits, and the app discards a conversation when it ends. To answer, the text and call audio are sent to the AI providers (Groq and Google), whose own terms and settings govern what they retain. Ced's summary of your journey covers check-in answers and activities, not your notes or photos.
+- **Photos.** They live in a private bucket and are reached only through links that expire.
+- **Safety layers.** Ced's replies combine written rules, the model's own rating and a check of every reply, with fixed fallback messages if the provider is unavailable. Crisis resources (988, or 911 in danger) appear in context and open only when you tap them. These checks reduce risk but cannot catch everything.
+- **Keys stay on the server.** The app contains no AI, database or storage keys.
 
----
+Ced is an AI companion for reflection, not a therapist, and it does not give diagnoses or treatment. Neither Ced nor the affirmation game has been clinically validated for breakup recovery.
 
-## Activity Categories
+## Getting started
 
-Activities are organized into four main categories:
+You need a Mac with **Xcode 26 or later**. To run your own backend you also need **Python 3.11 or later** and a local **PostgreSQL**.
 
-- Emotional Regulation
-- Detachment
-- Identity Reconstruction
-- Independence & Social Reconnection
+**Run the app.** Open `CtrlExDelete/CtrlExDelete.xcodeproj`, choose an iPhone simulator and press Run. By default the app uses the project's deployed backend. To run on a physical iPhone, copy `CtrlExDelete/Config/DeveloperSettings.example.xcconfig` to `DeveloperSettings.xcconfig` (it is git-ignored) and set your own team and bundle ID there.
 
----
+**Run your own backend.**
 
-## Prototype
+```bash
+cd backend
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements-dev.txt
+createdb ced_dev              # a local PostgreSQL database
+cp .env.example .env          # then set DATABASE_URL=postgresql://localhost/ced_dev
+python -m scripts.migrate     # creates the schema and loads the catalogs
+uvicorn app.main:app --reload
+```
 
-Our high-fidelity prototype was created in Figma.
+Then add `CED_BACKEND = local` to your `DeveloperSettings.xcconfig` and run the app once from Xcode. The AI features need `GROQ_API_KEY` (chat) and `GEMINI_API_KEY` (voice) in your settings file; without them the rest of the app works. Every setting is listed with a placeholder in [`backend/.env.example`](backend/.env.example); bucket setup is in [`docs/DATABASE_DESIGN.md`](docs/DATABASE_DESIGN.md) and `render.yaml` records the hosted service's settings.
 
-[**View the Ctrl + Ex + Delete High-Fidelity Prototype**](https://www.figma.com/make/duI7iQsbRaVqy7C29hRtjn/C-E-D-High-Fidelity-Prototype?code-node-id=0-6&p=f&t=UUIneb7l82DPCyL4-0&fullscreen=1)
+**Run the tests.** The backend tests change shared data, so they run only against a local database (see "Running the tests" in [`backend/README.md`](backend/README.md)):
 
----
+```bash
+cd backend && CED_ENV_FILE=.env.test pytest -q
+cd CtrlExDelete && ./DevTests/run.sh      # Swift logic tests, no simulator needed
+```
 
-## Technology Stack
+## Documentation
 
-- **iOS:** Swift, SwiftUI, Xcode
-- **Backend:** Python, FastAPI
-- **Database:** Neon PostgreSQL
-- **Media Storage:** AWS S3
-- **AI:** OpenAI API
-- **Design & Development Tools:** Figma, GitHub, Postman
-
----
-
-## System Architecture
-
-The application follows a client-server architecture:
-
-**SwiftUI iPhone App**  
-↓  
-**FastAPI / Python Backend**  
-↓  
-**Neon PostgreSQL + AWS S3 + OpenAI API**
-
-### SwiftUI App
-
-Handles the user-facing experience, including:
-
-- Daily check-in
-- Healing room
-- Activities
-- Scrapbook
-- Ced interaction
-- Progress and insights
-
-### FastAPI Backend
-
-Handles:
-
-- API routes and application logic
-- Check-in processing
-- Activity recommendations
-- Progress calculations
-- Ced rules and AI communication
-- Fact extraction
-
-### Neon PostgreSQL
-
-Stores structured application data, including:
-
-- Check-ins
-- Activities
-- Progress
-- Ced facts
-- Scrapbook metadata
-
-### AWS S3
-
-Stores compressed scrapbook photos and provides secure image upload and retrieval.
-
-### OpenAI API
-
-Powers Ced's AI chat and voice functionality.
-
----
-
-## Privacy & Safety
-
-Ctrl + Ex + Delete does **not require users to create an account or sign in**.
-
-Instead of traditional user accounts, the backend uses an **anonymous installation ID** to associate app data with an installation.
-
-The OpenAI API key is kept on the backend and is never stored directly inside the iOS application.
-
-Ced is intended to provide supportive reflection and general guidance. It is **not a replacement for professional mental health care and does not provide medical diagnoses or treatment.**
-
----
-
-## Team & Responsibilities
-
-### Ayusha Thapa — iOS Frontend / SwiftUI
-
-Responsible for:
-
-- Navigation
-- Healing room
-- Daily check-in UI
-- Activity cards
-- Scrapbook UI
-- Insights
-- Frontend API integration
-
-### Sangye Tengkhar — AI Integration & Safety
-
-Responsible for:
-
-- OpenAI integration
-- Ced prompts and personality
-- Safe-response rules
-- Fact extraction
-- Crisis responses
-- Voice prototype
-
-### Alexa Chegue-Santos — Backend Logic & Recommendations
-
-Responsible for:
-
-- FastAPI routes
-- Check-in processing
-- Activity recommendation rules
-- Progress scoring
-- Insights logic
-
-### Leonard Parra — Database & Media Storage
-
-Responsible for:
-
-- Neon PostgreSQL schema
-- AWS S3 image storage
-- Presigned upload/download URLs
-- Scrapbook records
-- Data retrieval and deletion
-
-### Shared Team Responsibilities
-
-All team members will contribute to:
-
-- GitHub branches and version control
-- Code reviews
-- API and device testing
-- Bug fixes
-- Documentation
-- Final demo preparation and rehearsal
-
----
-
-## Development Schedule
-
-### Week 1 — App Foundation + Check-In
-Build the application's navigation and save check-in answers.
-
-### Week 2 — Activity Recommendations
-Implement activity suggestions, swiping, and activity completion.
-
-### Week 3 — Healing Room
-Build the healing room, Ced, and tappable objects linked to app features.
-
-### Week 4 — Ced Chat + Insights
-Connect the AI chat, safety support, and progress tracking.
-
-### Week 5 — Feature Complete
-Finish the scrapbook and connect all core features.
-
-### Week 6 — Test, Polish + Present
-Fix bugs, review AI responses, test the application, and rehearse the final demo.
+| Document | What it covers |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | System design, key flows, Ced's safety layers and design decisions |
+| [`docs/api.md`](docs/api.md) | The contract between the app and the backend |
+| [`docs/DATABASE_DESIGN.md`](docs/DATABASE_DESIGN.md) | The database schema and photo storage |
+| [`docs/affirmations.md`](docs/affirmations.md) | The Grow with Kindness catalog and its research sources |
+| [`backend/README.md`](backend/README.md) | Backend setup, settings, migrations and tests |
+| [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Licenses for the icons and fonts the app includes |
+
+## Team
+
+CED was built by four students. The contributions below come from the commit history and from who wrote the code that is in the app today; design, research, planning and testing done outside Git are not captured.
+
+| | Contributions in this repository |
+|---|---|
+| **Ayusha Thapa** | Set up the SwiftUI app and wrote most of its screens, components and theme, including the pixel-art Healing Room; the Grow with Kindness game with its affirmation catalog and research notes; the activity catalog and Ced's room messages |
+| **Sangye Tengkhar** | Ced's text chat, voice calls, safety checks and rate limits; connecting the app to the backend; the database schema; hosting and deployment setup; Insights; the backend test suite |
+| **Alexa Chegue-Santos** | The backend's structure, check-in routes and database storage, and the first activity-recommendation rules |
+| **Leonard Parra** | The first AWS S3 scrapbook integration: photo records, presigned upload and download, and the app's first photo upload flow |

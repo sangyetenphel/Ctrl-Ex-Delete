@@ -24,3 +24,9 @@ CtrlExDelete/Config/DeveloperSettings.xcconfig
 
 # Local database and S3 backups (they hold user data)
 .local-backup/
+
+# Private local working material (report drafts, slides and demo data). Public
+# capstone documents belong in docs/capstone/, which is not ignored.
+/technical-report/
+/presentation-assets/
+/backend/demo_seed/
