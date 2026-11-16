@@ -27,9 +27,8 @@ CED is a Fall 2026 senior capstone project at the University of North Carolina a
 
 ## Demo
 
-> **Demo video:** coming soon
->
-> **Screenshots:** coming soon
+**Demo video:** [Ctrl+Ex+Delete Walkthrough Video](https://www.youtube.com/watch?v=-tWLe--WAB0)
+
 
 The high-fidelity design prototype is in [Figma](https://www.figma.com/make/duI7iQsbRaVqy7C29hRtjn/C-E-D-High-Fidelity-Prototype?code-node-id=0-6&p=f&t=UUIneb7l82DPCyL4-0&fullscreen=1).
 
